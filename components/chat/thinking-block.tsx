@@ -14,24 +14,18 @@ export function ThinkingBlock({ reasoning }: { reasoning: string }) {
         type="button"
       >
         <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="flex-1 text-xs font-medium text-muted-foreground">
-          Reasoning
-        </span>
+        <span className="flex-1 text-xs font-medium text-muted-foreground">Reasoning</span>
         <ChevronRight
           className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
         />
       </button>
       <div
         className="grid transition-all duration-200 ease-out"
-        style={{
-          gridTemplateRows: expanded ? "1fr" : "0fr",
-        }}
+        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
       >
         <div className="overflow-hidden">
           <div className="border-t border-border bg-secondary/30 px-3.5 py-3">
-            <p className="text-sm leading-relaxed text-muted-foreground italic">
-              {reasoning}
-            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground italic">{reasoning}</p>
           </div>
         </div>
       </div>

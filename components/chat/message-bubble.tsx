@@ -10,8 +10,8 @@ function getTextContent(content: MessageContent[] | string | null): string {
   if (!content) return "";
   if (typeof content === "string") return content;
   return content
-    .filter((c) => c.type === "text")
-    .map((c) => (c as { text: string }).text)
+    .filter((c): c is { type: "text"; text: string } => c.type === "text")
+    .map((c) => c.text)
     .join("");
 }
 
@@ -35,28 +35,19 @@ function MessageAvatar({ role }: { role: string }) {
 
 function UserMessage({ message }: { message: ChatMessage }) {
   const text = getTextContent(message.content);
-
   return (
     <div className="flex flex-col items-end gap-1.5">
       <div className="max-w-[85%] md:max-w-[70%]">
         <div className="rounded-2xl rounded-br-md bg-foreground px-4 py-2.5 text-background">
-          <p className="text-[15px] leading-relaxed">{text}</p>
+          <p className="text-sm leading-relaxed">{text}</p>
         </div>
       </div>
     </div>
   );
 }
 
-function AssistantMessage({
-  message,
-  isStreaming,
-}: {
-  message: ChatMessage;
-  isStreaming?: boolean;
-}) {
-  const contentBlocks = Array.isArray(message.content)
-    ? message.content
-    : [];
+function AssistantMessage({ message, isStreaming }: { message: ChatMessage; isStreaming?: boolean }) {
+  const contentBlocks = Array.isArray(message.content) ? message.content : [];
   const textContent = getTextContent(message.content);
   const hasToolCalls = contentBlocks.some((c) => c.type === "tool_call");
 
@@ -65,10 +56,8 @@ function AssistantMessage({
       <div className="mt-0.5">
         <MessageAvatar role="assistant" />
       </div>
-      <div className="min-w-0 flex-1 max-w-[85%] md:max-w-[75%]">
-        {message.reasoning && (
-          <ThinkingBlock reasoning={message.reasoning} />
-        )}
+      <div className="min-w-0 flex-1">
+        {message.reasoning && <ThinkingBlock reasoning={message.reasoning} />}
 
         {contentBlocks.map((block, idx) => {
           if (block.type === "tool_call") {
@@ -88,25 +77,16 @@ function AssistantMessage({
           <div className="relative">
             <MarkdownRenderer content={textContent} />
             {isStreaming && (
-              <span className="inline-block ml-0.5 h-4 w-[2px] animate-pulse bg-foreground align-middle" />
+              <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground align-middle" />
             )}
           </div>
         )}
 
         {!textContent && !hasToolCalls && isStreaming && (
           <div className="flex items-center gap-1.5 py-2">
-            <span
-              className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40 animate-bounce"
-              style={{ animationDelay: "0ms" }}
-            />
-            <span
-              className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40 animate-bounce"
-              style={{ animationDelay: "150ms" }}
-            />
-            <span
-              className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40 animate-bounce"
-              style={{ animationDelay: "300ms" }}
-            />
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "150ms" }} />
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40 animate-bounce" style={{ animationDelay: "300ms" }} />
           </div>
         )}
 
@@ -130,12 +110,8 @@ function ToolResultMessage({ message }: { message: ChatMessage }) {
   return (
     <div className="flex gap-3">
       <div className="w-7" />
-      <div className="min-w-0 flex-1 max-w-[85%] md:max-w-[75%]">
-        <ToolResultBlock
-          name={toolResult.name}
-          text={toolResult.text}
-          isError={message.isError}
-        />
+      <div className="min-w-0 flex-1">
+        <ToolResultBlock name={toolResult.name} text={toolResult.text} isError={message.isError} />
       </div>
     </div>
   );
@@ -145,27 +121,17 @@ function SystemMessage({ message }: { message: ChatMessage }) {
   const text = getTextContent(message.content);
   return (
     <div className="flex justify-center">
-      <span className="rounded-full bg-secondary px-3.5 py-1.5 text-xs text-muted-foreground">
-        {text}
-      </span>
+      <span className="rounded-full bg-secondary px-3.5 py-1.5 text-xs text-muted-foreground">{text}</span>
     </div>
   );
 }
 
-export function MessageBubble({
-  message,
-  isStreaming,
-}: {
-  message: ChatMessage;
-  isStreaming?: boolean;
-}) {
+export function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStreaming?: boolean }) {
   switch (message.role) {
     case "user":
       return <UserMessage message={message} />;
     case "assistant":
-      return (
-        <AssistantMessage message={message} isStreaming={isStreaming} />
-      );
+      return <AssistantMessage message={message} isStreaming={isStreaming} />;
     case "toolResult":
     case "tool_result":
       return <ToolResultMessage message={message} />;

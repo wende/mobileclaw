@@ -49,25 +49,6 @@ export interface ChatMessage {
   isError?: boolean;
 }
 
-export type StreamState = "delta" | "final" | "aborted" | "error";
-
-export interface ChatEvent {
-  type: "event";
-  event: "chat";
-  seq: number;
-  payload: {
-    runId: string;
-    sessionKey: string;
-    state: StreamState;
-    message?: {
-      role: string;
-      content: MessageContent[];
-      timestamp: number;
-    };
-    errorMessage?: string;
-  };
-}
-
 export interface ToolEvent {
   tool: string;
   status: "running" | "success" | "error";

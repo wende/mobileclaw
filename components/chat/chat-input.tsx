@@ -54,7 +54,7 @@ export function ChatInput({
         placeholder="Send a message..."
         disabled={disabled}
         rows={1}
-        className="flex-1 resize-none bg-transparent px-2 py-1.5 text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50"
+        className="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50"
         style={{ maxHeight: "200px" }}
       />
       {isStreaming ? (
