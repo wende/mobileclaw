@@ -1000,9 +1000,24 @@ export default function Home() {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Track scroll position
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const threshold = 80;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    setIsAtBottom(atBottom);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
 
   // Check localStorage on mount for previously saved URL
   useEffect(() => {
@@ -1180,8 +1195,8 @@ export default function Home() {
         </button>
       </header>
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6 md:px-6 md:py-4">
+      <main ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6 pb-28 md:px-6 md:py-4 md:pb-28">
           {messages.map((msg, idx) => (
             <MessageRow key={msg.id || idx} message={msg} isStreaming={isStreaming && msg.id === streamingId} />
           ))}
@@ -1189,18 +1204,54 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="sticky bottom-0 border-t border-border bg-background/80 backdrop-blur-xl">
-        <div className="mx-auto w-full max-w-2xl px-4 py-3 md:px-6 md:py-4">
-          <ChatInput
-            onSend={sendMessage}
-            isStreaming={isStreaming}
-            onStop={stopStreaming}
-            onOpenCommands={() => setCommandsOpen(true)}
-            commandValue={pendingCommand}
-            onCommandValueUsed={clearPendingCommand}
-          />
+      {/* Floating morphing bar */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-3 md:px-6 md:pb-4">
+        <div
+          onClick={isAtBottom ? undefined : scrollToBottom}
+          role={isAtBottom ? undefined : "button"}
+          tabIndex={isAtBottom ? undefined : 0}
+          onKeyDown={isAtBottom ? undefined : (e) => { if (e.key === "Enter") scrollToBottom(); }}
+          className={`pointer-events-auto overflow-hidden rounded-2xl border border-border bg-card/90 shadow-lg backdrop-blur-xl transition-all duration-300 ease-out ${
+            isAtBottom
+              ? "w-full max-w-2xl cursor-default p-2 md:p-2.5"
+              : "w-auto max-w-xs cursor-pointer p-0 hover:bg-accent"
+          }`}
+        >
+          {/* Collapsed pill content */}
+          <div
+            className="flex items-center justify-center gap-2 whitespace-nowrap px-5 text-xs font-medium text-muted-foreground transition-all duration-300 ease-out"
+            style={{
+              maxHeight: isAtBottom ? "0px" : "40px",
+              paddingTop: isAtBottom ? "0px" : "10px",
+              paddingBottom: isAtBottom ? "0px" : "10px",
+              opacity: isAtBottom ? 0 : 1,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <path d="m7 13 5 5 5-5" /><path d="M12 18V6" />
+            </svg>
+            <span>Scroll to bottom</span>
+          </div>
+
+          {/* Expanded input content */}
+          <div
+            className="transition-all duration-300 ease-out"
+            style={{
+              maxHeight: isAtBottom ? "200px" : "0px",
+              opacity: isAtBottom ? 1 : 0,
+            }}
+          >
+            <ChatInput
+              onSend={sendMessage}
+              isStreaming={isStreaming}
+              onStop={stopStreaming}
+              onOpenCommands={() => setCommandsOpen(true)}
+              commandValue={pendingCommand}
+              onCommandValueUsed={clearPendingCommand}
+            />
+          </div>
         </div>
-      </footer>
+      </div>
     </div>
   );
 }
