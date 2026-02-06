@@ -1019,6 +1019,16 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
+  // Delay pill text so it appears after the input has collapsed
+  const [showPill, setShowPill] = useState(false);
+  useEffect(() => {
+    if (!isAtBottom) {
+      const t = setTimeout(() => setShowPill(true), 280);
+      return () => clearTimeout(t);
+    }
+    setShowPill(false);
+  }, [isAtBottom]);
+
   // Check localStorage on mount for previously saved URL
   useEffect(() => {
     const saved = window.localStorage.getItem("openclaw-url");
@@ -1217,14 +1227,14 @@ export default function Home() {
               : "w-auto max-w-xs cursor-pointer p-0 hover:bg-accent"
           }`}
         >
-          {/* Collapsed pill content */}
+          {/* Collapsed pill content -- appears after input collapses */}
           <div
-            className="flex items-center justify-center gap-2 whitespace-nowrap px-5 text-xs font-medium text-muted-foreground transition-all duration-300 ease-out"
+            className="flex items-center justify-center gap-2 whitespace-nowrap px-5 text-xs font-medium text-muted-foreground transition-all duration-200 ease-out"
             style={{
-              maxHeight: isAtBottom ? "0px" : "40px",
-              paddingTop: isAtBottom ? "0px" : "10px",
-              paddingBottom: isAtBottom ? "0px" : "10px",
-              opacity: isAtBottom ? 0 : 1,
+              maxHeight: showPill ? "40px" : "0px",
+              paddingTop: showPill ? "10px" : "0px",
+              paddingBottom: showPill ? "10px" : "0px",
+              opacity: showPill ? 1 : 0,
             }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
