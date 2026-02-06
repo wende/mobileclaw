@@ -1,3 +1,4 @@
+import React from "react"
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
@@ -7,8 +8,8 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'OpenClaw Chat',
+  description: 'A minimal, animated chat interface with real-time streaming',
   generator: 'v0.app',
   icons: {
     icon: [
