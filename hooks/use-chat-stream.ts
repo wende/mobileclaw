@@ -121,7 +121,10 @@ function getResponse(input: string): string {
 }
 
 export function useChatStream() {
-  const [messages, setMessages] = useState<ChatMessage[]>(DUMMY_SESSION);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    console.log("[v0] Initializing with DUMMY_SESSION, length:", DUMMY_SESSION.length);
+    return DUMMY_SESSION;
+  });
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(
     null

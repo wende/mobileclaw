@@ -1,10 +1,40 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import React from "react"
+
+import { useEffect, useRef, useState } from "react";
 import { useChatStream } from "@/hooks/use-chat-stream";
 import { MessageBubble } from "./message-bubble";
 import { ChatInput } from "./chat-input";
 import { Bot } from "lucide-react";
+
+function AnimatedMessage({
+  children,
+  index,
+}: {
+  children: React.ReactNode;
+  index: number;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const delay = Math.min(index * 60, 400);
+    const timer = setTimeout(() => setVisible(true), delay);
+    return () => clearTimeout(timer);
+  }, [index]);
+
+  return (
+    <div
+      className="transition-all duration-300 ease-out"
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0)" : "translateY(8px)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 export function ChatContainer() {
   const {
@@ -14,8 +44,9 @@ export function ChatContainer() {
     sendMessage,
     stopStreaming,
   } = useChatStream();
-  const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  console.log("[v0] ChatContainer rendering, messages count:", messages.length, messages.map(m => m.role));
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -37,21 +68,24 @@ export function ChatContainer() {
       </header>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-4 py-6 md:px-6">
+          {messages.length === 0 && (
+            <div className="flex flex-1 items-center justify-center py-20">
+              <p className="text-sm text-muted-foreground">
+                Send a message to start chatting.
+              </p>
+            </div>
+          )}
           {messages.map((message, idx) => (
-            <div
-              key={message.id ?? idx}
-              className="animate-in fade-in slide-in-from-bottom-2 duration-300"
-              style={{ animationDelay: `${Math.min(idx * 50, 300)}ms`, animationFillMode: "both" }}
-            >
+            <AnimatedMessage key={message.id ?? idx} index={idx}>
               <MessageBubble
                 message={message}
                 isStreaming={
                   isStreaming && message.id === streamingMessageId
                 }
               />
-            </div>
+            </AnimatedMessage>
           ))}
           <div ref={bottomRef} />
         </div>
