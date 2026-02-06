@@ -1019,15 +1019,7 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  // Delay pill text so it appears after the input has collapsed
-  const [showPill, setShowPill] = useState(false);
-  useEffect(() => {
-    if (!isAtBottom) {
-      const t = setTimeout(() => setShowPill(true), 280);
-      return () => clearTimeout(t);
-    }
-    setShowPill(false);
-  }, [isAtBottom]);
+
 
   // Check localStorage on mount for previously saved URL
   useEffect(() => {
@@ -1221,21 +1213,20 @@ export default function Home() {
           role={isAtBottom ? undefined : "button"}
           tabIndex={isAtBottom ? undefined : 0}
           onKeyDown={isAtBottom ? undefined : (e) => { if (e.key === "Enter") scrollToBottom(); }}
-          className={`pointer-events-auto overflow-hidden rounded-2xl border border-border bg-card/90 shadow-lg backdrop-blur-xl transition-all duration-300 ease-out ${
+          className={`pointer-events-auto relative rounded-2xl border border-border bg-card/90 shadow-lg backdrop-blur-xl transition-all duration-300 ease-out ${
             isAtBottom
-              ? "w-full max-w-2xl cursor-default p-2 md:p-2.5"
-              : "w-auto max-w-xs cursor-pointer p-0 hover:bg-accent"
+              ? "w-full max-w-2xl cursor-default"
+              : "cursor-pointer hover:bg-accent"
           }`}
+          style={{
+            height: isAtBottom ? "56px" : "40px",
+            padding: isAtBottom ? "8px" : "0px",
+          }}
         >
-          {/* Collapsed pill content -- appears after input collapses */}
+          {/* Pill layer -- always sized, fades in/out */}
           <div
-            className="flex items-center justify-center gap-2 whitespace-nowrap px-5 text-xs font-medium text-muted-foreground transition-all duration-200 ease-out"
-            style={{
-              maxHeight: showPill ? "40px" : "0px",
-              paddingTop: showPill ? "10px" : "0px",
-              paddingBottom: showPill ? "10px" : "0px",
-              opacity: showPill ? 1 : 0,
-            }}
+            className="absolute inset-0 flex items-center justify-center gap-2 whitespace-nowrap text-xs font-medium text-muted-foreground transition-opacity duration-300 ease-out"
+            style={{ opacity: isAtBottom ? 0 : 1 }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
               <path d="m7 13 5 5 5-5" /><path d="M12 18V6" />
@@ -1243,12 +1234,12 @@ export default function Home() {
             <span>Scroll to bottom</span>
           </div>
 
-          {/* Expanded input content */}
+          {/* Input layer -- always sized, fades in/out */}
           <div
-            className="transition-all duration-300 ease-out"
+            className="h-full w-full transition-opacity duration-300 ease-out"
             style={{
-              maxHeight: isAtBottom ? "200px" : "0px",
               opacity: isAtBottom ? 1 : 0,
+              pointerEvents: isAtBottom ? "auto" : "none",
             }}
           >
             <ChatInput
