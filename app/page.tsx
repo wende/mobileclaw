@@ -858,9 +858,89 @@ function ChatInput({
   );
 }
 
+// ── Setup Dialog ─────────────────────────────────────────────────────────────
+
+function SetupDialog({ onConnect }: { onConnect: (url: string) => void }) {
+  const [url, setUrl] = useState("http://127.0.0.1:18789");
+  const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const handleSubmit = () => {
+    const trimmed = url.trim();
+    if (!trimmed) {
+      setError("URL is required");
+      return;
+    }
+    try {
+      new URL(trimmed);
+    } catch {
+      setError("Please enter a valid URL");
+      return;
+    }
+    setError("");
+    onConnect(trimmed);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+      <div className="mx-4 w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-lg">
+        {/* Icon */}
+        <div className="mb-4 flex justify-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-secondary">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-foreground">
+              <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
+            </svg>
+          </div>
+        </div>
+
+        <h2 className="mb-1 text-center text-lg font-semibold text-foreground">Connect to OpenClaw</h2>
+        <p className="mb-5 text-center text-sm text-muted-foreground">
+          Enter the URL of your running OpenClaw instance.
+        </p>
+
+        {/* URL input */}
+        <div className="mb-4">
+          <label htmlFor="openclaw-url" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+            Server URL
+          </label>
+          <input
+            ref={inputRef}
+            id="openclaw-url"
+            type="url"
+            value={url}
+            onChange={(e) => { setUrl(e.target.value); setError(""); }}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+            placeholder="http://127.0.0.1:18789"
+            className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring ${error ? "border-destructive" : "border-border"}`}
+          />
+          {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
+        </div>
+
+        {/* Connect button */}
+        <button
+          type="button"
+          onClick={handleSubmit}
+          className="w-full rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
+        >
+          Connect
+        </button>
+
+        <p className="mt-3 text-center text-[11px] text-muted-foreground/60">
+          Currently using mocked responses. Real WebSocket integration coming soon.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Home() {
+  const [openclawUrl, setOpenclawUrl] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
@@ -869,6 +949,17 @@ export default function Home() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Check localStorage on mount for previously saved URL
+  useEffect(() => {
+    const saved = window.localStorage.getItem("openclaw-url");
+    if (saved) setOpenclawUrl(saved);
+  }, []);
+
+  const handleConnect = useCallback((url: string) => {
+    window.localStorage.setItem("openclaw-url", url);
+    setOpenclawUrl(url);
+  }, []);
 
 
   useEffect(() => {
@@ -999,6 +1090,14 @@ export default function Home() {
     setPendingCommand(null);
   }, []);
 
+  if (!openclawUrl) {
+    return (
+      <div className="flex h-dvh flex-col bg-background">
+        <SetupDialog onConnect={handleConnect} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-dvh flex-col bg-background">
       {/* Command sheet rendered at root level so backdrop covers entire screen */}
@@ -1014,10 +1113,20 @@ export default function Home() {
             <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
           </svg>
         </div>
-        <div className="flex flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           <h1 className="text-sm font-semibold text-foreground">OpenClaw</h1>
-          <p className="text-[11px] text-muted-foreground">{isStreaming ? "Thinking..." : "Online"}</p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {isStreaming ? "Thinking..." : openclawUrl}
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={() => { window.localStorage.removeItem("openclaw-url"); setOpenclawUrl(null); }}
+          className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          aria-label="Disconnect"
+        >
+          Disconnect
+        </button>
       </header>
 
       <main className="flex-1 overflow-y-auto">
