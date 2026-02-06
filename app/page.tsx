@@ -1000,19 +1000,21 @@ export default function Home() {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
+  // 0 = at bottom (full input), 1 = scrolled away (collapsed pill)
+  const [scrollProgress, setScrollProgress] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // Track scroll position
+  // Track scroll position as continuous 0-1 progress
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const threshold = 80;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    setIsAtBottom(atBottom);
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const range = 120; // pixels over which the morph happens
+    const progress = Math.min(Math.max(distanceFromBottom / range, 0), 1);
+    setScrollProgress(progress);
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -1206,27 +1208,26 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Floating morphing bar */}
+      {/* Floating morphing bar -- driven by continuous scrollProgress (0=bottom, 1=scrolled) */}
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-3 md:px-6 md:pb-4">
         <div
-          onClick={isAtBottom ? undefined : scrollToBottom}
-          role={isAtBottom ? undefined : "button"}
-          tabIndex={isAtBottom ? undefined : 0}
-          onKeyDown={isAtBottom ? undefined : (e) => { if (e.key === "Enter") scrollToBottom(); }}
-          className={`pointer-events-auto relative rounded-2xl border border-border bg-card/90 shadow-lg backdrop-blur-xl transition-all duration-300 ease-out ${
-            isAtBottom
-              ? "w-full max-w-2xl cursor-default"
-              : "cursor-pointer hover:bg-accent"
-          }`}
+          onClick={scrollProgress > 0.5 ? scrollToBottom : undefined}
+          role={scrollProgress > 0.5 ? "button" : undefined}
+          tabIndex={scrollProgress > 0.5 ? 0 : undefined}
+          onKeyDown={scrollProgress > 0.5 ? (e) => { if (e.key === "Enter") scrollToBottom(); } : undefined}
+          className="pointer-events-auto relative rounded-2xl border border-border bg-card/90 shadow-lg backdrop-blur-xl"
           style={{
-            height: isAtBottom ? "56px" : "40px",
-            padding: isAtBottom ? "8px" : "0px",
+            height: `${56 - 16 * scrollProgress}px`,
+            padding: `${8 * (1 - scrollProgress)}px`,
+            width: `${100 - 60 * scrollProgress}%`,
+            maxWidth: `${672 - 392 * scrollProgress}px`,
+            cursor: scrollProgress > 0.5 ? "pointer" : "default",
           }}
         >
-          {/* Pill layer -- always sized, fades in/out */}
+          {/* Pill layer */}
           <div
-            className="absolute inset-0 flex items-center justify-center gap-2 whitespace-nowrap text-xs font-medium text-muted-foreground transition-opacity duration-300 ease-out"
-            style={{ opacity: isAtBottom ? 0 : 1 }}
+            className="absolute inset-0 flex items-center justify-center gap-2 whitespace-nowrap text-xs font-medium text-muted-foreground"
+            style={{ opacity: scrollProgress }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
               <path d="m7 13 5 5 5-5" /><path d="M12 18V6" />
@@ -1234,12 +1235,12 @@ export default function Home() {
             <span>Scroll to bottom</span>
           </div>
 
-          {/* Input layer -- always sized, fades in/out */}
+          {/* Input layer */}
           <div
-            className="h-full w-full transition-opacity duration-300 ease-out"
+            className="h-full w-full"
             style={{
-              opacity: isAtBottom ? 1 : 0,
-              pointerEvents: isAtBottom ? "auto" : "none",
+              opacity: 1 - scrollProgress,
+              pointerEvents: scrollProgress < 0.5 ? "auto" : "none",
             }}
           >
             <ChatInput
