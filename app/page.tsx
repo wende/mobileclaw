@@ -860,14 +860,28 @@ function ChatInput({
 
 // ── Setup Dialog ─────────────────────────────────────────────────────────────
 
-function SetupDialog({ onConnect }: { onConnect: (url: string) => void }) {
+function SetupDialog({ onConnect, visible }: { onConnect: (url: string) => void; visible: boolean }) {
   const [url, setUrl] = useState("http://127.0.0.1:18789");
   const [error, setError] = useState("");
+  const [phase, setPhase] = useState<"idle" | "entering" | "open" | "closing" | "closed">("idle");
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Enter animation on mount
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (visible && phase === "idle") {
+      requestAnimationFrame(() => {
+        setPhase("entering");
+        requestAnimationFrame(() => setPhase("open"));
+      });
+    }
+  }, [visible, phase]);
+
+  // Focus input once open
+  useEffect(() => {
+    if (phase === "open") {
+      setTimeout(() => inputRef.current?.focus(), 300);
+    }
+  }, [phase]);
 
   const handleSubmit = () => {
     const trimmed = url.trim();
@@ -882,15 +896,55 @@ function SetupDialog({ onConnect }: { onConnect: (url: string) => void }) {
       return;
     }
     setError("");
-    onConnect(trimmed);
+    setPhase("closing");
+    setTimeout(() => {
+      setPhase("closed");
+      onConnect(trimmed);
+    }, 500);
   };
 
+  if (phase === "closed" || (!visible && phase === "idle")) return null;
+
+  const isOpen = phase === "open";
+  const isClosing = phase === "closing";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-      <div className="mx-4 w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-lg">
-        {/* Icon */}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center transition-all duration-500 ease-out"
+      style={{
+        backgroundColor: isClosing ? "transparent" : undefined,
+        backdropFilter: isOpen ? "blur(8px)" : isClosing ? "blur(0px)" : "blur(0px)",
+        opacity: isClosing ? 0 : isOpen ? 1 : 0,
+        pointerEvents: isClosing ? "none" : "auto",
+      }}
+    >
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-background/80 transition-opacity duration-500"
+        style={{ opacity: isOpen ? 1 : 0 }}
+      />
+
+      {/* Card */}
+      <div
+        className="relative mx-4 w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-lg transition-all duration-500 ease-out"
+        style={{
+          transform: isOpen
+            ? "scale(1) translateY(0)"
+            : isClosing
+              ? "scale(0.8) translateY(-40px)"
+              : "scale(0.9) translateY(20px)",
+          opacity: isOpen ? 1 : isClosing ? 0 : 0,
+        }}
+      >
+        {/* Icon -- pulses briefly on close */}
         <div className="mb-4 flex justify-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-secondary">
+          <div
+            className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-secondary transition-all duration-300"
+            style={{
+              transform: isClosing ? "scale(1.2)" : "scale(1)",
+              boxShadow: isClosing ? "0 0 20px oklch(0.55 0 0 / 0.15)" : "none",
+            }}
+          >
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-foreground">
               <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
             </svg>
@@ -1090,16 +1144,13 @@ export default function Home() {
     setPendingCommand(null);
   }, []);
 
-  if (!openclawUrl) {
-    return (
-      <div className="flex h-dvh flex-col bg-background">
-        <SetupDialog onConnect={handleConnect} />
-      </div>
-    );
-  }
+  const showSetup = !openclawUrl;
 
   return (
     <div className="flex h-dvh flex-col bg-background">
+      {/* Setup dialog overlays on top, chat always renders underneath */}
+      <SetupDialog onConnect={handleConnect} visible={showSetup} />
+
       {/* Command sheet rendered at root level so backdrop covers entire screen */}
       <CommandSheet
         open={commandsOpen}
