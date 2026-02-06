@@ -383,7 +383,10 @@ function CommandSheet({
       <div
         className={`fixed inset-0 z-40 bg-foreground/10 backdrop-blur-sm transition-opacity duration-200 ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
         onClick={onClose}
-        aria-hidden="true"
+        onMouseDown={onClose}
+        role="button"
+        tabIndex={-1}
+        aria-label="Close commands"
       />
 
       {/* Sheet */}
@@ -392,7 +395,7 @@ function CommandSheet({
         role="dialog"
         aria-modal="true"
         aria-label="Commands"
-        className={`fixed inset-x-0 bottom-0 z-50 flex max-h-[70dvh] flex-col rounded-t-2xl border-t border-border bg-background shadow-lg transition-transform duration-300 ease-out ${open ? "translate-y-0" : "translate-y-full"}`}
+        className={`fixed inset-x-0 bottom-0 z-50 flex max-h-[70dvh] flex-col rounded-t-2xl border-t border-border bg-background shadow-lg transition-transform duration-300 ease-out ${open ? "translate-y-0" : "pointer-events-none translate-y-full"}`}
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
