@@ -1,5 +1,7 @@
 "use client";
 
+import React from "react"
+
 import { useState, useRef, useEffect, useCallback } from "react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -479,6 +481,8 @@ function ChatInput({
 }) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
+  const touchStartY = useRef<number | null>(null);
+  const inputWrapperRef = useRef<HTMLDivElement>(null);
 
   // When a command is selected, fill it in
   useEffect(() => {
@@ -504,6 +508,30 @@ function ChatInput({
     }
   }, [value]);
 
+  // Swipe-up on touch (mobile)
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY;
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (touchStartY.current === null) return;
+    const deltaY = touchStartY.current - e.changedTouches[0].clientY;
+    touchStartY.current = null;
+    if (deltaY > 40) {
+      onOpenCommands();
+    }
+  }, [onOpenCommands]);
+
+  // Scroll-up on wheel (desktop)
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    // Only trigger if textarea is at the top of its scroll (or single-line)
+    const ta = ref.current;
+    if (ta && ta.scrollTop > 0) return;
+    if (e.deltaY < -30) {
+      onOpenCommands();
+    }
+  }, [onOpenCommands]);
+
   return (
     <div className="flex items-end gap-2">
       {/* Commands button */}
@@ -518,7 +546,13 @@ function ChatInput({
         </svg>
       </button>
 
-      <div className="flex-1 rounded-xl border border-border bg-card px-4 py-3 transition-colors focus-within:border-ring">
+      <div
+        ref={inputWrapperRef}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onWheel={handleWheel}
+        className="flex-1 rounded-xl border border-border bg-card px-4 py-3 transition-colors focus-within:border-ring"
+      >
         <textarea
           ref={ref}
           value={value}
