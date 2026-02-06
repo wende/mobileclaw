@@ -459,10 +459,32 @@ function CommandSheet({
 
 // ── Chat Input ───────────────────────────────────────────────────────────────
 
-function ChatInput({ onSend, isStreaming, onStop }: { onSend: (text: string) => void; isStreaming: boolean; onStop: () => void }) {
+function ChatInput({
+  onSend,
+  isStreaming,
+  onStop,
+  onOpenCommands,
+  commandValue,
+  onCommandValueUsed,
+}: {
+  onSend: (text: string) => void;
+  isStreaming: boolean;
+  onStop: () => void;
+  onOpenCommands: () => void;
+  commandValue: string | null;
+  onCommandValueUsed: () => void;
+}) {
   const [value, setValue] = useState("");
-  const [commandsOpen, setCommandsOpen] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+
+  // When a command is selected, fill it in
+  useEffect(() => {
+    if (commandValue) {
+      setValue(commandValue);
+      onCommandValueUsed();
+      setTimeout(() => ref.current?.focus(), 100);
+    }
+  }, [commandValue, onCommandValueUsed]);
 
   const submit = () => {
     const t = value.trim();
@@ -472,11 +494,6 @@ function ChatInput({ onSend, isStreaming, onStop }: { onSend: (text: string) => 
     if (ref.current) ref.current.style.height = "auto";
   };
 
-  const handleCommandSelect = useCallback((command: string) => {
-    setValue(command);
-    setTimeout(() => ref.current?.focus(), 100);
-  }, []);
-
   useEffect(() => {
     if (ref.current) {
       ref.current.style.height = "auto";
@@ -485,47 +502,40 @@ function ChatInput({ onSend, isStreaming, onStop }: { onSend: (text: string) => 
   }, [value]);
 
   return (
-    <>
-      <CommandSheet
-        open={commandsOpen}
-        onClose={() => setCommandsOpen(false)}
-        onSelect={handleCommandSelect}
-      />
-      <div className="flex items-end gap-2">
-        {/* Commands button */}
-        <button
-          type="button"
-          onClick={() => setCommandsOpen(true)}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          aria-label="Open commands"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m4 17 6-6-6-6" /><path d="M12 19h8" />
-          </svg>
-        </button>
+    <div className="flex items-end gap-2">
+      {/* Commands button */}
+      <button
+        type="button"
+        onClick={onOpenCommands}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        aria-label="Open commands"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m4 17 6-6-6-6" /><path d="M12 19h8" />
+        </svg>
+      </button>
 
-        <div className="flex-1 rounded-xl border border-border bg-card px-4 py-3 transition-colors focus-within:border-ring">
-          <textarea
-            ref={ref}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
-            placeholder="Send a message..."
-            rows={1}
-            className="block w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
-          />
-        </div>
-        {isStreaming ? (
-          <button type="button" onClick={onStop} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-destructive text-primary-foreground transition-colors hover:opacity-80" aria-label="Stop">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
-          </button>
-        ) : (
-          <button type="button" onClick={submit} disabled={!value.trim()} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:opacity-80 disabled:opacity-30" aria-label="Send">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg>
-          </button>
-        )}
+      <div className="flex-1 rounded-xl border border-border bg-card px-4 py-3 transition-colors focus-within:border-ring">
+        <textarea
+          ref={ref}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+          placeholder="Send a message..."
+          rows={1}
+          className="block w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
+        />
       </div>
-    </>
+      {isStreaming ? (
+        <button type="button" onClick={onStop} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-destructive text-primary-foreground transition-colors hover:opacity-80" aria-label="Stop">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+        </button>
+      ) : (
+        <button type="button" onClick={submit} disabled={!value.trim()} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:opacity-80 disabled:opacity-30" aria-label="Send">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg>
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -535,6 +545,8 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
+  const [commandsOpen, setCommandsOpen] = useState(false);
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -619,8 +631,23 @@ export default function Home() {
     setTimeout(() => simulateStream(STREAMED_RESPONSES[key]), 400);
   }, [simulateStream]);
 
+  const handleCommandSelect = useCallback((command: string) => {
+    setPendingCommand(command);
+  }, []);
+
+  const clearPendingCommand = useCallback(() => {
+    setPendingCommand(null);
+  }, []);
+
   return (
     <div className="flex h-dvh flex-col bg-background">
+      {/* Command sheet rendered at root level so backdrop covers entire screen */}
+      <CommandSheet
+        open={commandsOpen}
+        onClose={() => setCommandsOpen(false)}
+        onSelect={handleCommandSelect}
+      />
+
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-background/80 px-4 py-3 backdrop-blur-xl md:px-6">
         <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -644,7 +671,14 @@ export default function Home() {
 
       <footer className="sticky bottom-0 border-t border-border bg-background/80 backdrop-blur-xl">
         <div className="mx-auto w-full max-w-2xl px-4 py-3 md:px-6 md:py-4">
-          <ChatInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
+          <ChatInput
+            onSend={sendMessage}
+            isStreaming={isStreaming}
+            onStop={stopStreaming}
+            onOpenCommands={() => setCommandsOpen(true)}
+            commandValue={pendingCommand}
+            onCommandValueUsed={clearPendingCommand}
+          />
           <p className="mt-2 text-center text-[10px] text-muted-foreground/50">OpenClaw may produce inaccurate information.</p>
         </div>
       </footer>
