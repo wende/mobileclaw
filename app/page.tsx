@@ -249,10 +249,216 @@ function MessageRow({ message, isStreaming }: { message: Message; isStreaming: b
   );
 }
 
+// ── Commands ─────────────────────────────────────────────────────────────────
+
+interface Command {
+  name: string;
+  description: string;
+  aliases?: string[];
+}
+
+interface CommandGroup {
+  label: string;
+  commands: Command[];
+}
+
+const COMMAND_GROUPS: CommandGroup[] = [
+  {
+    label: "Status",
+    commands: [
+      { name: "/help", description: "Show available commands." },
+      { name: "/commands", description: "List all slash commands." },
+      { name: "/status", description: "Show current status." },
+      { name: "/context", description: "Explain how context is built and used." },
+      { name: "/whoami", description: "Show your sender id.", aliases: ["/id"] },
+    ],
+  },
+  {
+    label: "Management",
+    commands: [
+      { name: "/queue", description: "Adjust queue settings." },
+      { name: "/allowlist", description: "List/add/remove allowlist entries." },
+      { name: "/approve", description: "Approve or deny exec requests." },
+      { name: "/subagents", description: "List/stop/log/info subagent runs for this session." },
+      { name: "/config", description: "Show or set config values." },
+      { name: "/activation", description: "Set group activation mode." },
+      { name: "/send", description: "Set send policy." },
+    ],
+  },
+  {
+    label: "Media",
+    commands: [
+      { name: "/tts", description: "Control text-to-speech (TTS)." },
+    ],
+  },
+  {
+    label: "Tools",
+    commands: [
+      { name: "/skill", description: "Run a skill by name." },
+      { name: "/restart", description: "Restart OpenClaw." },
+      { name: "/apple_notes", description: "Manage Apple Notes via the memo CLI on macOS." },
+      { name: "/apple_reminders", description: "Manage Apple Reminders via the remindctl CLI on macOS." },
+      { name: "/bluebubbles", description: "Build or update the BlueBubbles external channel plugin." },
+      { name: "/clawhub", description: "Search, install, update, and publish agent skills." },
+      { name: "/coding_agent", description: "Run Codex CLI, Claude Code, or Pi Coding Agent." },
+      { name: "/gemini", description: "Gemini CLI for one-shot Q&A, summaries, and generation." },
+      { name: "/github", description: "Interact with GitHub using the gh CLI." },
+      { name: "/healthcheck", description: "Host security hardening and risk-tolerance config." },
+      { name: "/nano_banana_pro", description: "Generate or edit images via Gemini 3 Pro Image." },
+      { name: "/openai_image_gen", description: "Batch-generate images via OpenAI Images API." },
+      { name: "/openai_whisper_api", description: "Transcribe audio via OpenAI Whisper." },
+      { name: "/peekaboo", description: "Capture and automate macOS UI with Peekaboo CLI." },
+      { name: "/session_logs", description: "Search and analyze your own session logs." },
+      { name: "/skill_creator", description: "Create or update AgentSkills." },
+      { name: "/tmux", description: "Remote-control tmux sessions." },
+      { name: "/video_frames", description: "Extract frames or clips from videos using ffmpeg." },
+      { name: "/weather", description: "Get current weather and forecasts." },
+      { name: "/apple_calendar", description: "Apple Calendar.app integration for macOS." },
+      { name: "/claude_image_analyzer", description: "Describe images in detail using Claude Code CLI." },
+      { name: "/google_workspace", description: "Interact with Google Workspace services." },
+      { name: "/research", description: "Deep research methodology for sub-agents." },
+      { name: "/youtube", description: "Summarize YouTube videos, extract transcripts." },
+    ],
+  },
+  {
+    label: "Docks",
+    commands: [
+      { name: "/dock_telegram", description: "Switch to Telegram for replies.", aliases: ["/dock-telegram"] },
+      { name: "/dock_discord", description: "Switch to Discord for replies.", aliases: ["/dock-discord"] },
+      { name: "/dock_slack", description: "Switch to Slack for replies.", aliases: ["/dock-slack"] },
+    ],
+  },
+];
+
+// ── Command Sheet ────────────────────────────────────────────────────────────
+
+function CommandSheet({
+  open,
+  onClose,
+  onSelect,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (command: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) setSearch("");
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
+  // Lock body scroll when open
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [open]);
+
+  const filteredGroups = COMMAND_GROUPS.map((group) => ({
+    ...group,
+    commands: group.commands.filter(
+      (cmd) =>
+        cmd.name.toLowerCase().includes(search.toLowerCase()) ||
+        cmd.description.toLowerCase().includes(search.toLowerCase())
+    ),
+  })).filter((g) => g.commands.length > 0);
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className={`fixed inset-0 z-40 bg-foreground/10 backdrop-blur-sm transition-opacity duration-200 ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      {/* Sheet */}
+      <div
+        ref={sheetRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Commands"
+        className={`fixed inset-x-0 bottom-0 z-50 flex max-h-[70dvh] flex-col rounded-t-2xl border-t border-border bg-background shadow-lg transition-transform duration-300 ease-out ${open ? "translate-y-0" : "translate-y-full"}`}
+      >
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="h-1 w-10 rounded-full bg-border" />
+        </div>
+
+        {/* Search */}
+        <div className="px-4 pb-3 pt-1">
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted-foreground">
+              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search commands..."
+              className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+              autoFocus={open}
+            />
+          </div>
+        </div>
+
+        {/* Command list */}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-6">
+          {filteredGroups.length === 0 && (
+            <p className="py-8 text-center text-sm text-muted-foreground">No commands found.</p>
+          )}
+          {filteredGroups.map((group) => (
+            <div key={group.label} className="mb-4">
+              <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {group.label}
+              </p>
+              <div className="flex flex-col gap-0.5">
+                {group.commands.map((cmd) => (
+                  <button
+                    key={cmd.name}
+                    type="button"
+                    onClick={() => {
+                      onSelect(cmd.name + " ");
+                      onClose();
+                    }}
+                    className="flex items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent active:bg-accent"
+                  >
+                    <span className="mt-px shrink-0 rounded bg-secondary px-1.5 py-0.5 font-mono text-xs font-medium text-foreground">
+                      {cmd.name}
+                    </span>
+                    <span className="text-sm leading-snug text-muted-foreground">
+                      {cmd.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Chat Input ───────────────────────────────────────────────────────────────
 
 function ChatInput({ onSend, isStreaming, onStop }: { onSend: (text: string) => void; isStreaming: boolean; onStop: () => void }) {
   const [value, setValue] = useState("");
+  const [commandsOpen, setCommandsOpen] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
 
   const submit = () => {
@@ -263,6 +469,11 @@ function ChatInput({ onSend, isStreaming, onStop }: { onSend: (text: string) => 
     if (ref.current) ref.current.style.height = "auto";
   };
 
+  const handleCommandSelect = useCallback((command: string) => {
+    setValue(command);
+    setTimeout(() => ref.current?.focus(), 100);
+  }, []);
+
   useEffect(() => {
     if (ref.current) {
       ref.current.style.height = "auto";
@@ -271,28 +482,47 @@ function ChatInput({ onSend, isStreaming, onStop }: { onSend: (text: string) => 
   }, [value]);
 
   return (
-    <div className="flex items-end gap-2">
-      <div className="flex-1 rounded-xl border border-border bg-card px-4 py-3 transition-colors focus-within:border-ring">
-        <textarea
-          ref={ref}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
-          placeholder="Send a message..."
-          rows={1}
-          className="block w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
-        />
+    <>
+      <CommandSheet
+        open={commandsOpen}
+        onClose={() => setCommandsOpen(false)}
+        onSelect={handleCommandSelect}
+      />
+      <div className="flex items-end gap-2">
+        {/* Commands button */}
+        <button
+          type="button"
+          onClick={() => setCommandsOpen(true)}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          aria-label="Open commands"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m4 17 6-6-6-6" /><path d="M12 19h8" />
+          </svg>
+        </button>
+
+        <div className="flex-1 rounded-xl border border-border bg-card px-4 py-3 transition-colors focus-within:border-ring">
+          <textarea
+            ref={ref}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+            placeholder="Send a message..."
+            rows={1}
+            className="block w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
+          />
+        </div>
+        {isStreaming ? (
+          <button type="button" onClick={onStop} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-destructive text-primary-foreground transition-colors hover:opacity-80" aria-label="Stop">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+          </button>
+        ) : (
+          <button type="button" onClick={submit} disabled={!value.trim()} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:opacity-80 disabled:opacity-30" aria-label="Send">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg>
+          </button>
+        )}
       </div>
-      {isStreaming ? (
-        <button type="button" onClick={onStop} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-destructive text-primary-foreground transition-colors hover:opacity-80" aria-label="Stop">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
-        </button>
-      ) : (
-        <button type="button" onClick={submit} disabled={!value.trim()} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:opacity-80 disabled:opacity-30" aria-label="Send">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg>
-        </button>
-      )}
-    </div>
+    </>
   );
 }
 
