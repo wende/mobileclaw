@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react"
+import React from "react";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 
@@ -338,15 +338,14 @@ function CommandSheet({
   open,
   onClose,
   onSelect,
-  bottomOffset = 0,
 }: {
   open: boolean;
   onClose: () => void;
   onSelect: (command: string) => void;
-  bottomOffset?: number;
 }) {
   const [search, setSearch] = useState("");
   const sheetRef = useRef<HTMLDivElement>(null);
+  const bottomOffset = 0; // Declare the variable here
 
   useEffect(() => {
     if (!open) setSearch("");
@@ -399,8 +398,7 @@ function CommandSheet({
         role="dialog"
         aria-modal="true"
         aria-label="Commands"
-        style={{ bottom: `${bottomOffset}px`, maxHeight: `calc(70dvh - ${bottomOffset}px)` }}
-        className={`fixed inset-x-0 z-50 flex flex-col rounded-t-2xl border-t border-border bg-background shadow-lg transition-all duration-300 ease-out ${open ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-full opacity-0"}`}
+        className={`fixed inset-x-0 bottom-0 z-50 flex max-h-[70dvh] flex-col rounded-t-2xl border-t border-border bg-background shadow-lg transition-transform duration-300 ease-out ${open ? "translate-y-0" : "pointer-events-none translate-y-full"}`}
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
@@ -481,8 +479,6 @@ function ChatInput({
 }) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
-  const touchStartY = useRef<number | null>(null);
-  const inputWrapperRef = useRef<HTMLDivElement>(null);
 
   // When a command is selected, fill it in
   useEffect(() => {
@@ -508,30 +504,6 @@ function ChatInput({
     }
   }, [value]);
 
-  // Swipe-up on touch (mobile)
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY;
-  }, []);
-
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (touchStartY.current === null) return;
-    const deltaY = touchStartY.current - e.changedTouches[0].clientY;
-    touchStartY.current = null;
-    if (deltaY > 40) {
-      onOpenCommands();
-    }
-  }, [onOpenCommands]);
-
-  // Scroll-up on wheel (desktop)
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    // Only trigger if textarea is at the top of its scroll (or single-line)
-    const ta = ref.current;
-    if (ta && ta.scrollTop > 0) return;
-    if (e.deltaY < -30) {
-      onOpenCommands();
-    }
-  }, [onOpenCommands]);
-
   return (
     <div className="flex items-end gap-2">
       {/* Commands button */}
@@ -546,13 +518,7 @@ function ChatInput({
         </svg>
       </button>
 
-      <div
-        ref={inputWrapperRef}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onWheel={handleWheel}
-        className="flex-1 rounded-xl border border-border bg-card px-4 py-3 transition-colors focus-within:border-ring"
-      >
+      <div className="flex-1 rounded-xl border border-border bg-card px-4 py-3 transition-colors focus-within:border-ring">
         <textarea
           ref={ref}
           value={value}
@@ -584,21 +550,10 @@ export default function Home() {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
-  const [footerHeight, setFooterHeight] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const footerRef = useRef<HTMLElement>(null);
   const abortRef = useRef(false);
-
-  useEffect(() => {
-    if (!footerRef.current) return;
-    const observer = new ResizeObserver(([entry]) => {
-      setFooterHeight(entry.contentRect.height + entry.target.getBoundingClientRect().height - entry.contentRect.height);
-    });
-    observer.observe(footerRef.current);
-    setFooterHeight(footerRef.current.getBoundingClientRect().height);
-    return () => observer.disconnect();
-  }, []);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const footerRef = useRef<HTMLDivElement>(null); // Declare the variable here
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -695,7 +650,6 @@ export default function Home() {
         open={commandsOpen}
         onClose={() => setCommandsOpen(false)}
         onSelect={handleCommandSelect}
-        bottomOffset={footerHeight}
       />
 
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-background/80 px-4 py-3 backdrop-blur-xl md:px-6">
@@ -711,7 +665,7 @@ export default function Home() {
       </header>
 
       <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6 md:px-6">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6 md:px-6 md:py-4">
           {messages.map((msg, idx) => (
             <MessageRow key={msg.id || idx} message={msg} isStreaming={isStreaming && msg.id === streamingId} />
           ))}
@@ -719,7 +673,7 @@ export default function Home() {
         </div>
       </main>
 
-      <footer ref={footerRef} className="sticky bottom-0 border-t border-border bg-background/80 backdrop-blur-xl">
+      <footer className="sticky bottom-0 border-t border-border bg-background/80 backdrop-blur-xl">
         <div className="mx-auto w-full max-w-2xl px-4 py-3 md:px-6 md:py-4">
           <ChatInput
             onSend={sendMessage}
@@ -729,6 +683,7 @@ export default function Home() {
             commandValue={pendingCommand}
             onCommandValueUsed={clearPendingCommand}
           />
+          <p className="mt-2 text-center text-[10px] text-muted-foreground/50">OpenClaw may produce inaccurate information.</p>
         </div>
       </footer>
     </div>
