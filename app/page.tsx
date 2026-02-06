@@ -1039,7 +1039,6 @@ export default function Home() {
             commandValue={pendingCommand}
             onCommandValueUsed={clearPendingCommand}
           />
-          <p className="mt-2 text-center text-[10px] text-muted-foreground/50">OpenClaw may produce inaccurate information.</p>
         </div>
       </footer>
     </div>
