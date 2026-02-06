@@ -336,10 +336,12 @@ function CommandSheet({
   open,
   onClose,
   onSelect,
+  bottomOffset = 0,
 }: {
   open: boolean;
   onClose: () => void;
   onSelect: (command: string) => void;
+  bottomOffset?: number;
 }) {
   const [search, setSearch] = useState("");
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -395,7 +397,8 @@ function CommandSheet({
         role="dialog"
         aria-modal="true"
         aria-label="Commands"
-        className={`fixed inset-x-0 bottom-0 z-50 flex max-h-[70dvh] flex-col rounded-t-2xl border-t border-border bg-background shadow-lg transition-transform duration-300 ease-out ${open ? "translate-y-0" : "pointer-events-none translate-y-full"}`}
+        style={{ bottom: `${bottomOffset}px`, maxHeight: `calc(70dvh - ${bottomOffset}px)` }}
+        className={`fixed inset-x-0 z-50 flex flex-col rounded-t-2xl border-t border-border bg-background shadow-lg transition-all duration-300 ease-out ${open ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-full opacity-0"}`}
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
@@ -547,8 +550,20 @@ export default function Home() {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [footerHeight, setFooterHeight] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLElement>(null);
   const abortRef = useRef(false);
+
+  useEffect(() => {
+    if (!footerRef.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setFooterHeight(entry.contentRect.height + entry.target.getBoundingClientRect().height - entry.contentRect.height);
+    });
+    observer.observe(footerRef.current);
+    setFooterHeight(footerRef.current.getBoundingClientRect().height);
+    return () => observer.disconnect();
+  }, []);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
@@ -646,6 +661,7 @@ export default function Home() {
         open={commandsOpen}
         onClose={() => setCommandsOpen(false)}
         onSelect={handleCommandSelect}
+        bottomOffset={footerHeight}
       />
 
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-background/80 px-4 py-3 backdrop-blur-xl md:px-6">
@@ -669,7 +685,7 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="sticky bottom-0 border-t border-border bg-background/80 backdrop-blur-xl">
+      <footer ref={footerRef} className="sticky bottom-0 border-t border-border bg-background/80 backdrop-blur-xl">
         <div className="mx-auto w-full max-w-2xl px-4 py-3 md:px-6 md:py-4">
           <ChatInput
             onSend={sendMessage}
@@ -679,7 +695,6 @@ export default function Home() {
             commandValue={pendingCommand}
             onCommandValueUsed={clearPendingCommand}
           />
-          <p className="mt-2 text-center text-[10px] text-muted-foreground/50">OpenClaw may produce inaccurate information.</p>
         </div>
       </footer>
     </div>
