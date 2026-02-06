@@ -3,6 +3,7 @@
 import React from "react";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useWebSocket, type WebSocketMessage } from "@/lib/useWebSocket";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,85 @@ interface Message {
   isError?: boolean;
   stopReason?: string;
 }
+
+// OpenClaw WebSocket protocol types
+// Based on GatewayBrowserClient protocol
+
+// Request (client → server)
+interface WSRequest {
+  type: "req";
+  id: string;
+  method: "connect" | "chat.send" | "chat.history" | "chat.subscribe" | "hello";
+  params?: Record<string, unknown>;
+}
+
+// Response (server → client)
+interface WSResponse {
+  type: "res";
+  id: string;
+  ok: boolean;
+  payload?: unknown;
+  error?: string | { code: string; message: string };
+}
+
+// Event (server → client)
+interface WSEvent {
+  type: "event";
+  event: "connect.challenge" | "chat" | "agent" | "presence" | "health";
+  payload: ConnectChallengePayload | ChatEventPayload | AgentEventPayload;
+  seq: number;
+  stateVersion?: {
+    presence: number;
+    health: number;
+  };
+}
+
+// Connect challenge payload
+interface ConnectChallengePayload {
+  nonce: string;
+  ts: number;
+}
+
+// Chat event payload
+interface ChatEventPayload {
+  runId: string;
+  sessionKey: string;
+  state: "delta" | "final" | "aborted" | "error";
+  message?: {
+    role: "user" | "assistant" | "system" | "tool";
+    content: ContentPart[] | string;
+    timestamp: number;
+    reasoning?: string;
+  };
+  errorMessage?: string;
+}
+
+// Agent event payload (for tool visualization)
+interface AgentEventPayload {
+  runId: string;
+  sessionKey: string;
+  state: "start" | "tool_start" | "tool_stream" | "tool_end" | "stream" | "complete" | "error";
+  tool?: {
+    name: string;
+    args?: unknown;
+    result?: unknown;
+    error?: string;
+  };
+  delta?: {
+    content?: string;
+    reasoning?: string;
+  };
+}
+
+// Hello message (server → client on connect)
+interface WSHello {
+  type: "hello";
+  sessionId: string;
+  mode: "webchat";
+  clientName: string;
+}
+
+type WSIncomingMessage = WSResponse | WSEvent | WSHello;
 
 // ── Dummy session from provided JSON ─────────────────────────────────────────
 
@@ -860,8 +940,18 @@ function ChatInput({
 
 // ── Setup Dialog ─────────────────────────────────────────────────────────────
 
-function SetupDialog({ onConnect, visible }: { onConnect: (url: string) => void; visible: boolean }) {
-  const [url, setUrl] = useState("http://127.0.0.1:18789");
+function SetupDialog({ 
+  onConnect, 
+  visible, 
+  connectionState,
+  connectionError 
+}: { 
+  onConnect: (url: string) => void; 
+  visible: boolean;
+  connectionState?: "connecting" | "connected" | "disconnected" | "error";
+  connectionError?: string | null;
+}) {
+  const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [phase, setPhase] = useState<"idle" | "entering" | "open" | "closing" | "closed">("idle");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -885,15 +975,14 @@ function SetupDialog({ onConnect, visible }: { onConnect: (url: string) => void;
 
   const handleSubmit = () => {
     const trimmed = url.trim();
-    if (!trimmed) {
-      setError("URL is required");
-      return;
-    }
-    try {
-      new URL(trimmed);
-    } catch {
-      setError("Please enter a valid URL");
-      return;
+    // Allow empty URL for mock mode
+    if (trimmed) {
+      try {
+        new URL(trimmed);
+      } catch {
+        setError("Please enter a valid URL or leave empty for mock mode");
+        return;
+      }
     }
     setError("");
     setPhase("closing");
@@ -907,6 +996,7 @@ function SetupDialog({ onConnect, visible }: { onConnect: (url: string) => void;
 
   const isOpen = phase === "open";
   const isClosing = phase === "closing";
+  const isConnecting = connectionState === "connecting";
 
   return (
     <div
@@ -953,7 +1043,7 @@ function SetupDialog({ onConnect, visible }: { onConnect: (url: string) => void;
 
         <h2 className="mb-1 text-center text-lg font-semibold text-foreground">Connect to OpenClaw</h2>
         <p className="mb-5 text-center text-sm text-muted-foreground">
-          Enter the URL of your running OpenClaw instance.
+          Enter server URL (https:// or http://) or leave empty for mock mode.
         </p>
 
         {/* URL input */}
@@ -968,23 +1058,35 @@ function SetupDialog({ onConnect, visible }: { onConnect: (url: string) => void;
             value={url}
             onChange={(e) => { setUrl(e.target.value); setError(""); }}
             onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-            placeholder="http://127.0.0.1:18789"
-            className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring ${error ? "border-destructive" : "border-border"}`}
+            placeholder="https://krzysztofs-mac-studio.tail657ea.ts.net/"
+            disabled={isConnecting}
+            className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error || connectionError ? "border-destructive" : "border-border"}`}
           />
           {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
+          {connectionError && <p className="mt-1.5 text-xs text-destructive">{connectionError}</p>}
         </div>
 
         {/* Connect button */}
         <button
           type="button"
           onClick={handleSubmit}
-          className="w-full rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
+          disabled={isConnecting}
+          className="w-full rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          Connect
+          {isConnecting ? (
+            <>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+              Connecting...
+            </>
+          ) : (
+            "Connect"
+          )}
         </button>
 
         <p className="mt-3 text-center text-[11px] text-muted-foreground/60">
-          Currently using mocked responses. Real WebSocket integration coming soon.
+          Leave empty to use mock mode without a server
         </p>
       </div>
     </div>
@@ -995,26 +1097,320 @@ function SetupDialog({ onConnect, visible }: { onConnect: (url: string) => void;
 
 export default function Home() {
   const [openclawUrl, setOpenclawUrl] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const currentAssistantMsgRef = useRef<Message | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+
+  // Track active run for streaming
+  const activeRunIdRef = useRef<string | null>(null);
+  const sendWSMessageRef = useRef<((message: WebSocketMessage) => boolean) | null>(null);
+
+  // WebSocket message handler - OpenClaw protocol
+  const handleWSMessage = useCallback((data: WebSocketMessage) => {
+    console.log("[WS] Received:", data);
+    const msg = data as WSIncomingMessage;
+    
+    // Handle Connect Challenge (first message from server)
+    if (msg.type === "event" && msg.event === "connect.challenge") {
+      const payload = msg.payload as ConnectChallengePayload;
+      console.log("[WS] Connect challenge received, nonce:", payload.nonce);
+      
+      // Respond with connect request
+      // Complete schema per OpenClaw protocol
+      const connectMsg = {
+        type: "req",
+        id: `conn-${Date.now()}`,
+        method: "connect",
+        params: {
+          minProtocol: 3,
+          maxProtocol: 3,
+          client: {
+            id: "webchat",
+            version: "1.0.0",
+            platform: "web",
+            mode: "webchat",
+          },
+          role: "operator",
+          scopes: ["operator.admin"],
+          caps: [],
+        },
+      };
+      console.log("[WS] Sending connect:", connectMsg);
+      sendWSMessageRef.current?.(connectMsg as unknown as WebSocketMessage);
+      return;
+    }
+    
+    // Handle Hello message (after successful connect)
+    if (msg.type === "hello") {
+      console.log("[WS] Hello received, sessionId:", msg.sessionId);
+      sessionIdRef.current = msg.sessionId;
+      // Subscribe to chat events after hello
+      const subscribeMsg = {
+        type: "req",
+        id: `sub-${Date.now()}`,
+        method: "chat.subscribe",
+        params: { sessionKey: "main" },
+      };
+      console.log("[WS] Sending subscribe:", subscribeMsg);
+      sendWSMessageRef.current?.(subscribeMsg as unknown as WebSocketMessage);
+      return;
+    }
+    
+    // Handle Response
+    if (msg.type === "res") {
+      console.log("[WS] Response:", msg.ok ? "OK" : "Error", msg.payload || msg.error);
+      if (!msg.ok && msg.error) {
+        const errorMsg = typeof msg.error === "string" ? msg.error : msg.error?.message || "Unknown error";
+        setConnectionError(errorMsg);
+      }
+      return;
+    }
+    
+    // Handle Events
+    if (msg.type === "event") {
+      console.log("[WS] Event:", msg.event, msg.payload);
+      if (msg.event === "chat") {
+        const payload = msg.payload as ChatEventPayload;
+        
+        switch (payload.state) {
+          case "delta":
+            if (payload.message) {
+              setIsStreaming(true);
+              activeRunIdRef.current = payload.runId;
+              
+              setMessages((prev) => {
+                // Find if we already have a message for this run
+                const existingIdx = prev.findIndex((m) => m.id === payload.runId);
+                
+                if (existingIdx >= 0) {
+                  // Update existing message
+                  const existing = prev[existingIdx];
+                  const newContent = typeof payload.message!.content === "string"
+                    ? [{ type: "text", text: payload.message!.content }]
+                    : payload.message!.content;
+                  
+                  const updated = {
+                    ...existing,
+                    content: newContent,
+                    reasoning: payload.message!.reasoning || existing.reasoning,
+                  };
+                  return [...prev.slice(0, existingIdx), updated, ...prev.slice(existingIdx + 1)];
+                } else {
+                  // Create new message
+                  const newMsg: Message = {
+                    role: payload.message!.role,
+                    content: typeof payload.message!.content === "string"
+                      ? [{ type: "text", text: payload.message!.content }]
+                      : payload.message!.content,
+                    id: payload.runId,
+                    timestamp: payload.message!.timestamp,
+                    reasoning: payload.message!.reasoning,
+                  };
+                  setStreamingId(payload.runId);
+                  return [...prev, newMsg];
+                }
+              });
+            }
+            break;
+            
+          case "final":
+            if (payload.message) {
+              setIsStreaming(false);
+              setStreamingId(null);
+              activeRunIdRef.current = null;
+              
+              setMessages((prev) => {
+                const existingIdx = prev.findIndex((m) => m.id === payload.runId);
+                const finalMsg: Message = {
+                  role: payload.message!.role,
+                  content: typeof payload.message!.content === "string"
+                    ? [{ type: "text", text: payload.message!.content }]
+                    : payload.message!.content,
+                  id: payload.runId,
+                  timestamp: payload.message!.timestamp,
+                  reasoning: payload.message!.reasoning,
+                };
+                
+                if (existingIdx >= 0) {
+                  return [...prev.slice(0, existingIdx), finalMsg, ...prev.slice(existingIdx + 1)];
+                } else {
+                  return [...prev, finalMsg];
+                }
+              });
+            }
+            break;
+            
+          case "aborted":
+            setIsStreaming(false);
+            setStreamingId(null);
+            activeRunIdRef.current = null;
+            break;
+            
+          case "error":
+            setConnectionError(payload.errorMessage || "Chat error");
+            setIsStreaming(false);
+            setStreamingId(null);
+            activeRunIdRef.current = null;
+            break;
+        }
+      } else if (msg.event === "agent") {
+        // Handle agent events for tool visualization
+        const payload = msg.payload as AgentEventPayload;
+        
+        switch (payload.state) {
+          case "tool_start":
+            if (payload.tool) {
+              setMessages((prev) => {
+                const lastMsg = prev[prev.length - 1];
+                if (lastMsg && lastMsg.role === "assistant") {
+                  const toolCallPart: ContentPart = {
+                    type: "tool_call",
+                    name: payload.tool!.name,
+                    arguments: JSON.stringify(payload.tool!.args),
+                    status: "running",
+                  };
+                  const updated = {
+                    ...lastMsg,
+                    content: [...(Array.isArray(lastMsg.content) ? lastMsg.content : []), toolCallPart],
+                  };
+                  return [...prev.slice(0, -1), updated];
+                }
+                return prev;
+              });
+            }
+            break;
+            
+          case "tool_end":
+            if (payload.tool) {
+              // Update tool call status to success
+              setMessages((prev) => {
+                const lastAssistant = prev.findLast((m) => m.role === "assistant");
+                if (lastAssistant && Array.isArray(lastAssistant.content)) {
+                  const updatedContent = lastAssistant.content.map((part) => {
+                    if (part.type === "tool_call" && part.name === payload.tool!.name) {
+                      return { ...part, status: "success" as const };
+                    }
+                    return part;
+                  });
+                  return prev.map((m) => 
+                    m.id === lastAssistant.id ? { ...m, content: updatedContent } : m
+                  );
+                }
+                return prev;
+              });
+              
+              // Add tool result message
+              const toolResultMsg: Message = {
+                role: "toolResult",
+                content: [{ 
+                  type: "tool_result", 
+                  name: payload.tool.name, 
+                  text: typeof payload.tool.result === "string" 
+                    ? payload.tool.result 
+                    : JSON.stringify(payload.tool.result, null, 2),
+                }],
+                id: `tr-${Date.now()}-${payload.runId}`,
+                timestamp: Date.now(),
+                toolName: payload.tool.name,
+                isError: !!payload.tool.error,
+              };
+              setMessages((prev) => [...prev, toolResultMsg]);
+            }
+            break;
+            
+          case "stream":
+            if (payload.delta?.content) {
+              setIsStreaming(true);
+            }
+            break;
+            
+          case "complete":
+            setIsStreaming(false);
+            setStreamingId(null);
+            break;
+            
+          case "error":
+            setConnectionError("Agent error");
+            setIsStreaming(false);
+            break;
+        }
+      }
+    }
+  }, []);
+
+  const { connectionState, connect, disconnect, sendMessage: sendWSMessage, isConnected } = useWebSocket({
+    onMessage: handleWSMessage,
+    onOpen: () => {
+      setConnectionError(null);
+    },
+    onError: () => {
+      setConnectionError("Failed to connect to server");
+      setOpenclawUrl(null);
+      window.localStorage.removeItem("openclaw-url");
+    },
+    onClose: () => {
+      setIsStreaming(false);
+      setStreamingId(null);
+    },
+  });
+
+  // Store sendWSMessage in ref to avoid circular dependency
+  useEffect(() => {
+    sendWSMessageRef.current = sendWSMessage;
+  }, [sendWSMessage]);
 
   // Check localStorage on mount for previously saved URL
   useEffect(() => {
     const saved = window.localStorage.getItem("openclaw-url");
-    if (saved) setOpenclawUrl(saved);
-  }, []);
+    if (saved) {
+      setOpenclawUrl(saved);
+      // Only connect if URL is provided (not mock mode)
+      if (saved.trim()) {
+        // If URL starts with ws:// or wss://, use it directly
+        let wsUrl = saved;
+        if (!saved.startsWith("ws://") && !saved.startsWith("wss://")) {
+          wsUrl = saved.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+        }
+        connect(wsUrl);
+      }
+    }
+  }, [connect]);
 
   const handleConnect = useCallback((url: string) => {
     window.localStorage.setItem("openclaw-url", url);
     setOpenclawUrl(url);
-  }, []);
+    setConnectionError(null);
+    // Only connect if URL is provided
+    if (url) {
+      // If URL starts with ws:// or wss://, use it directly
+      // Otherwise, convert http:// to ws:// and https:// to wss://
+      // Keep the same path (e.g., /) as the original URL
+      let wsUrl = url;
+      if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
+        wsUrl = url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+      }
+      console.log("Connecting to WebSocket:", wsUrl);
+      connect(wsUrl);
+    }
+  }, [connect]);
 
+  const handleDisconnect = useCallback(() => {
+    disconnect();
+    window.localStorage.removeItem("openclaw-url");
+    setOpenclawUrl(null);
+    setMessages([]);
+    setIsStreaming(false);
+    setStreamingId(null);
+    setConnectionError(null);
+  }, [disconnect]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1024,10 +1420,64 @@ export default function Home() {
     abortRef.current = true;
     setIsStreaming(false);
     setStreamingId(null);
-    for (const t of timeoutsRef.current) clearTimeout(t);
-    timeoutsRef.current = [];
+    // Note: OpenClaw doesn't have a direct stop message, but we can abort client-side
   }, []);
 
+  const sendMessage = useCallback((text: string) => {
+    if (!isConnected) {
+      // Fallback to mock mode if not connected
+      const userMsg: Message = { role: "user", content: [{ type: "text", text }], id: `u-${Date.now()}`, timestamp: Date.now() };
+      setMessages((prev) => [...prev, userMsg]);
+
+      const lower = text.toLowerCase();
+      let key = "default";
+      if (lower.includes("weather")) key = "weather";
+      else if (lower.includes("code") || lower.includes("refactor") || lower.includes("function")) key = "code";
+      else if (lower.includes("error") || lower.includes("fail") || lower.includes("bug")) key = "error";
+      else if (lower.includes("markdown") || lower.includes("format") || lower.includes("table")) key = "markdown";
+      else if (lower.includes("think") || lower.includes("reason") || lower.includes("42")) key = "thinking";
+
+      setTimeout(() => simulateStream(STREAMED_RESPONSES[key]), 400);
+      return;
+    }
+
+    // Send via WebSocket using OpenClaw protocol
+    const userMsg: Message = { role: "user", content: [{ type: "text", text }], id: `u-${Date.now()}`, timestamp: Date.now() };
+    setMessages((prev) => [...prev, userMsg]);
+    
+    // Generate idempotency key for this run
+    const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    activeRunIdRef.current = runId;
+    
+    const requestMsg = {
+      type: "req",
+      id: runId,
+      method: "chat.send",
+      params: {
+        sessionKey: "main",
+        message: text,
+        deliver: true,
+        idempotencyKey: runId,
+      },
+    };
+    console.log("[WS] Sending chat.send:", requestMsg);
+    const sent = sendWSMessageRef.current?.(requestMsg as unknown as WebSocketMessage);
+    console.log("[WS] Message sent:", sent);
+    
+    setIsStreaming(true);
+  }, [isConnected]);
+
+  const handleCommandSelect = useCallback((command: string) => {
+    setPendingCommand(command);
+  }, []);
+
+  const clearPendingCommand = useCallback(() => {
+    setPendingCommand(null);
+  }, []);
+
+  const showSetup = !openclawUrl || connectionState === "error";
+
+  // Keep simulateStream for fallback mock mode
   const simulateStream = useCallback((responseMessages: Message[]) => {
     abortRef.current = false;
     setIsStreaming(true);
@@ -1121,35 +1571,15 @@ export default function Home() {
     timeoutsRef.current.push(tFinal);
   }, []);
 
-  const sendMessage = useCallback((text: string) => {
-    const userMsg: Message = { role: "user", content: [{ type: "text", text }], id: `u-${Date.now()}`, timestamp: Date.now() };
-    setMessages((prev) => [...prev, userMsg]);
-
-    const lower = text.toLowerCase();
-    let key = "default";
-    if (lower.includes("weather")) key = "weather";
-    else if (lower.includes("code") || lower.includes("refactor") || lower.includes("function")) key = "code";
-    else if (lower.includes("error") || lower.includes("fail") || lower.includes("bug")) key = "error";
-    else if (lower.includes("markdown") || lower.includes("format") || lower.includes("table")) key = "markdown";
-    else if (lower.includes("think") || lower.includes("reason") || lower.includes("42")) key = "thinking";
-
-    setTimeout(() => simulateStream(STREAMED_RESPONSES[key]), 400);
-  }, [simulateStream]);
-
-  const handleCommandSelect = useCallback((command: string) => {
-    setPendingCommand(command);
-  }, []);
-
-  const clearPendingCommand = useCallback(() => {
-    setPendingCommand(null);
-  }, []);
-
-  const showSetup = !openclawUrl;
-
   return (
     <div className="flex h-dvh flex-col bg-background">
       {/* Setup dialog overlays on top, chat always renders underneath */}
-      <SetupDialog onConnect={handleConnect} visible={showSetup} />
+      <SetupDialog 
+        onConnect={handleConnect} 
+        visible={showSetup} 
+        connectionState={connectionState}
+        connectionError={connectionError}
+      />
 
       {/* Command sheet rendered at root level so backdrop covers entire screen */}
       <CommandSheet
@@ -1167,12 +1597,22 @@ export default function Home() {
         <div className="flex min-w-0 flex-1 flex-col">
           <h1 className="text-sm font-semibold text-foreground">OpenClaw</h1>
           <p className="truncate text-[11px] text-muted-foreground">
-            {isStreaming ? "Thinking..." : openclawUrl}
+            {isStreaming 
+              ? "Thinking..." 
+              : connectionState === "connected" 
+                ? "Connected" 
+                : connectionState === "connecting" 
+                  ? "Connecting..." 
+                  : openclawUrl === null
+                    ? "Not connected"
+                    : openclawUrl === ""
+                      ? "Mock Mode"
+                      : openclawUrl}
           </p>
         </div>
         <button
           type="button"
-          onClick={() => { window.localStorage.removeItem("openclaw-url"); setOpenclawUrl(null); }}
+          onClick={handleDisconnect}
           className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           aria-label="Disconnect"
         >
