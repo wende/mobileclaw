@@ -4,6 +4,8 @@ import React from "react";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useWebSocket, type WebSocketMessage } from "@/lib/useWebSocket";
+import { getToolDisplay } from "@/lib/toolDisplay";
+import { DEMO_HISTORY, createDemoHandler, type DemoCallbacks } from "@/lib/demoMode";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +31,7 @@ interface Message {
   toolArgs?: string;
   isError?: boolean;
   stopReason?: string;
+  isContext?: boolean;
 }
 
 // OpenClaw WebSocket protocol types
@@ -83,21 +86,14 @@ interface ChatEventPayload {
   errorMessage?: string;
 }
 
-// Agent event payload (for tool visualization)
+// Agent event payload — actual format uses stream + data
 interface AgentEventPayload {
   runId: string;
   sessionKey: string;
-  state: "start" | "tool_start" | "tool_stream" | "tool_end" | "stream" | "complete" | "error";
-  tool?: {
-    name: string;
-    args?: unknown;
-    result?: unknown;
-    error?: string;
-  };
-  delta?: {
-    content?: string;
-    reasoning?: string;
-  };
+  stream: string; // "lifecycle", "content", "tool", "reasoning", etc.
+  data: Record<string, unknown>;
+  seq: number;
+  ts: number;
 }
 
 // Hello message (server → client on connect)
@@ -110,152 +106,6 @@ interface WSHello {
 
 type WSIncomingMessage = WSResponse | WSEvent | WSHello;
 
-// ── Dummy session from provided JSON ─────────────────────────────────────────
-
-const INITIAL_MESSAGES: Message[] = [
-  {
-    role: "system",
-    content: [{ type: "text", text: "Showing last 200 messages (50 hidden)." }],
-    timestamp: 1707234559000,
-    id: "msg-system-001",
-  },
-  {
-    role: "user",
-    content: [{ type: "text", text: "Find all TypeScript files in the src directory and count the lines of code" }],
-    timestamp: 1707234500000,
-    id: "msg-user-010",
-  },
-  {
-    role: "assistant",
-    content: [
-      { type: "text", text: "I'll help you find TypeScript files and count lines of code." },
-      { type: "tool_call", name: "execute_command", arguments: '{"command": "find src -name \'*.ts\' -type f", "timeout": 30000}' },
-    ],
-    timestamp: 1707234501000,
-    id: "msg-assistant-010",
-  },
-  {
-    role: "toolResult",
-    content: [{ type: "tool_result", name: "execute_command", text: "src/index.ts\nsrc/utils/helpers.ts\nsrc/components/Button.ts\nsrc/components/Modal.ts\nsrc/services/api.ts" }],
-    timestamp: 1707234502000,
-    id: "msg-tool-010",
-    toolName: "execute_command",
-  },
-  {
-    role: "assistant",
-    content: [
-      { type: "text", text: "Found 5 TypeScript files. Now let me count the lines of code." },
-      { type: "tool_call", name: "execute_command", arguments: '{"command": "find src -name \'*.ts\' -type f -exec wc -l {} + | tail -1", "timeout": 30000}' },
-    ],
-    timestamp: 1707234503000,
-    id: "msg-assistant-011",
-  },
-  {
-    role: "toolResult",
-    content: [{ type: "tool_result", name: "execute_command", text: "  1250 total" }],
-    timestamp: 1707234504000,
-    id: "msg-tool-011",
-    toolName: "execute_command",
-  },
-  {
-    role: "assistant",
-    content: [{ type: "text", text: "**Results:**\n\nFound **5 TypeScript files** in the `src` directory with a total of **1,250 lines of code**.\n\n| File | Lines |\n|------|-------|\n| src/index.ts | ~50 |\n| src/utils/helpers.ts | ~200 |\n| src/components/Button.ts | ~300 |\n| src/components/Modal.ts | ~400 |\n| src/services/api.ts | ~300 |" }],
-    timestamp: 1707234505000,
-    id: "msg-assistant-012",
-    stopReason: "end_turn",
-  },
-];
-
-const STREAMED_RESPONSES: Record<string, Message[]> = {
-  default: [
-    {
-      role: "assistant",
-      content: [{ type: "text", text: "# Analysis Complete\n\nHere's what I found:\n\n- The project structure is clean and well-organized\n- There are **5 TypeScript files** totaling around 1,250 lines\n- The architecture follows a modular pattern\n\n> The codebase is in good shape overall.\n\nWould you like me to dive deeper into any specific file?" }],
-      id: "stream-resp",
-    },
-  ],
-  weather: [
-    {
-      role: "assistant",
-      content: [
-        { type: "text", text: "I'll check the current weather for you." },
-        { type: "tool_call", name: "get_weather", arguments: '{"location": "San Francisco, CA", "units": "celsius"}' },
-      ],
-      id: "stream-tool",
-    },
-    {
-      role: "toolResult",
-      content: [{ type: "tool_result", name: "get_weather", text: "Current weather in San Francisco, CA:\nTemperature: 18\u00b0C\nConditions: Partly cloudy\nHumidity: 65%" }],
-      id: "stream-tool-result",
-      toolName: "get_weather",
-    },
-    {
-      role: "assistant",
-      content: [{ type: "text", text: "The weather in San Francisco is looking nice today:\n\n| Metric | Value |\n|--------|-------|\n| Temperature | 18\u00b0C |\n| Conditions | Partly cloudy |\n| Humidity | 65% |\n\nPerfect for a walk!" }],
-      id: "stream-weather-final",
-    },
-  ],
-  code: [
-    {
-      role: "assistant",
-      content: [
-        { type: "text", text: "Let me read the file first." },
-        { type: "tool_call", name: "read_file", arguments: '{"path": "src/utils/helpers.ts"}' },
-      ],
-      id: "stream-code-tool",
-    },
-    {
-      role: "toolResult",
-      content: [{ type: "tool_result", name: "read_file", text: "function calculateTotal(items) {\n  let total = 0;\n  for (const item of items) {\n    total += item.price * item.quantity;\n  }\n  return total;\n}" }],
-      id: "stream-code-result",
-      toolName: "read_file",
-    },
-    {
-      role: "assistant",
-      content: [{ type: "text", text: "Here's the refactored version:\n\n```typescript\nfunction calculateTotal(items: Item[]): number {\n  return items.reduce(\n    (sum, item) => sum + item.price * item.quantity,\n    0\n  );\n}\n```\n\nThe key changes:\n1. Used `reduce` for a cleaner functional approach\n2. Inlined the calculation\n3. Added proper TypeScript types\n\n> This is more idiomatic TypeScript and easier to test." }],
-      id: "stream-code",
-    },
-  ],
-  error: [
-    {
-      role: "assistant",
-      content: [
-        { type: "text", text: "Let me try running that command." },
-        { type: "tool_call", name: "execute_command", arguments: '{"command": "cat /path/to/file.txt"}' },
-      ],
-      id: "stream-error-tool",
-    },
-    {
-      role: "toolResult",
-      content: [{ type: "tool_result", name: "execute_command", text: "Error: Command failed with exit code 1\nstderr: File not found: /path/to/file.txt" }],
-      id: "stream-error-result",
-      toolName: "execute_command",
-      isError: true,
-    },
-    {
-      role: "assistant",
-      content: [{ type: "text", text: "The file wasn't found at that path. Could you double-check the file location? You can use:\n\n```bash\nfind . -name \"file.txt\" -type f\n```\n\nto search for it." }],
-      id: "stream-error-final",
-    },
-  ],
-  markdown: [
-    {
-      role: "assistant",
-      content: [{ type: "text", text: "# Heading 1\n\n## Heading 2\n\n**Bold text** and *italic text*\n\n```typescript\nconst x: number = 42;\nconsole.log(x);\n```\n\n- List item 1\n- List item 2\n  - Nested item\n\n> Blockquote\n\n[Link](https://example.com)\n\n| Table | Header |\n|-------|--------|\n| Cell1 | Cell2  |" }],
-      id: "stream-md",
-    },
-  ],
-  thinking: [
-    {
-      role: "assistant",
-      content: [{ type: "text", text: "The answer is **42**.\n\nThis comes from Douglas Adams' *The Hitchhiker's Guide to the Galaxy*, where the supercomputer Deep Thought computed the \"Answer to the Ultimate Question of Life, the Universe, and Everything\" over 7.5 million years." }],
-      id: "stream-think",
-      reasoning: "Let me work through this step by step. First, I need to understand what the question is asking. The user seems to be referencing a famous philosophical question...",
-    },
-  ],
-};
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getTextFromContent(content: ContentPart[] | string | null): string {
   if (!content) return "";
@@ -302,21 +152,86 @@ function thinkingPreview(text: string): string {
   return words + (text.trim().split(/\s+/).length > 8 ? "..." : "");
 }
 
-function formatTimeAgo(ts: number): string {
-  const seconds = Math.floor((Date.now() - ts) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 // ── Streaming cursor ─────────────────────────────────────────────────────────
 
 function StreamingCursor() {
   return <span className="ml-0.5 inline-block h-4 w-[2px] bg-foreground animate-pulse" />;
+}
+
+// Typewriter effect: gradually reveals text character-by-character
+function StreamingText({ text, isStreaming }: { text: string; isStreaming: boolean }) {
+  const [displayLen, setDisplayLen] = useState(text.length);
+  const targetLenRef = useRef(text.length);
+  const rafRef = useRef<number | null>(null);
+  const prevTextRef = useRef(text);
+
+  // When text grows, keep displayLen where it was and let the animation catch up
+  useEffect(() => {
+    targetLenRef.current = text.length;
+    // If text changed by replacement (e.g. history reload), snap immediately
+    if (!text.startsWith(prevTextRef.current.slice(0, displayLen))) {
+      setDisplayLen(text.length);
+    }
+    prevTextRef.current = text;
+  }, [text]);
+
+  // When not streaming, snap to full length
+  useEffect(() => {
+    if (!isStreaming) {
+      setDisplayLen(text.length);
+      targetLenRef.current = text.length;
+    }
+  }, [isStreaming, text.length]);
+
+  // rAF loop to animate displayLen towards target
+  useEffect(() => {
+    if (!isStreaming) {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      return;
+    }
+
+    const tick = () => {
+      setDisplayLen((prev) => {
+        const target = targetLenRef.current;
+        if (prev >= target) return prev;
+        // Reveal ~3 chars per frame (~180 chars/sec at 60fps) + close 30% of remaining gap
+        const gap = target - prev;
+        const step = Math.max(3, Math.ceil(gap * 0.3));
+        return Math.min(prev + step, target);
+      });
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    };
+  }, [isStreaming]);
+
+  const visibleText = text.slice(0, displayLen);
+  return (
+    <>
+      <MarkdownContent text={visibleText} />
+      {isStreaming && <StreamingCursor />}
+    </>
+  );
+}
+
+function ThinkingIndicator() {
+  return (
+    <div className="flex gap-3">
+      <div className="text-sm text-muted-foreground flex items-center gap-1">
+        <span>Thinking</span>
+        <span className="inline-flex w-5">
+          <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
+          <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
+          <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // ── Markdown Renderer ────────────────────────────────────────────────────────
@@ -329,14 +244,14 @@ function CodeBlock({ lang, code }: { lang?: string; code: string }) {
     setTimeout(() => setCopied(false), 2000);
   };
   return (
-    <div className="group relative my-3 rounded-lg border border-border bg-secondary">
+    <div className="group relative my-3 overflow-hidden rounded-lg border border-border bg-secondary">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <span className="text-[11px] font-medium text-muted-foreground">{lang || "text"}</span>
         <button type="button" onClick={copy} className="text-[11px] text-muted-foreground transition-colors hover:text-foreground">
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre className="overflow-x-auto p-3 text-xs leading-relaxed"><code>{code}</code></pre>
+      <pre className="overflow-hidden whitespace-pre-wrap break-all p-3 text-xs leading-relaxed"><code>{code}</code></pre>
     </div>
   );
 }
@@ -483,7 +398,7 @@ function renderInline(text: string): React.ReactNode[] {
     if (match.index > last) parts.push(text.slice(last, match.index));
     if (match[1]) parts.push(<strong key={match.index} className="font-semibold">{match[2]}</strong>);
     else if (match[3]) parts.push(<em key={match.index}>{match[4]}</em>);
-    else if (match[5]) parts.push(<code key={match.index} className="rounded bg-secondary px-1 py-0.5 font-mono text-[13px]">{match[6]}</code>);
+    else if (match[5]) parts.push(<code key={match.index} className="rounded bg-secondary px-1 py-0.5 font-mono text-[13px] break-all">{match[6]}</code>);
     else if (match[7]) parts.push(<a key={match.index} href={match[9]} className="underline underline-offset-2 hover:text-foreground" target="_blank" rel="noopener noreferrer">{match[8]}</a>);
     last = match.index + match[0].length;
   }
@@ -497,7 +412,7 @@ function MarkdownTable({ lines }: { lines: string[] }) {
   const rows = lines.slice(2).map(parseRow);
 
   return (
-    <div className="my-3 overflow-x-auto rounded-lg border border-border">
+    <div className="my-3 overflow-hidden rounded-lg border border-border">
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border bg-secondary">
@@ -520,27 +435,42 @@ function MarkdownTable({ lines }: { lines: string[] }) {
 
 function ToolCallPill({ name, args, status, result, resultError }: { name: string; args?: string; status?: "running" | "success" | "error"; result?: string; resultError?: boolean }) {
   const formatJson = (s: string) => { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; } };
-  const icon = status === "running" ? (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline-block animate-spin opacity-50 mr-1.5 align-[-1px]">
+  const display = getToolDisplay(name, args);
+
+  const iconCls = "inline-block mr-1.5 align-[-1px] shrink-0";
+  const statusIcon = status === "running" ? (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${iconCls} animate-spin opacity-50`}>
       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
     </svg>
   ) : resultError ? (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline-block text-destructive mr-1.5 align-[-1px]">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${iconCls} text-destructive`}>
       <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
     </svg>
-  ) : status === "success" || result ? (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline-block opacity-50 mr-1.5 align-[-1px]"><path d="M20 6 9 17l-5-5" /></svg>
+  ) : null;
+
+  const toolIcon = display.icon === "terminal" ? (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${iconCls} opacity-50`}>
+      <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+    </svg>
+  ) : display.icon === "file" ? (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${iconCls} opacity-50`}>
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    </svg>
+  ) : display.icon === "robot" ? (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`${iconCls} opacity-50`}>
+      <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
+    </svg>
   ) : (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline-block opacity-50 mr-1.5 align-[-1px]">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${iconCls} opacity-50`}>
       <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
     </svg>
   );
 
   return (
-    <details className={`my-1 w-fit max-w-full rounded-lg border ${resultError ? "border-destructive/30 bg-destructive/5" : "border-border bg-secondary"}`}>
-      <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap">
-        {icon}
-        {name}
+    <details className={`w-fit max-w-full rounded-lg border ${resultError ? "border-destructive/30 bg-destructive/5" : "border-border bg-secondary"}`}>
+      <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-full">
+        {statusIcon || toolIcon}
+        <span className="truncate">{display.label}</span>
         {status === "running" && <span className="ml-1.5 text-muted-foreground/60">running...</span>}
       </summary>
       {(args || result) && (
@@ -616,12 +546,43 @@ function MessageRow({ message, isStreaming }: { message: Message; isStreaming: b
     return null; // Tool results are merged into tool call pills
   }
 
-  if (message.role === "system") {
+  // Context-enriched user messages — render as expandable pill in user bubble style
+  if (message.isContext && text) {
+    // Build a short summary from System lines
+    const lines = text.split("\n").filter((l) => l.startsWith("System: ["));
+    const summaryParts = lines.map((line) => {
+      const match = line.match(/^System: \[[^\]]+\]\s*(.+)$/);
+      return match?.[1] ?? line;
+    });
+    const summary = summaryParts.length > 0
+      ? summaryParts.length === 1 ? summaryParts[0] : `${summaryParts.length} context items`
+      : "Context";
+
     return (
-      <div className="flex justify-center py-2">
-        <span className="rounded-full bg-secondary px-4 py-1 text-xs text-muted-foreground">{text}</span>
+      <div className="flex flex-row-reverse">
+        <details className="max-w-[85%] md:max-w-[75%] rounded-2xl rounded-br-md bg-primary text-primary-foreground">
+          <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium flex items-center gap-1.5">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-60">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" />
+            </svg>
+            <span className="truncate">{summary}</span>
+          </summary>
+          <div className="border-t border-primary-foreground/20 px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words opacity-80">
+            {text}
+          </div>
+        </details>
       </div>
     );
+  }
+
+  if (message.role === "system" || message.stopReason === "injected") {
+    return text ? (
+      <div className="flex justify-center py-2">
+        <div className="max-w-[85%] rounded-lg bg-secondary px-4 py-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words">
+          <MarkdownContent text={text} />
+        </div>
+      </div>
+    ) : null;
   }
 
   // Unknown roles -- render as muted system-like
@@ -637,17 +598,13 @@ function MessageRow({ message, isStreaming }: { message: Message; isStreaming: b
 
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
-      {!isUser && (
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-card">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
-          </svg>
-        </div>
-      )}
-      <div className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground" : "flex flex-col gap-1"}`}>
+      <div className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground" : "flex flex-col gap-1.5"}`}>
         {message.reasoning && (
-          <details className="mb-2 w-fit max-w-full rounded-lg border border-border bg-secondary">
-            <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap">{thinkingPreview(message.reasoning)}</summary>
+          <details className="w-fit max-w-full rounded-lg border border-border bg-secondary">
+            <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline-block opacity-50 mr-1.5 align-[-1px]"><path d="M12 2a5 5 0 0 1 4.7 3.2A4 4 0 0 1 20 9c0 1.5-.8 2.8-2 3.5v0A4 4 0 0 1 16 20H8a4 4 0 0 1-2-7.5A4 4 0 0 1 4 9a4 4 0 0 1 3.3-3.9A5 5 0 0 1 12 2z" /><path d="M12 2v20" /></svg>
+              {thinkingPreview(message.reasoning)}
+            </summary>
             <p className="px-3 pb-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words overflow-hidden">{message.reasoning}</p>
           </details>
         )}
@@ -663,9 +620,12 @@ function MessageRow({ message, isStreaming }: { message: Message; isStreaming: b
         ) : (
           <>
             {text && (
-              <div className="text-sm leading-relaxed break-words text-foreground">
-                <MarkdownContent text={text} />
-                {isStreaming && <StreamingCursor />}
+              <div className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
+                {isStreaming ? (
+                  <StreamingText text={text} isStreaming={isStreaming} />
+                ) : (
+                  <MarkdownContent text={text} />
+                )}
               </div>
             )}
           </>
@@ -698,6 +658,7 @@ const COMMAND_GROUPS: CommandGroup[] = [
       { name: "/help", description: "Show available commands." },
       { name: "/commands", description: "List all slash commands." },
       { name: "/status", description: "Show current status." },
+      { name: "/model", description: "Show or change the current AI model." },
       { name: "/context", description: "Explain how context is built and used." },
       { name: "/whoami", description: "Show your sender id.", aliases: ["/id"] },
     ],
@@ -887,29 +848,31 @@ function CommandSheet({
   );
 }
 
+// ── Flat command list for autocomplete ────────────────────────────────────────
+
+const ALL_COMMANDS: Command[] = COMMAND_GROUPS.flatMap((g) => g.commands);
+
 // ── Chat Input ───────────────────────────────────────────────────────────────
 
 function ChatInput({
   onSend,
-  isStreaming,
-  onStop,
   onOpenCommands,
   commandValue,
   onCommandValueUsed,
-  scrollProgress = 0,
+  scrollPhase = "input",
   onScrollToBottom,
 }: {
   onSend: (text: string) => void;
-  isStreaming: boolean;
-  onStop: () => void;
   onOpenCommands: () => void;
   commandValue: string | null;
   onCommandValueUsed: () => void;
-  scrollProgress?: number;
+  scrollPhase?: "input" | "pill";
   onScrollToBottom?: () => void;
 }) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
 
   // When a command is selected, fill it in
   useEffect(() => {
@@ -920,9 +883,41 @@ function ChatInput({
     }
   }, [commandValue, onCommandValueUsed]);
 
+  // Compute matching commands when value starts with /
+  const suggestions = (() => {
+    const trimmed = value.trimStart();
+    if (!trimmed.startsWith("/") || trimmed.includes(" ")) return [];
+    const prefix = trimmed.toLowerCase();
+    return ALL_COMMANDS.filter(
+      (cmd) =>
+        cmd.name.toLowerCase().startsWith(prefix) ||
+        cmd.aliases?.some((a) => a.toLowerCase().startsWith(prefix))
+    ).slice(0, 8);
+  })();
+
+  const showSuggestions = suggestions.length > 0;
+
+  // Reset selection when suggestions change
+  useEffect(() => {
+    setSelectedIdx(0);
+  }, [suggestions.length, value]);
+
+  // Scroll selected item into view
+  useEffect(() => {
+    if (showSuggestions && suggestionsRef.current) {
+      const item = suggestionsRef.current.children[selectedIdx] as HTMLElement | undefined;
+      item?.scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedIdx, showSuggestions]);
+
+  const acceptSuggestion = (cmd: Command) => {
+    setValue(cmd.name + " ");
+    setTimeout(() => ref.current?.focus(), 0);
+  };
+
   const submit = () => {
     const t = value.trim();
-    if (!t || isStreaming) return;
+    if (!t) return;
     onSend(t);
     setValue("");
     if (ref.current) ref.current.style.height = "auto";
@@ -935,26 +930,85 @@ function ChatInput({
     }
   }, [value]);
 
-  const btnOpacity = Math.max(0, 1 - scrollProgress * 2.5);
-  const btnSize = 40 * (1 - scrollProgress);
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showSuggestions) {
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIdx((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1));
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIdx((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0));
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        acceptSuggestion(suggestions[selectedIdx]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setValue("");
+        return;
+      }
+    } else {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        submit();
+      }
+    }
+  };
+
+  const isPill = scrollPhase === "pill";
 
   return (
-    <div
-      className="flex items-end justify-center"
-      style={{ gap: `${8 * (1 - scrollProgress)}px` }}
-    >
+    <div className="relative">
+      {/* Command autocomplete suggestions — positioned above the input bar */}
+      {showSuggestions && !isPill && (
+        <div
+          ref={suggestionsRef}
+          className="absolute bottom-full left-0 right-0 mb-1.5 max-h-[240px] overflow-y-auto rounded-xl border border-border bg-card shadow-lg z-50"
+        >
+          {suggestions.map((cmd, i) => (
+            <button
+              key={cmd.name}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault(); // keep textarea focused
+                acceptSuggestion(cmd);
+              }}
+              className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
+                i === selectedIdx ? "bg-accent" : "hover:bg-accent/50"
+              }`}
+            >
+              <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 font-mono text-xs font-medium text-foreground">
+                {cmd.name}
+              </span>
+              <span className="truncate text-xs text-muted-foreground">
+                {cmd.description}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div
+        className="flex items-end justify-center"
+        style={{ gap: "calc(8px * (1 - var(--sp, 0)))" }}
+      >
       {/* Commands button — fades & collapses */}
       <button
         type="button"
         onClick={onOpenCommands}
         className="flex shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground overflow-hidden"
         style={{
-          opacity: btnOpacity,
-          width: `${btnSize}px`,
-          height: `${btnSize}px`,
+          opacity: "max(0, 1 - var(--sp, 0) * 2.5)",
+          width: "calc(40px * (1 - var(--sp, 0)))",
+          height: "calc(40px * (1 - var(--sp, 0)))",
           minWidth: 0,
-          pointerEvents: scrollProgress < 0.3 ? "auto" : "none",
-        }}
+          pointerEvents: isPill ? "none" : "auto",
+        } as React.CSSProperties}
         aria-label="Open commands"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -965,20 +1019,20 @@ function ChatInput({
       {/* Morphing center: textarea ↔ scroll-to-bottom pill */}
       <div
         className="relative flex-1 overflow-hidden rounded-2xl border border-border bg-card/90 shadow-lg backdrop-blur-xl transition-colors focus-within:border-ring"
-        onClick={scrollProgress > 0.5 ? onScrollToBottom : undefined}
-        role={scrollProgress > 0.5 ? "button" : undefined}
-        tabIndex={scrollProgress > 0.5 ? 0 : undefined}
-        onKeyDown={scrollProgress > 0.5 ? (e: React.KeyboardEvent) => { if (e.key === "Enter") onScrollToBottom?.(); } : undefined}
+        onClick={isPill ? onScrollToBottom : undefined}
+        role={isPill ? "button" : undefined}
+        tabIndex={isPill ? 0 : undefined}
+        onKeyDown={isPill ? (e: React.KeyboardEvent) => { if (e.key === "Enter") onScrollToBottom?.(); } : undefined}
         style={{
-          maxWidth: `${600 - 400 * scrollProgress}px`,
-          height: `${46 - 6 * scrollProgress}px`,
-          cursor: scrollProgress > 0.5 ? "pointer" : "text",
-        }}
+          maxWidth: "calc(600px - 400px * var(--sp, 0))",
+          height: "calc(46px - 6px * var(--sp, 0))",
+          cursor: isPill ? "pointer" : "text",
+        } as React.CSSProperties}
       >
         {/* Pill overlay */}
         <div
           className="absolute inset-0 flex items-center justify-center gap-2 whitespace-nowrap text-xs font-medium text-muted-foreground"
-          style={{ opacity: scrollProgress, pointerEvents: scrollProgress > 0.5 ? "auto" : "none" }}
+          style={{ opacity: "var(--sp, 0)", pointerEvents: isPill ? "auto" : "none" } as React.CSSProperties}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
             <path d="m7 13 5 5 5-5" /><path d="M12 18V6" />
@@ -988,59 +1042,42 @@ function ChatInput({
 
         {/* Textarea */}
         <div
-          className="h-full px-4 py-3"
+          className="h-full px-4 py-2.5 flex items-center"
           style={{
-            opacity: 1 - scrollProgress,
-            pointerEvents: scrollProgress < 0.5 ? "auto" : "none",
-          }}
+            opacity: "calc(1 - var(--sp, 0))",
+            pointerEvents: isPill ? "none" : "auto",
+          } as React.CSSProperties}
         >
           <textarea
             ref={ref}
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+            onKeyDown={handleKeyDown}
             placeholder="Send a message..."
             rows={1}
-            className="block w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
+            className="block w-full resize-none bg-transparent text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
         </div>
       </div>
 
-      {/* Send / Stop button — fades & collapses */}
-      {isStreaming ? (
-        <button
-          type="button"
-          onClick={onStop}
-          className="flex shrink-0 items-center justify-center rounded-xl bg-destructive text-primary-foreground transition-colors hover:opacity-80 overflow-hidden"
-          style={{
-            opacity: btnOpacity,
-            width: `${btnSize}px`,
-            height: `${btnSize}px`,
-            minWidth: 0,
-            pointerEvents: scrollProgress < 0.3 ? "auto" : "none",
-          }}
-          aria-label="Stop"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!value.trim()}
-          className="flex shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:opacity-80 overflow-hidden"
-          style={{
-            opacity: value.trim() ? btnOpacity : btnOpacity * 0.3,
-            width: `${btnSize}px`,
-            height: `${btnSize}px`,
-            minWidth: 0,
-            pointerEvents: scrollProgress < 0.3 ? "auto" : "none",
-          }}
-          aria-label="Send"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg>
-        </button>
-      )}
+      {/* Send button — fades & collapses */}
+      <button
+        type="button"
+        onClick={submit}
+        disabled={!value.trim()}
+        className="flex shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:opacity-80 overflow-hidden"
+        style={{
+          opacity: value.trim() ? "max(0, 1 - var(--sp, 0) * 2.5)" : "max(0, (1 - var(--sp, 0) * 2.5) * 0.3)",
+          width: "calc(40px * (1 - var(--sp, 0)))",
+          height: "calc(40px * (1 - var(--sp, 0)))",
+          minWidth: 0,
+          pointerEvents: isPill ? "none" : "auto",
+        } as React.CSSProperties}
+        aria-label="Send"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg>
+      </button>
+      </div>
     </div>
   );
 }
@@ -1176,7 +1213,7 @@ function SetupDialog({
             value={url}
             onChange={(e) => { setUrl(e.target.value); setError(""); }}
             onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-            placeholder="https://krzysztofs-mac-studio.tail657ea.ts.net/"
+            placeholder="ws://127.0.0.1:18789"
             disabled={isConnecting}
             className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error || connectionError ? "border-destructive" : "border-border"}`}
           />
@@ -1184,22 +1221,24 @@ function SetupDialog({
           {connectionError && <p className="mt-1.5 text-xs text-destructive">{connectionError}</p>}
         </div>
 
-        {/* Token input */}
-        <div className="mb-4">
-          <label htmlFor="openclaw-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-            Gateway Token <span className="text-muted-foreground/60">(optional)</span>
-          </label>
-          <input
-            id="openclaw-token"
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-            placeholder="Enter gateway auth token"
-            disabled={isConnecting}
-            className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-          />
-        </div>
+        {/* Token input — hidden when URL is empty (demo mode) */}
+        {url.trim() && (
+          <div className="mb-4">
+            <label htmlFor="openclaw-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+              Gateway Token <span className="text-muted-foreground/60">(optional)</span>
+            </label>
+            <input
+              id="openclaw-token"
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+              placeholder="Enter gateway auth token"
+              disabled={isConnecting}
+              className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+            />
+          </div>
+        )}
 
         {/* Connect button */}
         <button
@@ -1215,8 +1254,10 @@ function SetupDialog({
               </svg>
               Connecting...
             </>
-          ) : (
+          ) : url.trim() ? (
             "Connect"
+          ) : (
+            "Start Demo"
           )}
         </button>
 
@@ -1240,14 +1281,29 @@ export default function Home() {
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [serverInfo, setServerInfo] = useState<Record<string, unknown> | null>(null);
-  const [sessionActivity, setSessionActivity] = useState<{ agentId: string; updatedAt: number } | null>(null);
-  const [scrollProgress, setScrollProgress] = useState(0);
+  const [currentModel, setCurrentModel] = useState<string | null>(null);
+  const [scrollPhase, setScrollPhase] = useState<"input" | "pill">("input");
+  const appRef = useRef<HTMLDivElement>(null);
+  const morphRef = useRef<HTMLDivElement>(null);
+  const scrollRafId = useRef<number | null>(null);
+  const scrollPhaseRef = useRef<"input" | "pill">("input");
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef(false);
-  const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const pinnedToBottomRef = useRef(true);
+  const autoScrollRafRef = useRef<number | null>(null);
+  // Pull-to-refresh (ref-driven to avoid re-renders during gesture)
+  const [refreshing, setRefreshing] = useState(false);
+  const pullStartYRef = useRef<number | null>(null);
+  const isPullingRef = useRef(false);
+  const pullContentRef = useRef<HTMLDivElement>(null);
+  const setPullTransformRef = useRef<(dist: number, animate: boolean) => void>(() => {});
+  const refreshStartRef = useRef(0);
+  const pullSpinnerRef = useRef<HTMLDivElement>(null);
   const currentAssistantMsgRef = useRef<Message | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const sessionKeyRef = useRef<string>("main");
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
   // Track active run for streaming
   const activeRunIdRef = useRef<string | null>(null);
@@ -1256,14 +1312,11 @@ export default function Home() {
 
   // WebSocket message handler - OpenClaw protocol
   const handleWSMessage = useCallback((data: WebSocketMessage) => {
-    console.log("[WS] Received:", data);
     const msg = data as WSIncomingMessage;
     
     // Handle Connect Challenge (first message from server)
     if (msg.type === "event" && msg.event === "connect.challenge") {
       const payload = msg.payload as ConnectChallengePayload;
-      console.log("[WS] Connect challenge received, nonce:", payload.nonce);
-      
       // Respond with connect request with token auth
       const connectMsg = {
         type: "req",
@@ -1280,54 +1333,65 @@ export default function Home() {
           },
           role: "operator",
           scopes: ["operator.admin"],
-          caps: [],
+          caps: ["chat", "agent", "health", "presence"],
           auth: {
             token: gatewayTokenRef.current ?? undefined,
           },
         },
       };
-      console.log("[WS] Sending connect:", connectMsg);
       sendWSMessageRef.current?.(connectMsg as unknown as WebSocketMessage);
       return;
     }
     
     // Legacy: Handle Hello message (kept for protocol compat)
     if (msg.type === "hello") {
-      console.log("[WS] Hello received (legacy), sessionId:", msg.sessionId);
       sessionIdRef.current = msg.sessionId;
       return;
     }
     
     // Handle Response
     if (msg.type === "res") {
-      console.log("[WS] Response:", msg.ok ? "OK" : "Error", msg.payload || msg.error);
-
       // Handle hello-ok (successful connect)
       const resPayload = msg.payload as Record<string, unknown> | undefined;
       if (msg.ok && resPayload?.type === "hello-ok") {
-        console.log("[WS] Connected (hello-ok), full payload:", JSON.stringify(resPayload, null, 2));
         const server = resPayload.server as Record<string, unknown> | undefined;
         if (server) setServerInfo(server);
         sessionIdRef.current = (server as Record<string, string>)?.connId ?? null;
 
-        // Fetch chat history
+        // Extract session key from snapshot
+        const snapshot = resPayload.snapshot as Record<string, unknown> | undefined;
+        const sessionDefaults = snapshot?.sessionDefaults as Record<string, string> | undefined;
+        const sessionKey = sessionDefaults?.mainSessionKey || sessionDefaults?.mainKey || "main";
+        sessionKeyRef.current = sessionKey;
+        // Fetch chat history using the correct session key
         sendWSMessageRef.current?.({
           type: "req",
           id: `history-${Date.now()}`,
           method: "chat.history",
-          params: { sessionKey: "main" },
+          params: { sessionKey },
         } as unknown as WebSocketMessage);
         return;
       }
 
+      // Handle chat.send response
+      if (msg.id?.startsWith("run-")) {
+        return;
+      }
+
+      // Handle sessions.list response
+      if (msg.ok && msg.id?.startsWith("sessions-list-")) {
+        return;
+      }
+
       // Handle chat.history response
+      if (msg.ok && msg.id?.startsWith("history-")) {
+      }
       if (msg.ok && msg.id?.startsWith("history-") && resPayload?.messages) {
-        const historyMessages = (resPayload.messages as Array<Record<string, unknown>>)
+        const rawMsgs = resPayload.messages as Array<Record<string, unknown>>;
+        const historyMessages = rawMsgs
           .filter((m) => {
-            // Skip system/injected messages and error messages
             const content = m.content as ContentPart[] | string | null;
             if (!content || (Array.isArray(content) && content.length === 0)) return false;
-            if (m.stopReason === "injected") return false;
             return true;
           })
           .map((m, idx) => {
@@ -1354,6 +1418,13 @@ export default function Home() {
               if (toolPart) toolName = toolPart.name;
             }
 
+            // Detect context-enriched user messages (server-assembled for the AI)
+            let isContext = false;
+            if (m.role === "user" && Array.isArray(filteredContent)) {
+              const tp = filteredContent.find((p) => p.type === "text" && p.text);
+              if (tp?.text && typeof tp.text === "string" && tp.text.startsWith("System: [")) isContext = true;
+            }
+
             return {
               role: m.role as string,
               content: filteredContent,
@@ -1363,6 +1434,7 @@ export default function Home() {
               toolName,
               isError: m.stopReason === "error",
               stopReason: m.stopReason as string | undefined,
+              isContext,
             } as Message;
           });
 
@@ -1391,8 +1463,65 @@ export default function Home() {
         }
         const finalMessages = historyMessages.filter((m) => !mergedIds.has(m.id!));
 
-        console.log("[WS] Loaded", finalMessages.length, "history messages");
-        setMessages(finalMessages);
+        // Extract model: prefer last assistant message with model field,
+        // then fall back to parsing injected /model response text
+        const lastAssistantRaw = rawMsgs.filter((m) => m.role === "assistant" && m.model).pop();
+        if (lastAssistantRaw?.model) {
+          const provider = lastAssistantRaw.provider as string | undefined;
+          const model = lastAssistantRaw.model as string;
+          setCurrentModel(provider ? `${provider}/${model}` : model);
+        }
+        // Check injected messages for model changes (e.g. /model command responses)
+        const lastInjected = rawMsgs.filter((m) => m.stopReason === "injected").pop();
+        if (lastInjected) {
+          // If the injected message itself has a model field, use it
+          if (lastInjected.model) {
+            const provider = lastInjected.provider as string | undefined;
+            const model = lastInjected.model as string;
+            setCurrentModel(provider ? `${provider}/${model}` : model);
+          } else {
+            // Parse model from text content (e.g. "**Primary model set to `openai/gpt-5`**")
+            const injectedContent = lastInjected.content;
+            let injectedText = "";
+            if (typeof injectedContent === "string") {
+              injectedText = injectedContent;
+            } else if (Array.isArray(injectedContent)) {
+              injectedText = (injectedContent as ContentPart[])
+                .filter((p) => p.type === "text" && p.text)
+                .map((p) => p.text)
+                .join("");
+            }
+            const modelMatch = injectedText.match(/model\s+(?:set\s+to|changed\s+to|is|:)\s+[`*]*([a-zA-Z0-9_./-]+)[`*]*/i);
+            if (modelMatch) {
+              setCurrentModel(modelMatch[1]);
+            }
+          }
+        }
+
+        // Merge: keep optimistic user messages that aren't yet in server history, sorted by timestamp
+        setMessages((prev) => {
+          const historyTimestamps = new Set(finalMessages.map((m) => m.timestamp));
+          const optimistic = prev.filter(
+            (m) => m.role === "user" && m.id?.startsWith("u-") && !historyTimestamps.has(m.timestamp)
+          );
+          if (optimistic.length === 0) return finalMessages;
+          return [...finalMessages, ...optimistic].sort(
+            (a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0)
+          );
+        });
+
+        // If pull-to-refresh was active, bounce back after minimum duration
+        if (refreshingRef.current) {
+          const elapsed = Date.now() - refreshStartRef.current;
+          const minDelay = 150;
+          const remaining = Math.max(0, minDelay - elapsed);
+          setTimeout(() => {
+            requestAnimationFrame(() => {
+              setPullTransformRef.current(0, true);
+              setRefreshing(false);
+            });
+          }, remaining);
+        }
         return;
       }
 
@@ -1405,10 +1534,8 @@ export default function Home() {
     
     // Handle Events
     if (msg.type === "event") {
-      console.log("[WS] Event:", msg.event, msg.payload);
       if (msg.event === "chat") {
         const payload = msg.payload as ChatEventPayload;
-        
         switch (payload.state) {
           case "delta":
             if (payload.message) {
@@ -1451,30 +1578,16 @@ export default function Home() {
             break;
             
           case "final":
-            if (payload.message) {
-              setIsStreaming(false);
-              setStreamingId(null);
-              activeRunIdRef.current = null;
-              
-              setMessages((prev) => {
-                const existingIdx = prev.findIndex((m) => m.id === payload.runId);
-                const finalMsg: Message = {
-                  role: payload.message!.role,
-                  content: typeof payload.message!.content === "string"
-                    ? [{ type: "text", text: payload.message!.content }]
-                    : payload.message!.content,
-                  id: payload.runId,
-                  timestamp: payload.message!.timestamp,
-                  reasoning: payload.message!.reasoning,
-                };
-                
-                if (existingIdx >= 0) {
-                  return [...prev.slice(0, existingIdx), finalMsg, ...prev.slice(existingIdx + 1)];
-                } else {
-                  return [...prev, finalMsg];
-                }
-              });
-            }
+            setIsStreaming(false);
+            setStreamingId(null);
+            activeRunIdRef.current = null;
+            // Server final events don't include message content — re-fetch history
+            sendWSMessageRef.current?.({
+              type: "req",
+              id: `history-${Date.now()}`,
+              method: "chat.history",
+              params: { sessionKey: sessionKeyRef.current },
+            } as unknown as WebSocketMessage);
             break;
             
           case "aborted":
@@ -1491,80 +1604,102 @@ export default function Home() {
             break;
         }
       } else if (msg.event === "agent") {
-        // Handle agent events for tool visualization
         const payload = msg.payload as AgentEventPayload;
-        
-        switch (payload.state) {
-          case "tool_start":
-            if (payload.tool) {
-              setMessages((prev) => {
-                const lastMsg = prev[prev.length - 1];
-                if (lastMsg && lastMsg.role === "assistant") {
-                  const toolCallPart: ContentPart = {
-                    type: "tool_call",
-                    name: payload.tool!.name,
-                    arguments: JSON.stringify(payload.tool!.args),
-                    status: "running",
-                  };
-                  const updated = {
-                    ...lastMsg,
-                    content: [...(Array.isArray(lastMsg.content) ? lastMsg.content : []), toolCallPart],
-                  };
-                  return [...prev.slice(0, -1), updated];
-                }
-                return prev;
-              });
-            }
-            break;
-            
-          case "tool_end":
-            if (payload.tool) {
-              const resultText = typeof payload.tool.result === "string"
-                ? payload.tool.result
-                : JSON.stringify(payload.tool.result, null, 2);
-              const isErr = !!payload.tool.error;
-              // Merge result into the matching tool call content part
-              setMessages((prev) => {
-                const lastAssistant = prev.findLast((m) => m.role === "assistant");
-                if (lastAssistant && Array.isArray(lastAssistant.content)) {
-                  const updatedContent = lastAssistant.content.map((part) => {
-                    if ((part.type === "tool_call" || part.type === "toolCall") && part.name === payload.tool!.name && !part.result) {
-                      return { ...part, status: isErr ? "error" as const : "success" as const, result: resultText, resultError: isErr };
-                    }
-                    return part;
-                  });
-                  return prev.map((m) =>
-                    m.id === lastAssistant.id ? { ...m, content: updatedContent } : m
-                  );
-                }
-                return prev;
-              });
-            }
-            break;
-            
-          case "stream":
-            if (payload.delta?.content) {
-              setIsStreaming(true);
-            }
-            break;
-            
-          case "complete":
-            setIsStreaming(false);
-            setStreamingId(null);
-            break;
-            
-          case "error":
-            setConnectionError("Agent error");
-            setIsStreaming(false);
-            break;
-        }
-      } else if (msg.event === "health") {
-        const payload = msg.payload as Record<string, unknown>;
-        const agentId = (payload.defaultAgentId as string) || "main";
-        const sessions = payload.sessions as { recent?: { key: string; updatedAt: number }[] } | undefined;
-        const mainSession = sessions?.recent?.find((s) => s.key === "main");
-        if (mainSession) {
-          setSessionActivity({ agentId, updatedAt: mainSession.updatedAt });
+        if (payload.stream === "lifecycle") {
+          const phase = payload.data.phase as string;
+          if (phase === "start") {
+            setIsStreaming(true);
+            activeRunIdRef.current = payload.runId;
+          }
+        } else if (payload.stream === "content") {
+          // Live text streaming
+          const delta = (payload.data.delta ?? payload.data.text ?? "") as string;
+          if (delta) {
+            setIsStreaming(true);
+            setMessages((prev) => {
+              let idx = prev.findIndex((m) => m.id === payload.runId);
+              if (idx >= 0) {
+                const existing = prev[idx];
+                const prevText = getTextFromContent(existing.content);
+                return [...prev.slice(0, idx), {
+                  ...existing,
+                  content: [{ type: "text", text: prevText + delta }] as ContentPart[],
+                }, ...prev.slice(idx + 1)];
+              }
+              setStreamingId(payload.runId);
+              return [...prev, {
+                role: "assistant",
+                content: [{ type: "text", text: delta }],
+                id: payload.runId,
+                timestamp: payload.ts,
+              } as Message];
+            });
+          }
+        } else if (payload.stream === "reasoning") {
+          // Live thinking/reasoning streaming
+          const delta = (payload.data.delta ?? payload.data.text ?? "") as string;
+          if (delta) {
+            setMessages((prev) => {
+              let idx = prev.findIndex((m) => m.id === payload.runId);
+              if (idx >= 0) {
+                const existing = prev[idx];
+                return [...prev.slice(0, idx), {
+                  ...existing,
+                  reasoning: (existing.reasoning || "") + delta,
+                }, ...prev.slice(idx + 1)];
+              }
+              return [...prev, {
+                role: "assistant",
+                content: [],
+                id: payload.runId,
+                timestamp: payload.ts,
+                reasoning: delta,
+              } as Message];
+            });
+          }
+        } else if (payload.stream === "tool") {
+          // Tool call events
+          const phase = payload.data.phase as string;
+          const toolName = payload.data.name as string;
+          if (phase === "start" && toolName) {
+            setMessages((prev) => {
+              let idx = prev.findIndex((m) => m.id === payload.runId);
+              if (idx < 0) idx = prev.findLastIndex((m) => m.role === "assistant");
+              if (idx >= 0) {
+                const target = prev[idx];
+                const toolCallPart: ContentPart = {
+                  type: "tool_call",
+                  name: toolName,
+                  arguments: payload.data.args ? JSON.stringify(payload.data.args) : undefined,
+                  status: "running",
+                };
+                return [...prev.slice(0, idx), {
+                  ...target,
+                  content: [...(Array.isArray(target.content) ? target.content : []), toolCallPart],
+                }, ...prev.slice(idx + 1)];
+              }
+              return prev;
+            });
+          } else if ((phase === "end" || phase === "complete") && toolName) {
+            const resultText = typeof payload.data.result === "string"
+              ? payload.data.result : JSON.stringify(payload.data.result, null, 2);
+            const isErr = !!payload.data.error;
+            setMessages((prev) => {
+              let idx = prev.findIndex((m) => m.id === payload.runId);
+              if (idx < 0) idx = prev.findLastIndex((m) => m.role === "assistant");
+              if (idx >= 0 && Array.isArray(prev[idx].content)) {
+                const target = prev[idx];
+                const updatedContent = (target.content as ContentPart[]).map((part) => {
+                  if ((part.type === "tool_call" || part.type === "toolCall") && part.name === toolName && !part.result) {
+                    return { ...part, status: isErr ? "error" as const : "success" as const, result: resultText, resultError: isErr };
+                  }
+                  return part;
+                });
+                return [...prev.slice(0, idx), { ...target, content: updatedContent }, ...prev.slice(idx + 1)];
+              }
+              return prev;
+            });
+          }
         }
       }
     }
@@ -1589,22 +1724,240 @@ export default function Home() {
     sendWSMessageRef.current = sendWSMessage;
   }, [sendWSMessage]);
 
-  // Track scroll position as continuous 0-1 progress
+  // Demo mode: detect ?demo URL param on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("demo")) {
+      setIsDemoMode(true);
+      setMessages(DEMO_HISTORY);
+      setCurrentModel("demo/openclaw-preview");
+      setShowSetup(false);
+    }
+  }, []);
+
+  // Demo mode: create handler with callbacks
+  useEffect(() => {
+    if (!isDemoMode) {
+      demoHandlerRef.current = null;
+      return;
+    }
+    const callbacks: DemoCallbacks = {
+      onStreamStart: (runId) => {
+        setIsStreaming(true);
+        setStreamingId(runId);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: [], id: runId, timestamp: Date.now() },
+        ]);
+      },
+      onThinking: (runId, text) => {
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === runId);
+          if (idx < 0) return prev;
+          return [...prev.slice(0, idx), { ...prev[idx], reasoning: text }, ...prev.slice(idx + 1)];
+        });
+      },
+      onTextDelta: (runId, _delta, fullText) => {
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === runId);
+          if (idx < 0) return prev;
+          return [
+            ...prev.slice(0, idx),
+            { ...prev[idx], content: [{ type: "text", text: fullText }] },
+            ...prev.slice(idx + 1),
+          ];
+        });
+      },
+      onToolStart: (runId, name, args) => {
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === runId);
+          if (idx < 0) return prev;
+          const target = prev[idx];
+          const parts = Array.isArray(target.content) ? target.content : [];
+          return [
+            ...prev.slice(0, idx),
+            { ...target, content: [...parts, { type: "tool_call", name, arguments: args, status: "running" as const }] },
+            ...prev.slice(idx + 1),
+          ];
+        });
+      },
+      onToolEnd: (runId, name, result, isError) => {
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === runId);
+          if (idx < 0) return prev;
+          const target = prev[idx];
+          if (!Array.isArray(target.content)) return prev;
+          const updated = target.content.map((p: ContentPart) =>
+            p.type === "tool_call" && p.name === name && p.status === "running"
+              ? { ...p, status: (isError ? "error" : "success") as "error" | "success", result, resultError: isError }
+              : p
+          );
+          return [...prev.slice(0, idx), { ...target, content: updated }, ...prev.slice(idx + 1)];
+        });
+      },
+      onStreamEnd: (runId) => {
+        setIsStreaming(false);
+        setStreamingId(null);
+      },
+    };
+    demoHandlerRef.current = createDemoHandler(callbacks);
+  }, [isDemoMode]);
+
+  // Track scroll position — continuous CSS var for animations, React state only for pointer-events phase
   const handleScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const range = 60; // pixels over which the morph happens
-    const progress = Math.min(Math.max(distanceFromBottom / range, 0), 1);
-    setScrollProgress(progress);
+    if (scrollRafId.current != null) return;
+    scrollRafId.current = requestAnimationFrame(() => {
+      scrollRafId.current = null;
+      const el = scrollRef.current;
+      const morph = morphRef.current;
+      if (!el || !morph) return;
+      // Suppress morph updates while pulling to refresh
+      if (isPullingRef.current) return;
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      // Update pinned state: consider pinned if within ~80px of bottom
+      pinnedToBottomRef.current = distanceFromBottom < 80;
+      const range = 60;
+      const progress = Math.min(Math.max(distanceFromBottom / range, 0), 1);
+      morph.style.setProperty("--sp", progress.toFixed(3));
+      const newPhase: "input" | "pill" = progress > 0.4 ? "pill" : "input";
+      if (newPhase !== scrollPhaseRef.current) {
+        scrollPhaseRef.current = newPhase;
+        setScrollPhase(newPhase);
+      }
+    });
   }, []);
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
+  // Pull-to-refresh
+  const PULL_THRESHOLD = 120;
+  const refreshingRef = useRef(false);
+  const pullDistanceRef = useRef(0);
+  refreshingRef.current = refreshing;
+
+  const setPullTransform = useCallback((dist: number, animate: boolean) => {
+    const wrapper = pullContentRef.current;
+    const spinner = pullSpinnerRef.current;
+    if (!wrapper) return;
+    const transition = animate ? "transform 0.45s cubic-bezier(0.22, 0.68, 0.35, 1)" : "none";
+    wrapper.style.transition = transition;
+    wrapper.style.transform = dist > 0 ? `translateY(${-dist}px)` : "";
+    // Spinner fades in as user pulls; animation only runs when visible
+    if (spinner) {
+      spinner.style.transition = animate ? "opacity 0.3s ease" : "none";
+      spinner.style.opacity = dist > 0 ? String(Math.min(dist / (PULL_THRESHOLD * 0.5), 1)) : "0";
+      const svg = spinner.querySelector("svg");
+      if (svg) svg.style.animation = dist > 0 ? "spin 1s linear infinite" : "none";
+    }
+  }, []);
+  setPullTransformRef.current = setPullTransform;
+
+  const doRefresh = useCallback(() => {
+    setRefreshing(true);
+    refreshStartRef.current = Date.now();
+    // Hold at a small offset to show spinner — bounce back happens when history arrives
+    setPullTransform(40, true);
+    // Re-fetch history
+    sendWSMessageRef.current?.({
+      type: "req",
+      id: `history-${Date.now()}`,
+      method: "chat.history",
+      params: { sessionKey: sessionKeyRef.current },
+    } as unknown as WebSocketMessage);
+  }, [setPullTransform]);
+
+  // Pull-up-to-refresh touch handlers — direct DOM transforms, no React re-renders
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const isAtBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight < 5;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (refreshingRef.current) return;
+      if (isAtBottom()) {
+        pullStartYRef.current = e.touches[0].clientY;
+        isPullingRef.current = false;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (pullStartYRef.current === null || refreshingRef.current) return;
+      if (!isAtBottom() && !isPullingRef.current) {
+        pullStartYRef.current = null;
+        pullDistanceRef.current = 0;
+        setPullTransform(0, false);
+        return;
+      }
+      const deltaY = pullStartYRef.current - e.touches[0].clientY;
+      if (deltaY > 0) {
+        isPullingRef.current = true;
+        // Heavy rubber band — 40% of raw movement, extra resistance past threshold
+        const raw = deltaY * 0.4;
+        const dist = raw < PULL_THRESHOLD
+          ? raw
+          : PULL_THRESHOLD + (raw - PULL_THRESHOLD) * 0.15;
+        pullDistanceRef.current = dist;
+        setPullTransform(dist, false);
+        e.preventDefault();
+      } else {
+        pullDistanceRef.current = 0;
+        setPullTransform(0, false);
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (pullStartYRef.current === null) return;
+      pullStartYRef.current = null;
+      const wasPulling = isPullingRef.current;
+      const dist = pullDistanceRef.current;
+      isPullingRef.current = false;
+      pullDistanceRef.current = 0;
+
+      if (wasPulling && dist >= PULL_THRESHOLD) {
+        // Hold and refresh — bounce back happens when history response arrives
+        doRefresh();
+      } else {
+        // Bounce back smoothly
+        setPullTransform(0, true);
+      }
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [doRefresh, setPullTransform]);
+
+  // iOS Safari height fix — window.innerHeight is the only reliable value
+  useEffect(() => {
+    const setHeight = () => {
+      if (appRef.current) {
+        appRef.current.style.height = `${window.innerHeight}px`;
+      }
+    };
+    setHeight();
+    window.addEventListener("resize", setHeight);
+    // visualViewport fires on iOS when address bar shows/hides
+    window.visualViewport?.addEventListener("resize", setHeight);
+    return () => {
+      window.removeEventListener("resize", setHeight);
+      window.visualViewport?.removeEventListener("resize", setHeight);
+    };
+  }, []);
+
   // Check localStorage on mount for previously saved URL and token
   useEffect(() => {
+    // Skip auto-connect in demo mode
+    if (isDemoMode) return;
     const saved = window.localStorage.getItem("openclaw-url");
     const savedToken = window.localStorage.getItem("openclaw-token");
     if (savedToken) gatewayTokenRef.current = savedToken;
@@ -1620,7 +1973,7 @@ export default function Home() {
       // No saved config — show setup dialog
       setShowSetup(true);
     }
-  }, [connect]);
+  }, [connect, isDemoMode]);
 
   const handleConnect = useCallback((url: string, token?: string) => {
     window.localStorage.setItem("openclaw-url", url);
@@ -1628,18 +1981,20 @@ export default function Home() {
     gatewayTokenRef.current = token ?? null;
     setOpenclawUrl(url);
     setConnectionError(null);
-    // Only connect if URL is provided
-    if (url) {
-      // If URL starts with ws:// or wss://, use it directly
-      // Otherwise, convert http:// to ws:// and https:// to wss://
-      // Keep the same path (e.g., /) as the original URL
-      let wsUrl = url;
-      if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
-        wsUrl = url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
-      }
-      console.log("Connecting to WebSocket:", wsUrl);
-      connect(wsUrl);
+    if (!url) {
+      // Empty URL — enter demo mode
+      setIsDemoMode(true);
+      setMessages(DEMO_HISTORY);
+      setCurrentModel("demo/openclaw-preview");
+      return;
     }
+    // If URL starts with ws:// or wss://, use it directly
+    // Otherwise, convert http:// to ws:// and https:// to wss://
+    let wsUrl = url;
+    if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
+      wsUrl = url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+    }
+    connect(wsUrl);
   }, [connect]);
 
   const handleDisconnect = useCallback(() => {
@@ -1652,60 +2007,95 @@ export default function Home() {
     setConnectionError(null);
   }, [disconnect]);
 
+  // Auto-scroll: on non-streaming message changes (history load, new user message), scroll to bottom
+  const hasScrolledInitialRef = useRef(false);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (isStreaming) return; // rAF loop handles streaming scroll
+    if (!pinnedToBottomRef.current || messages.length === 0) return;
+    if (!hasScrolledInitialRef.current) {
+      // First load — instant scroll after layout settles
+      hasScrolledInitialRef.current = true;
+      requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const stopStreaming = useCallback(() => {
-    abortRef.current = true;
-    setIsStreaming(false);
-    setStreamingId(null);
-    // Note: OpenClaw doesn't have a direct stop message, but we can abort client-side
-  }, []);
+  // Continuous rAF loop during streaming (+ tail-off after) to keep pinned as content grows
+  const streamingEndTimeRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (isStreaming) {
+      streamingEndTimeRef.current = null;
+    } else if (!streamingEndTimeRef.current) {
+      // Record when streaming stopped so we can ease out
+      streamingEndTimeRef.current = Date.now();
+    }
+  }, [isStreaming]);
+
+  useEffect(() => {
+    // Start the loop when streaming begins
+    if (!isStreaming && !streamingEndTimeRef.current) return;
+
+    const tick = () => {
+      const el = scrollRef.current;
+      if (el && pinnedToBottomRef.current) {
+        const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (distFromBottom > 2) {
+          // Close 40% of the gap per frame — stops when close enough to avoid oscillation
+          el.scrollTop += Math.ceil(distFromBottom * 0.4);
+        }
+      }
+      // Keep running during streaming, or for 500ms after to ease out the typewriter tail
+      const endTime = streamingEndTimeRef.current;
+      if (isStreaming || (endTime && Date.now() - endTime < 500)) {
+        autoScrollRafRef.current = requestAnimationFrame(tick);
+      } else {
+        autoScrollRafRef.current = null;
+      }
+    };
+    autoScrollRafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    };
+  }, [isStreaming]);
+
 
   const sendMessage = useCallback((text: string) => {
-    if (!isConnected) {
-      // Fallback to mock mode if not connected
-      const userMsg: Message = { role: "user", content: [{ type: "text", text }], id: `u-${Date.now()}`, timestamp: Date.now() };
-      setMessages((prev) => [...prev, userMsg]);
+    const userMsg: Message = { role: "user", content: [{ type: "text", text }], id: `u-${Date.now()}`, timestamp: Date.now() };
+    setMessages((prev) => [...prev, userMsg]);
 
-      const lower = text.toLowerCase();
-      let key = "default";
-      if (lower.includes("weather")) key = "weather";
-      else if (lower.includes("code") || lower.includes("refactor") || lower.includes("function")) key = "code";
-      else if (lower.includes("error") || lower.includes("fail") || lower.includes("bug")) key = "error";
-      else if (lower.includes("markdown") || lower.includes("format") || lower.includes("table")) key = "markdown";
-      else if (lower.includes("think") || lower.includes("reason") || lower.includes("42")) key = "thinking";
-
-      setTimeout(() => simulateStream(STREAMED_RESPONSES[key]), 400);
+    // Demo mode — route through local handler
+    if (isDemoMode) {
+      demoHandlerRef.current?.sendMessage(text);
       return;
     }
 
-    // Send via WebSocket using OpenClaw protocol
-    const userMsg: Message = { role: "user", content: [{ type: "text", text }], id: `u-${Date.now()}`, timestamp: Date.now() };
-    setMessages((prev) => [...prev, userMsg]);
-    
+    if (!isConnected) return;
+
     // Generate idempotency key for this run
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     activeRunIdRef.current = runId;
-    
+
     const requestMsg = {
       type: "req",
       id: runId,
       method: "chat.send",
       params: {
-        sessionKey: "main",
+        sessionKey: sessionKeyRef.current,
         message: text,
         deliver: true,
         idempotencyKey: runId,
       },
     };
-    console.log("[WS] Sending chat.send:", requestMsg);
-    const sent = sendWSMessageRef.current?.(requestMsg as unknown as WebSocketMessage);
-    console.log("[WS] Message sent:", sent);
-    
+    sendWSMessageRef.current?.(requestMsg as unknown as WebSocketMessage);
+
     setIsStreaming(true);
-  }, [isConnected]);
+  }, [isConnected, isDemoMode]);
 
   const handleCommandSelect = useCallback((command: string) => {
     setPendingCommand(command);
@@ -1715,102 +2105,9 @@ export default function Home() {
     setPendingCommand(null);
   }, []);
 
-  // Keep simulateStream for fallback mock mode
-  const simulateStream = useCallback((responseMessages: Message[]) => {
-    abortRef.current = false;
-    setIsStreaming(true);
-    let delay = 0;
-
-    for (const msg of responseMessages) {
-      const text = getTextFromContent(msg.content);
-      const toolCalls = getToolCalls(msg.content);
-
-      if (msg.role === "toolResult" || msg.role === "tool_result") {
-        delay += 600;
-        const t = setTimeout(() => { if (!abortRef.current) setMessages((prev) => [...prev, msg]); }, delay);
-        timeoutsRef.current.push(t);
-        delay += 300;
-        continue;
-      }
-
-      const words = text.split(" ");
-      const sid = `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      let acc = "";
-
-      // Start streaming text
-      const tStart = setTimeout(() => {
-        if (abortRef.current) return;
-        setStreamingId(sid);
-        setMessages((prev) => [...prev, { ...msg, id: sid, content: [{ type: "text", text: "" }] }]);
-      }, delay);
-      timeoutsRef.current.push(tStart);
-      delay += 80;
-
-      for (const word of words) {
-        acc += (acc ? " " : "") + word;
-        const snap = acc;
-        const t = setTimeout(() => {
-          if (abortRef.current) return;
-          setMessages((prev) => prev.map((m) => (m.id === sid ? { ...m, content: [{ type: "text", text: snap }] } : m)));
-        }, delay);
-        timeoutsRef.current.push(t);
-        delay += 20 + Math.random() * 40;
-      }
-
-      // If this message has tool calls, show them with running -> complete lifecycle
-      if (toolCalls.length > 0) {
-        delay += 100;
-        for (const tc of toolCalls) {
-          // Show tool call in "running" state
-          const tToolStart = setTimeout(() => {
-            if (abortRef.current) return;
-            setStreamingId(null);
-            setMessages((prev) => prev.map((m) =>
-              m.id === sid
-                ? { ...m, content: [...(Array.isArray(m.content) ? m.content : []), { ...tc, status: "running" }] }
-                : m
-            ));
-          }, delay);
-          timeoutsRef.current.push(tToolStart);
-          delay += 800;
-
-          // Transition to "success" state
-          const tToolEnd = setTimeout(() => {
-            if (abortRef.current) return;
-            setMessages((prev) => prev.map((m) =>
-              m.id === sid
-                ? {
-                    ...m,
-                    content: Array.isArray(m.content)
-                      ? m.content.map((c) => c.type === "tool_call" && c.name === tc.name ? { ...c, status: "success" } : c)
-                      : m.content,
-                  }
-                : m
-            ));
-          }, delay);
-          timeoutsRef.current.push(tToolEnd);
-          delay += 200;
-        }
-      }
-
-      delay += 150;
-      const tEnd = setTimeout(() => {
-        if (abortRef.current) return;
-        setStreamingId(null);
-        // Final message with full content (tool calls already visible, just finalize text)
-        setMessages((prev) => prev.map((m) => (m.id === sid ? { ...msg, id: sid } : m)));
-      }, delay);
-      timeoutsRef.current.push(tEnd);
-
-      delay += 200;
-    }
-
-    const tFinal = setTimeout(() => { setIsStreaming(false); setStreamingId(null); }, delay);
-    timeoutsRef.current.push(tFinal);
-  }, []);
 
   return (
-    <div className="flex h-dvh flex-col bg-background">
+    <div ref={appRef} className="flex flex-col overflow-hidden bg-background" style={{ height: "100dvh" }}>
       {/* Setup dialog */}
       <SetupDialog
         onConnect={(url, token) => {
@@ -1849,36 +2146,45 @@ export default function Home() {
         </button>
         <div className="flex min-w-0 flex-1 flex-col">
           <h1 className="text-sm font-semibold text-foreground">MobileClaw</h1>
-          {(isStreaming || sessionActivity) && (
-            <p className="truncate text-[11px] text-muted-foreground">
-              {isStreaming
-                ? "Thinking..."
-                : sessionActivity
-                  ? `${sessionActivity.agentId} · Active ${formatTimeAgo(sessionActivity.updatedAt)}`
-                  : ""}
-            </p>
+          {currentModel && (
+            <p className="truncate text-[11px] text-muted-foreground">{currentModel}</p>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className={`h-2 w-2 rounded-full ${
-            connectionState === "connected"
-              ? "bg-green-500"
-              : connectionState === "connecting"
-                ? "bg-yellow-500 animate-pulse"
-                : "bg-red-500"
-          }`} />
-          <span className="text-[11px] text-muted-foreground">
-            {connectionState === "connected"
-              ? "Connected"
-              : connectionState === "connecting"
-                ? "Connecting..."
-                : "Disconnected"}
-          </span>
+          {isDemoMode ? (
+            <>
+              <span className="h-2 w-2 rounded-full bg-blue-500" />
+              <span className="text-[11px] text-muted-foreground">Demo</span>
+            </>
+          ) : (
+            <>
+              <span className={`h-2 w-2 rounded-full ${
+                connectionState === "connected"
+                  ? "bg-green-500"
+                  : connectionState === "connecting"
+                    ? "bg-yellow-500 animate-pulse"
+                    : "bg-red-500"
+              }`} />
+              <span className="text-[11px] text-muted-foreground">
+                {connectionState === "connected"
+                  ? "Connected"
+                  : connectionState === "connecting"
+                    ? "Connecting..."
+                    : "Disconnected"}
+              </span>
+            </>
+          )}
         </div>
       </header>
 
-      <main ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6 pb-28 md:px-6 md:py-4 md:pb-28">
+      <div ref={pullContentRef} className="flex flex-1 flex-col overflow-hidden">
+      <main
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto overflow-x-hidden"
+        style={{ overscrollBehavior: "none" }}
+      >
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 pb-28 md:px-6 md:py-4 md:pb-28">
           {messages.map((msg, idx) => {
             const side = getMessageSide(msg.role);
             const prevSide = idx > 0 ? getMessageSide(messages[idx - 1].role) : null;
@@ -1895,7 +2201,7 @@ export default function Home() {
                   </div>
                 )}
                 {showTimestamp && isNewTurn && msg.timestamp && (
-                  <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left pl-10 md:pl-12"}`}>
+                  <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
                     {formatMessageTime(msg.timestamp)}
                   </p>
                 )}
@@ -1903,21 +2209,32 @@ export default function Home() {
               </React.Fragment>
             );
           })}
+          {isStreaming && !streamingId && <ThinkingIndicator />}
           <div ref={bottomRef} />
         </div>
       </main>
+      {/* Pull-to-refresh spinner — outside scroll container to avoid affecting scrollHeight.
+          h-0 so no layout space; overflow-visible so SVG still renders when revealed. */}
+      <div
+        ref={pullSpinnerRef}
+        className="flex h-0 items-center justify-center overflow-visible"
+        style={{ opacity: 0 }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground" style={{ animation: "none" }}>
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+      </div>
+      </div>
 
       {/* Floating morphing bar -- driven by continuous scrollProgress (0=bottom, 1=scrolled) */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-3 md:px-6 md:pb-4">
-        <div className="pointer-events-auto w-full max-w-2xl">
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh]">
+        <div ref={morphRef} className="pointer-events-auto w-full max-w-2xl" style={{ "--sp": "0" } as React.CSSProperties}>
           <ChatInput
             onSend={sendMessage}
-            isStreaming={isStreaming}
-            onStop={stopStreaming}
             onOpenCommands={() => setCommandsOpen(true)}
             commandValue={pendingCommand}
             onCommandValueUsed={clearPendingCommand}
-            scrollProgress={scrollProgress}
+            scrollPhase={scrollPhase}
             onScrollToBottom={scrollToBottom}
           />
         </div>

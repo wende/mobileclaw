@@ -8,6 +8,12 @@ import { LocatorProvider } from './LocatorProvider'
 const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+}
+
 export const metadata: Metadata = {
   title: 'OpenClaw Chat',
   description: 'A minimal, animated chat interface with real-time streaming',
