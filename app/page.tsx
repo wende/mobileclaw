@@ -940,18 +940,19 @@ function ChatInput({
 
 // ── Setup Dialog ─────────────────────────────────────────────────────────────
 
-function SetupDialog({ 
-  onConnect, 
-  visible, 
+function SetupDialog({
+  onConnect,
+  visible,
   connectionState,
-  connectionError 
-}: { 
-  onConnect: (url: string) => void; 
+  connectionError
+}: {
+  onConnect: (url: string, token?: string) => void;
   visible: boolean;
   connectionState?: "connecting" | "connected" | "disconnected" | "error";
   connectionError?: string | null;
 }) {
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState("ws://127.0.0.1:18789");
+  const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const [phase, setPhase] = useState<"idle" | "entering" | "open" | "closing" | "closed">("idle");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -988,7 +989,7 @@ function SetupDialog({
     setPhase("closing");
     setTimeout(() => {
       setPhase("closed");
-      onConnect(trimmed);
+      onConnect(trimmed, token.trim() || undefined);
     }, 500);
   };
 
@@ -1066,6 +1067,23 @@ function SetupDialog({
           {connectionError && <p className="mt-1.5 text-xs text-destructive">{connectionError}</p>}
         </div>
 
+        {/* Token input */}
+        <div className="mb-4">
+          <label htmlFor="openclaw-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+            Gateway Token <span className="text-muted-foreground/60">(optional)</span>
+          </label>
+          <input
+            id="openclaw-token"
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+            placeholder="Enter gateway auth token"
+            disabled={isConnecting}
+            className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+          />
+        </div>
+
         {/* Connect button */}
         <button
           type="button"
@@ -1112,6 +1130,7 @@ export default function Home() {
   // Track active run for streaming
   const activeRunIdRef = useRef<string | null>(null);
   const sendWSMessageRef = useRef<((message: WebSocketMessage) => boolean) | null>(null);
+  const gatewayTokenRef = useRef<string | null>(null);
 
   // WebSocket message handler - OpenClaw protocol
   const handleWSMessage = useCallback((data: WebSocketMessage) => {
@@ -1123,8 +1142,7 @@ export default function Home() {
       const payload = msg.payload as ConnectChallengePayload;
       console.log("[WS] Connect challenge received, nonce:", payload.nonce);
       
-      // Respond with connect request
-      // Complete schema per OpenClaw protocol
+      // Respond with connect request with token auth
       const connectMsg = {
         type: "req",
         id: `conn-${Date.now()}`,
@@ -1141,6 +1159,9 @@ export default function Home() {
           role: "operator",
           scopes: ["operator.admin"],
           caps: [],
+          auth: {
+            token: gatewayTokenRef.current ?? undefined,
+          },
         },
       };
       console.log("[WS] Sending connect:", connectMsg);
@@ -1367,25 +1388,28 @@ export default function Home() {
     sendWSMessageRef.current = sendWSMessage;
   }, [sendWSMessage]);
 
-  // Check localStorage on mount for previously saved URL
+  // Check localStorage on mount for previously saved URL and token
   useEffect(() => {
     const saved = window.localStorage.getItem("openclaw-url");
-    if (saved) {
-      setOpenclawUrl(saved);
-      // Only connect if URL is provided (not mock mode)
-      if (saved.trim()) {
-        // If URL starts with ws:// or wss://, use it directly
-        let wsUrl = saved;
-        if (!saved.startsWith("ws://") && !saved.startsWith("wss://")) {
-          wsUrl = saved.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
-        }
-        connect(wsUrl);
+    const savedToken = window.localStorage.getItem("openclaw-token");
+    if (savedToken) gatewayTokenRef.current = savedToken;
+    const url = saved || "http://localhost:18789/";
+    setOpenclawUrl(url);
+    // Only connect if URL is provided (not mock mode)
+    if (url.trim()) {
+      // If URL starts with ws:// or wss://, use it directly
+      let wsUrl = url;
+      if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
+        wsUrl = url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
       }
+      connect(wsUrl);
     }
   }, [connect]);
 
-  const handleConnect = useCallback((url: string) => {
+  const handleConnect = useCallback((url: string, token?: string) => {
     window.localStorage.setItem("openclaw-url", url);
+    if (token) window.localStorage.setItem("openclaw-token", token);
+    gatewayTokenRef.current = token ?? null;
     setOpenclawUrl(url);
     setConnectionError(null);
     // Only connect if URL is provided

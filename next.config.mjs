@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  assetPrefix: '/v0',
   typescript: {
     ignoreBuildErrors: true,
   },
