@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useWebSocket, type WebSocketMessage } from "@/lib/useWebSocket";
 import { getToolDisplay } from "@/lib/toolDisplay";
 import { DEMO_HISTORY, createDemoHandler, type DemoCallbacks } from "@/lib/demoMode";
+import { fetchLmStudioModels, createLmStudioHandler, type LmStudioConfig, type LmStudioCallbacks, type LmStudioModel } from "@/lib/lmStudio";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,14 @@ interface WSHello {
 
 type WSIncomingMessage = WSResponse | WSEvent | WSHello;
 
+type BackendMode = "openclaw" | "lmstudio" | "demo";
+
+interface ConnectionConfig {
+  mode: BackendMode;
+  url: string;
+  token?: string;
+  model?: string;
+}
 
 function getTextFromContent(content: ContentPart[] | string | null): string {
   if (!content) return "";
@@ -1090,13 +1099,20 @@ function SetupDialog({
   connectionState,
   connectionError
 }: {
-  onConnect: (url: string, token?: string) => void;
+  onConnect: (config: ConnectionConfig) => void;
   visible: boolean;
   connectionState?: "connecting" | "connected" | "disconnected" | "error";
   connectionError?: string | null;
 }) {
+  const [mode, setMode] = useState<"openclaw" | "lmstudio">("openclaw");
   const [url, setUrl] = useState("ws://127.0.0.1:18789");
   const [token, setToken] = useState("");
+  const [lmsUrl, setLmsUrl] = useState("http://127.0.0.1:1234");
+  const [lmsApiKey, setLmsApiKey] = useState("");
+  const [lmsModel, setLmsModel] = useState("");
+  const [lmsModels, setLmsModels] = useState<LmStudioModel[]>([]);
+  const [lmsModelLoading, setLmsModelLoading] = useState(false);
+  const [lmsModelError, setLmsModelError] = useState("");
   const [error, setError] = useState("");
   const [phase, setPhase] = useState<"idle" | "entering" | "open" | "closing" | "closed">("idle");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1105,11 +1121,20 @@ function SetupDialog({
   useEffect(() => {
     if (visible && (phase === "closed" || phase === "idle")) {
       // Pre-fill from localStorage if available
+      const savedMode = window.localStorage.getItem("mobileclaw-mode") as "openclaw" | "lmstudio" | null;
+      if (savedMode === "openclaw" || savedMode === "lmstudio") setMode(savedMode);
       const savedUrl = window.localStorage.getItem("openclaw-url");
       const savedToken = window.localStorage.getItem("openclaw-token");
       if (savedUrl) setUrl(savedUrl);
       if (savedToken) setToken(savedToken);
+      const savedLmsUrl = window.localStorage.getItem("lmstudio-url");
+      const savedLmsApiKey = window.localStorage.getItem("lmstudio-apikey");
+      const savedLmsModel = window.localStorage.getItem("lmstudio-model");
+      if (savedLmsUrl) setLmsUrl(savedLmsUrl);
+      if (savedLmsApiKey) setLmsApiKey(savedLmsApiKey);
+      if (savedLmsModel) setLmsModel(savedLmsModel);
       setError("");
+      setLmsModelError("");
       requestAnimationFrame(() => {
         setPhase("entering");
         requestAnimationFrame(() => setPhase("open"));
@@ -1128,23 +1153,72 @@ function SetupDialog({
     }
   }, [phase]);
 
+  // Fetch LM Studio models when URL changes and mode is lmstudio
+  const fetchModels = useCallback(async (baseUrl: string, apiKey?: string) => {
+    const trimmed = baseUrl.trim();
+    if (!trimmed) return;
+    setLmsModelLoading(true);
+    setLmsModelError("");
+    try {
+      const models = await fetchLmStudioModels(trimmed, apiKey || undefined);
+      setLmsModels(models);
+      // Auto-select first model if none selected
+      if (models.length > 0 && !lmsModel) {
+        setLmsModel(models[0].id);
+      }
+    } catch (err) {
+      setLmsModelError((err as Error).message || "Cannot reach server");
+      setLmsModels([]);
+    } finally {
+      setLmsModelLoading(false);
+    }
+  }, [lmsModel]);
+
   const handleSubmit = () => {
-    const trimmed = url.trim();
-    // Allow empty URL for mock mode
-    if (trimmed) {
+    if (mode === "openclaw") {
+      const trimmed = url.trim();
+      // Allow empty URL for mock mode
+      if (trimmed) {
+        try {
+          new URL(trimmed);
+        } catch {
+          setError("Please enter a valid URL or leave empty for demo mode");
+          return;
+        }
+      }
+      setError("");
+      setPhase("closing");
+      setTimeout(() => {
+        setPhase("closed");
+        if (!trimmed) {
+          onConnect({ mode: "demo", url: "" });
+        } else {
+          onConnect({ mode: "openclaw", url: trimmed, token: token.trim() || undefined });
+        }
+      }, 500);
+    } else {
+      const trimmed = lmsUrl.trim();
+      if (!trimmed) {
+        setError("Please enter the LM Studio server URL");
+        return;
+      }
       try {
         new URL(trimmed);
       } catch {
-        setError("Please enter a valid URL or leave empty for mock mode");
+        setError("Please enter a valid URL");
         return;
       }
+      if (!lmsModel) {
+        setError("Please select a model");
+        return;
+      }
+      setError("");
+      setPhase("closing");
+      setTimeout(() => {
+        setPhase("closed");
+        onConnect({ mode: "lmstudio", url: trimmed, token: lmsApiKey.trim() || undefined, model: lmsModel });
+      }, 500);
     }
-    setError("");
-    setPhase("closing");
-    setTimeout(() => {
-      setPhase("closed");
-      onConnect(trimmed, token.trim() || undefined);
-    }, 500);
   };
 
   if (phase === "closed" || (!visible && phase === "idle")) return null;
@@ -1190,55 +1264,172 @@ function SetupDialog({
               boxShadow: isClosing ? "0 0 20px oklch(0.55 0 0 / 0.15)" : "none",
             }}
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-foreground">
-              <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
-            </svg>
+            {mode === "lmstudio" ? (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-foreground">
+                <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M7 8h10" /><path d="M7 12h10" /><path d="M7 16h6" />
+              </svg>
+            ) : (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-foreground">
+                <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
+              </svg>
+            )}
           </div>
         </div>
 
         <h2 className="mb-1 text-center text-lg font-semibold text-foreground">Connect to MobileClaw</h2>
-        <p className="mb-5 text-center text-sm text-muted-foreground">
-          Enter server URL (https:// or http://) or leave empty for mock mode.
+        <p className="mb-4 text-center text-sm text-muted-foreground">
+          Choose a backend and configure your connection.
         </p>
 
-        {/* URL input */}
-        <div className="mb-4">
-          <label htmlFor="openclaw-url" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-            Server URL
-          </label>
-          <input
-            ref={inputRef}
-            id="openclaw-url"
-            type="url"
-            value={url}
-            onChange={(e) => { setUrl(e.target.value); setError(""); }}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-            placeholder="ws://127.0.0.1:18789"
-            disabled={isConnecting}
-            className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error || connectionError ? "border-destructive" : "border-border"}`}
-          />
-          {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
-          {connectionError && <p className="mt-1.5 text-xs text-destructive">{connectionError}</p>}
+        {/* Mode selector — segmented control */}
+        <div className="mb-4 flex rounded-xl border border-border bg-secondary p-0.5">
+          <button
+            type="button"
+            onClick={() => { setMode("openclaw"); setError(""); }}
+            className={`flex-1 rounded-[10px] py-1.5 text-xs font-medium transition-all duration-200 ${mode === "openclaw" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            OpenClaw
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMode("lmstudio"); setError(""); }}
+            className={`flex-1 rounded-[10px] py-1.5 text-xs font-medium transition-all duration-200 ${mode === "lmstudio" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            LM Studio
+          </button>
         </div>
 
-        {/* Token input — hidden when URL is empty (demo mode) */}
-        {url.trim() && (
-          <div className="mb-4">
-            <label htmlFor="openclaw-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Gateway Token <span className="text-muted-foreground/60">(optional)</span>
-            </label>
-            <input
-              id="openclaw-token"
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-              placeholder="Enter gateway auth token"
-              disabled={isConnecting}
-              className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-            />
-          </div>
+        {mode === "openclaw" ? (
+          <>
+            {/* URL input */}
+            <div className="mb-4">
+              <label htmlFor="openclaw-url" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Server URL
+              </label>
+              <input
+                ref={inputRef}
+                id="openclaw-url"
+                type="url"
+                value={url}
+                onChange={(e) => { setUrl(e.target.value); setError(""); }}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+                placeholder="ws://127.0.0.1:18789"
+                disabled={isConnecting}
+                className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error || connectionError ? "border-destructive" : "border-border"}`}
+              />
+            </div>
+
+            {/* Token input — hidden when URL is empty (demo mode) */}
+            {url.trim() && (
+              <div className="mb-4">
+                <label htmlFor="openclaw-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  Gateway Token <span className="text-muted-foreground/60">(optional)</span>
+                </label>
+                <input
+                  id="openclaw-token"
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+                  placeholder="Enter gateway auth token"
+                  disabled={isConnecting}
+                  className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                />
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {/* LM Studio URL */}
+            <div className="mb-4">
+              <label htmlFor="lmstudio-url" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                LM Studio URL
+              </label>
+              <div className="flex gap-2">
+                <input
+                  ref={inputRef}
+                  id="lmstudio-url"
+                  type="url"
+                  value={lmsUrl}
+                  onChange={(e) => { setLmsUrl(e.target.value); setError(""); setLmsModelError(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+                  placeholder="http://127.0.0.1:1234"
+                  disabled={isConnecting}
+                  className={`flex-1 rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error || connectionError || lmsModelError ? "border-destructive" : "border-border"}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => fetchModels(lmsUrl, lmsApiKey)}
+                  disabled={lmsModelLoading || !lmsUrl.trim()}
+                  className="shrink-0 rounded-xl border border-border bg-secondary px-3 py-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {lmsModelLoading ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" /><path d="M16 16h5v5" />
+                    </svg>
+                  )}
+                  Fetch
+                </button>
+              </div>
+              {lmsModelError && <p className="mt-1.5 text-xs text-destructive">{lmsModelError}</p>}
+            </div>
+
+            {/* API Key (optional) */}
+            <div className="mb-4">
+              <label htmlFor="lmstudio-apikey" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                API Key <span className="text-muted-foreground/60">(optional)</span>
+              </label>
+              <input
+                id="lmstudio-apikey"
+                type="password"
+                value={lmsApiKey}
+                onChange={(e) => setLmsApiKey(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+                placeholder="lm-studio or leave empty"
+                disabled={isConnecting}
+                className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              />
+            </div>
+
+            {/* Model selector */}
+            <div className="mb-4">
+              <label htmlFor="lmstudio-model" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Model
+              </label>
+              {lmsModels.length > 0 ? (
+                <select
+                  id="lmstudio-model"
+                  value={lmsModel}
+                  onChange={(e) => setLmsModel(e.target.value)}
+                  disabled={isConnecting}
+                  className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 appearance-none"
+                >
+                  {lmsModels.map((m) => (
+                    <option key={m.id} value={m.id}>{m.id}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  id="lmstudio-model"
+                  type="text"
+                  value={lmsModel}
+                  onChange={(e) => { setLmsModel(e.target.value); setError(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+                  placeholder="Click Fetch or type model name"
+                  disabled={isConnecting}
+                  className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error ? "border-destructive" : "border-border"}`}
+                />
+              )}
+            </div>
+          </>
         )}
+
+        {error && <p className="mb-3 text-xs text-destructive">{error}</p>}
+        {connectionError && <p className="mb-3 text-xs text-destructive">{connectionError}</p>}
 
         {/* Connect button */}
         <button
@@ -1254,16 +1445,18 @@ function SetupDialog({
               </svg>
               Connecting...
             </>
-          ) : url.trim() ? (
-            "Connect"
-          ) : (
+          ) : mode === "openclaw" && !url.trim() ? (
             "Start Demo"
+          ) : (
+            "Connect"
           )}
         </button>
 
-        <p className="mt-3 text-center text-[11px] text-muted-foreground/60">
-          Leave empty to use mock mode without a server
-        </p>
+        {mode === "openclaw" && (
+          <p className="mt-3 text-center text-[11px] text-muted-foreground/60">
+            Leave empty to use demo mode without a server
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1304,6 +1497,11 @@ export default function Home() {
   const sessionKeyRef = useRef<string>("main");
   const [isDemoMode, setIsDemoMode] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
+
+  // Backend mode: openclaw (WebSocket), lmstudio (HTTP+SSE), or demo
+  const [backendMode, setBackendMode] = useState<BackendMode>("openclaw");
+  const lmStudioConfigRef = useRef<LmStudioConfig | null>(null);
+  const lmStudioHandlerRef = useRef<ReturnType<typeof createLmStudioHandler> | null>(null);
 
   // Track active run for streaming
   const activeRunIdRef = useRef<string | null>(null);
@@ -1730,6 +1928,7 @@ export default function Home() {
     const params = new URLSearchParams(window.location.search);
     if (params.has("demo")) {
       setIsDemoMode(true);
+      setBackendMode("demo");
       setMessages(DEMO_HISTORY);
       setCurrentModel("demo/openclaw-preview");
       setShowSetup(false);
@@ -1804,6 +2003,81 @@ export default function Home() {
     demoHandlerRef.current = createDemoHandler(callbacks);
   }, [isDemoMode]);
 
+  // LM Studio mode: create handler with callbacks
+  useEffect(() => {
+    if (backendMode !== "lmstudio" || !lmStudioConfigRef.current) {
+      lmStudioHandlerRef.current = null;
+      return;
+    }
+    const config = lmStudioConfigRef.current;
+    const callbacks: LmStudioCallbacks = {
+      onStreamStart: (runId) => {
+        setIsStreaming(true);
+        setStreamingId(runId);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: [], id: runId, timestamp: Date.now() },
+        ]);
+      },
+      onThinking: (runId, text) => {
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === runId);
+          if (idx < 0) return prev;
+          return [...prev.slice(0, idx), { ...prev[idx], reasoning: text }, ...prev.slice(idx + 1)];
+        });
+      },
+      onTextDelta: (runId, _delta, fullText) => {
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === runId);
+          if (idx < 0) return prev;
+          const target = prev[idx];
+          // Preserve existing tool_call parts, update only the text part
+          const existingParts = Array.isArray(target.content) ? target.content.filter((p: ContentPart) => p.type !== "text") : [];
+          return [
+            ...prev.slice(0, idx),
+            { ...target, content: [...existingParts, { type: "text", text: fullText }] },
+            ...prev.slice(idx + 1),
+          ];
+        });
+      },
+      onToolStart: (runId, name, args) => {
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === runId);
+          if (idx < 0) return prev;
+          const target = prev[idx];
+          const parts = Array.isArray(target.content) ? target.content : [];
+          return [
+            ...prev.slice(0, idx),
+            { ...target, content: [...parts, { type: "tool_call", name, arguments: args, status: "running" as const }] },
+            ...prev.slice(idx + 1),
+          ];
+        });
+      },
+      onToolEnd: (runId, name, result, isError) => {
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === runId);
+          if (idx < 0) return prev;
+          const target = prev[idx];
+          if (!Array.isArray(target.content)) return prev;
+          const updated = target.content.map((p: ContentPart) =>
+            p.type === "tool_call" && p.name === name && p.status === "running"
+              ? { ...p, status: (isError ? "error" : "success") as "error" | "success", result: result || undefined, resultError: isError }
+              : p
+          );
+          return [...prev.slice(0, idx), { ...target, content: updated }, ...prev.slice(idx + 1)];
+        });
+      },
+      onStreamEnd: (runId) => {
+        setIsStreaming(false);
+        setStreamingId(null);
+      },
+      onError: (runId, error) => {
+        setConnectionError(error);
+      },
+    };
+    lmStudioHandlerRef.current = createLmStudioHandler(config, callbacks);
+  }, [backendMode]);
+
   // Track scroll position — continuous CSS var for animations, React state only for pointer-events phase
   const handleScroll = useCallback(() => {
     if (scrollRafId.current != null) return;
@@ -1860,14 +2134,24 @@ export default function Home() {
     refreshStartRef.current = Date.now();
     // Hold at a small offset to show spinner — bounce back happens when history arrives
     setPullTransform(40, true);
-    // Re-fetch history
+    // LM Studio and demo modes have no server-side history — just bounce back
+    if (backendMode === "lmstudio" || backendMode === "demo") {
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          setPullTransform(0, true);
+          setRefreshing(false);
+        });
+      }, 300);
+      return;
+    }
+    // Re-fetch history (OpenClaw)
     sendWSMessageRef.current?.({
       type: "req",
       id: `history-${Date.now()}`,
       method: "chat.history",
       params: { sessionKey: sessionKeyRef.current },
     } as unknown as WebSocketMessage);
-  }, [setPullTransform]);
+  }, [setPullTransform, backendMode]);
 
   // Pull-up-to-refresh touch handlers — direct DOM transforms, no React re-renders
 
@@ -1958,53 +2242,100 @@ export default function Home() {
   useEffect(() => {
     // Skip auto-connect in demo mode
     if (isDemoMode) return;
-    const saved = window.localStorage.getItem("openclaw-url");
-    const savedToken = window.localStorage.getItem("openclaw-token");
-    if (savedToken) gatewayTokenRef.current = savedToken;
-    // Only auto-connect if there's actually a saved URL
-    if (saved) {
-      setOpenclawUrl(saved);
-      let wsUrl = saved;
-      if (!saved.startsWith("ws://") && !saved.startsWith("wss://")) {
-        wsUrl = saved.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+    const savedMode = window.localStorage.getItem("mobileclaw-mode") as BackendMode | null;
+
+    if (savedMode === "lmstudio") {
+      const savedUrl = window.localStorage.getItem("lmstudio-url");
+      const savedApiKey = window.localStorage.getItem("lmstudio-apikey");
+      const savedModel = window.localStorage.getItem("lmstudio-model");
+      if (savedUrl && savedModel) {
+        setBackendMode("lmstudio");
+        const config: LmStudioConfig = { baseUrl: savedUrl, apiKey: savedApiKey || undefined, model: savedModel };
+        lmStudioConfigRef.current = config;
+        setCurrentModel(savedModel);
+        setOpenclawUrl(savedUrl);
+      } else {
+        setShowSetup(true);
       }
-      connect(wsUrl);
     } else {
-      // No saved config — show setup dialog
-      setShowSetup(true);
+      const saved = window.localStorage.getItem("openclaw-url");
+      const savedToken = window.localStorage.getItem("openclaw-token");
+      if (savedToken) gatewayTokenRef.current = savedToken;
+      if (saved) {
+        setBackendMode("openclaw");
+        setOpenclawUrl(saved);
+        let wsUrl = saved;
+        if (!saved.startsWith("ws://") && !saved.startsWith("wss://")) {
+          wsUrl = saved.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+        }
+        connect(wsUrl);
+      } else {
+        setShowSetup(true);
+      }
     }
   }, [connect, isDemoMode]);
 
-  const handleConnect = useCallback((url: string, token?: string) => {
-    window.localStorage.setItem("openclaw-url", url);
-    if (token) window.localStorage.setItem("openclaw-token", token);
-    gatewayTokenRef.current = token ?? null;
-    setOpenclawUrl(url);
+  const handleConnect = useCallback((config: ConnectionConfig) => {
     setConnectionError(null);
-    if (!url) {
-      // Empty URL — enter demo mode
+    setMessages([]);
+
+    if (config.mode === "demo") {
+      window.localStorage.setItem("mobileclaw-mode", "demo");
+      window.localStorage.removeItem("openclaw-url");
+      setBackendMode("demo");
       setIsDemoMode(true);
       setMessages(DEMO_HISTORY);
       setCurrentModel("demo/openclaw-preview");
       return;
     }
-    // If URL starts with ws:// or wss://, use it directly
-    // Otherwise, convert http:// to ws:// and https:// to wss://
-    let wsUrl = url;
-    if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
-      wsUrl = url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+
+    if (config.mode === "lmstudio") {
+      window.localStorage.setItem("mobileclaw-mode", "lmstudio");
+      window.localStorage.setItem("lmstudio-url", config.url);
+      if (config.token) window.localStorage.setItem("lmstudio-apikey", config.token);
+      else window.localStorage.removeItem("lmstudio-apikey");
+      if (config.model) window.localStorage.setItem("lmstudio-model", config.model);
+      setBackendMode("lmstudio");
+      setIsDemoMode(false);
+      const lmsConfig: LmStudioConfig = { baseUrl: config.url, apiKey: config.token, model: config.model! };
+      lmStudioConfigRef.current = lmsConfig;
+      setCurrentModel(config.model || null);
+      setOpenclawUrl(config.url);
+      // Disconnect any existing WebSocket
+      disconnect();
+      return;
+    }
+
+    // OpenClaw mode
+    window.localStorage.setItem("mobileclaw-mode", "openclaw");
+    window.localStorage.setItem("openclaw-url", config.url);
+    if (config.token) window.localStorage.setItem("openclaw-token", config.token);
+    gatewayTokenRef.current = config.token ?? null;
+    setBackendMode("openclaw");
+    setIsDemoMode(false);
+    lmStudioConfigRef.current = null;
+    lmStudioHandlerRef.current = null;
+    setOpenclawUrl(config.url);
+    let wsUrl = config.url;
+    if (!config.url.startsWith("ws://") && !config.url.startsWith("wss://")) {
+      wsUrl = config.url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
     }
     connect(wsUrl);
-  }, [connect]);
+  }, [connect, disconnect]);
 
   const handleDisconnect = useCallback(() => {
     disconnect();
+    lmStudioHandlerRef.current?.stop();
+    lmStudioHandlerRef.current = null;
+    lmStudioConfigRef.current = null;
     window.localStorage.removeItem("openclaw-url");
+    window.localStorage.removeItem("mobileclaw-mode");
     setOpenclawUrl(null);
     setMessages([]);
     setIsStreaming(false);
     setStreamingId(null);
     setConnectionError(null);
+    setBackendMode("openclaw");
   }, [disconnect]);
 
   // Auto-scroll: on non-streaming message changes (history load, new user message), scroll to bottom
@@ -2070,11 +2401,25 @@ export default function Home() {
     setMessages((prev) => [...prev, userMsg]);
 
     // Demo mode — route through local handler
-    if (isDemoMode) {
+    if (isDemoMode || backendMode === "demo") {
       demoHandlerRef.current?.sendMessage(text);
       return;
     }
 
+    // LM Studio mode — route through HTTP+SSE handler
+    if (backendMode === "lmstudio") {
+      // Send the full conversation history (including the new user message) to LM Studio
+      setMessages((prev) => {
+        // Use a microtask to send after state is updated
+        Promise.resolve().then(() => {
+          lmStudioHandlerRef.current?.sendMessage(prev);
+        });
+        return prev;
+      });
+      return;
+    }
+
+    // OpenClaw mode — WebSocket
     if (!isConnected) return;
 
     // Generate idempotency key for this run
@@ -2095,7 +2440,7 @@ export default function Home() {
     sendWSMessageRef.current?.(requestMsg as unknown as WebSocketMessage);
 
     setIsStreaming(true);
-  }, [isConnected, isDemoMode]);
+  }, [isConnected, isDemoMode, backendMode]);
 
   const handleCommandSelect = useCallback((command: string) => {
     setPendingCommand(command);
@@ -2110,9 +2455,9 @@ export default function Home() {
     <div ref={appRef} className="flex flex-col overflow-hidden bg-background" style={{ height: "100dvh" }}>
       {/* Setup dialog */}
       <SetupDialog
-        onConnect={(url, token) => {
+        onConnect={(config) => {
           setShowSetup(false);
-          handleConnect(url, token);
+          handleConnect(config);
         }}
         visible={showSetup}
         connectionState={connectionState}
@@ -2151,10 +2496,15 @@ export default function Home() {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {isDemoMode ? (
+          {isDemoMode || backendMode === "demo" ? (
             <>
               <span className="h-2 w-2 rounded-full bg-blue-500" />
               <span className="text-[11px] text-muted-foreground">Demo</span>
+            </>
+          ) : backendMode === "lmstudio" ? (
+            <>
+              <span className="h-2 w-2 rounded-full bg-green-500" />
+              <span className="text-[11px] text-muted-foreground">LM Studio</span>
             </>
           ) : (
             <>
