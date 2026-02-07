@@ -618,21 +618,39 @@ function MessageRow({ message, isStreaming }: { message: Message; isStreaming: b
             <ImageThumbnails images={images} />
           </>
         ) : (
-          <>
-            {text && (
-              <div className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
-                {isStreaming ? (
-                  <StreamingText text={text} isStreaming={isStreaming} />
-                ) : (
-                  <MarkdownContent text={text} />
-                )}
-              </div>
-            )}
-          </>
+          /* Render content parts in array order so tool calls appear inline where they occurred */
+          Array.isArray(message.content) ? message.content.map((part, i) => {
+            if (part.type === "text" && part.text) {
+              const isLastText = !(message.content as ContentPart[]).slice(i + 1).some((p) => p.type === "text" && p.text);
+              return (
+                <div key={`text-${i}`} className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
+                  {isStreaming && isLastText ? (
+                    <StreamingText text={part.text} isStreaming={isStreaming} />
+                  ) : (
+                    <MarkdownContent text={part.text} />
+                  )}
+                </div>
+              );
+            }
+            if (part.type === "tool_call" || part.type === "toolCall") {
+              return (
+                <ToolCallPill key={`tc-${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status as "running" | "success" | "error" | undefined} result={part.result} resultError={part.resultError} />
+              );
+            }
+            if (part.type === "image" || part.type === "image_url") {
+              return <ImageThumbnails key={`img-${i}`} images={[part]} />;
+            }
+            return null;
+          }) : text ? (
+            <div className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
+              {isStreaming ? (
+                <StreamingText text={text} isStreaming={isStreaming} />
+              ) : (
+                <MarkdownContent text={text} />
+              )}
+            </div>
+          ) : null
         )}
-        {toolCalls.map((tc, i) => (
-          <ToolCallPill key={`${tc.name}-${i}`} name={tc.name || "tool"} args={typeof tc.arguments === "string" ? tc.arguments : tc.arguments ? JSON.stringify(tc.arguments) : undefined} status={tc.status as "running" | "success" | "error" | undefined} result={tc.result} resultError={tc.resultError} />
-        ))}
       </div>
     </div>
   );
@@ -1088,12 +1106,14 @@ function SetupDialog({
   onConnect,
   visible,
   connectionState,
-  connectionError
+  connectionError,
+  isDemoMode,
 }: {
   onConnect: (url: string, token?: string) => void;
   visible: boolean;
   connectionState?: "connecting" | "connected" | "disconnected" | "error";
   connectionError?: string | null;
+  isDemoMode?: boolean;
 }) {
   const [url, setUrl] = useState("ws://127.0.0.1:18789");
   const [token, setToken] = useState("");
@@ -1198,7 +1218,9 @@ function SetupDialog({
 
         <h2 className="mb-1 text-center text-lg font-semibold text-foreground">Connect to MobileClaw</h2>
         <p className="mb-5 text-center text-sm text-muted-foreground">
-          Enter server URL (https:// or http://) or leave empty for mock mode.
+          {isDemoMode
+            ? "Demo environment — no server needed. Carry on."
+            : "Enter server URL (https:// or http://) or leave empty for mock mode."}
         </p>
 
         {/* URL input */}
@@ -1210,40 +1232,38 @@ function SetupDialog({
             ref={inputRef}
             id="openclaw-url"
             type="url"
-            value={url}
+            value={isDemoMode ? "" : url}
             onChange={(e) => { setUrl(e.target.value); setError(""); }}
             onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-            placeholder="ws://127.0.0.1:18789"
-            disabled={isConnecting}
+            placeholder={isDemoMode ? "Not needed in demo mode" : "ws://127.0.0.1:18789"}
+            disabled={isConnecting || isDemoMode}
             className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error || connectionError ? "border-destructive" : "border-border"}`}
           />
           {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
           {connectionError && <p className="mt-1.5 text-xs text-destructive">{connectionError}</p>}
         </div>
 
-        {/* Token input — hidden when URL is empty (demo mode) */}
-        {url.trim() && (
-          <div className="mb-4">
-            <label htmlFor="openclaw-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Gateway Token <span className="text-muted-foreground/60">(optional)</span>
-            </label>
-            <input
-              id="openclaw-token"
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-              placeholder="Enter gateway auth token"
-              disabled={isConnecting}
-              className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-            />
-          </div>
-        )}
+        {/* Token input */}
+        <div className="mb-4">
+          <label htmlFor="openclaw-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+            Gateway Token <span className="text-muted-foreground/60">(optional)</span>
+          </label>
+          <input
+            id="openclaw-token"
+            type="password"
+            value={isDemoMode ? "" : token}
+            onChange={(e) => setToken(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+            placeholder={isDemoMode ? "Not needed in demo mode" : "Enter gateway auth token"}
+            disabled={isConnecting || isDemoMode}
+            className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+          />
+        </div>
 
-        {/* Connect button */}
+        {/* Connect / Close button */}
         <button
           type="button"
-          onClick={handleSubmit}
+          onClick={isDemoMode ? () => { setPhase("closing"); setTimeout(() => setPhase("closed"), 500); } : handleSubmit}
           disabled={isConnecting}
           className="w-full rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
         >
@@ -1254,6 +1274,8 @@ function SetupDialog({
               </svg>
               Connecting...
             </>
+          ) : isDemoMode ? (
+            "Close"
           ) : url.trim() ? (
             "Connect"
           ) : (
@@ -1261,9 +1283,11 @@ function SetupDialog({
           )}
         </button>
 
-        <p className="mt-3 text-center text-[11px] text-muted-foreground/60">
-          Leave empty to use mock mode without a server
-        </p>
+        {!isDemoMode && (
+          <p className="mt-3 text-center text-[11px] text-muted-foreground/60">
+            Leave empty to use mock mode without a server
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1762,9 +1786,13 @@ export default function Home() {
         setMessages((prev) => {
           const idx = prev.findIndex((m) => m.id === runId);
           if (idx < 0) return prev;
+          const target = prev[idx];
+          // Preserve existing tool_call parts, only update/add the text part
+          const existingParts = Array.isArray(target.content) ? target.content : [];
+          const nonTextParts = existingParts.filter((p: ContentPart) => p.type !== "text");
           return [
             ...prev.slice(0, idx),
-            { ...prev[idx], content: [{ type: "text", text: fullText }] },
+            { ...target, content: [...nonTextParts, { type: "text", text: fullText }] },
             ...prev.slice(idx + 1),
           ];
         });
@@ -1956,8 +1984,9 @@ export default function Home() {
 
   // Check localStorage on mount for previously saved URL and token
   useEffect(() => {
-    // Skip auto-connect in demo mode
+    // Skip auto-connect in demo mode (check URL params directly to avoid race with state)
     if (isDemoMode) return;
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo")) return;
     const saved = window.localStorage.getItem("openclaw-url");
     const savedToken = window.localStorage.getItem("openclaw-token");
     if (savedToken) gatewayTokenRef.current = savedToken;
@@ -2117,6 +2146,7 @@ export default function Home() {
         visible={showSetup}
         connectionState={connectionState}
         connectionError={connectionError}
+        isDemoMode={isDemoMode}
       />
 
       {/* Command sheet rendered at root level so backdrop covers entire screen */}
