@@ -1120,8 +1120,9 @@ export default function Home() {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef(false);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const currentAssistantMsgRef = useRef<Message | null>(null);
@@ -1388,6 +1389,20 @@ export default function Home() {
     sendWSMessageRef.current = sendWSMessage;
   }, [sendWSMessage]);
 
+  // Track scroll position as continuous 0-1 progress
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const range = 120; // pixels over which the morph happens
+    const progress = Math.min(Math.max(distanceFromBottom / range, 0), 1);
+    setScrollProgress(progress);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
+
   // Check localStorage on mount for previously saved URL and token
   useEffect(() => {
     const saved = window.localStorage.getItem("openclaw-url");
@@ -1644,8 +1659,8 @@ export default function Home() {
         </button>
       </header>
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6 md:px-6 md:py-4">
+      <main ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6 pb-28 md:px-6 md:py-4 md:pb-28">
           {messages.map((msg, idx) => (
             <MessageRow key={msg.id || idx} message={msg} isStreaming={isStreaming && msg.id === streamingId} />
           ))}
@@ -1653,18 +1668,52 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="sticky bottom-0 border-t border-border bg-background/80 backdrop-blur-xl">
-        <div className="mx-auto w-full max-w-2xl px-4 py-3 md:px-6 md:py-4">
-          <ChatInput
-            onSend={sendMessage}
-            isStreaming={isStreaming}
-            onStop={stopStreaming}
-            onOpenCommands={() => setCommandsOpen(true)}
-            commandValue={pendingCommand}
-            onCommandValueUsed={clearPendingCommand}
-          />
+      {/* Floating morphing bar -- driven by continuous scrollProgress (0=bottom, 1=scrolled) */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-3 md:px-6 md:pb-4">
+        <div
+          onClick={scrollProgress > 0.5 ? scrollToBottom : undefined}
+          role={scrollProgress > 0.5 ? "button" : undefined}
+          tabIndex={scrollProgress > 0.5 ? 0 : undefined}
+          onKeyDown={scrollProgress > 0.5 ? (e) => { if (e.key === "Enter") scrollToBottom(); } : undefined}
+          className="pointer-events-auto relative rounded-2xl border border-border bg-card/90 shadow-lg backdrop-blur-xl"
+          style={{
+            height: `${56 - 16 * scrollProgress}px`,
+            padding: `${8 * (1 - scrollProgress)}px`,
+            width: `${100 - 60 * scrollProgress}%`,
+            maxWidth: `${672 - 392 * scrollProgress}px`,
+            cursor: scrollProgress > 0.5 ? "pointer" : "default",
+          }}
+        >
+          {/* Pill layer */}
+          <div
+            className="absolute inset-0 flex items-center justify-center gap-2 whitespace-nowrap text-xs font-medium text-muted-foreground"
+            style={{ opacity: scrollProgress }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <path d="m7 13 5 5 5-5" /><path d="M12 18V6" />
+            </svg>
+            <span>Scroll to bottom</span>
+          </div>
+
+          {/* Input layer */}
+          <div
+            className="h-full w-full"
+            style={{
+              opacity: 1 - scrollProgress,
+              pointerEvents: scrollProgress < 0.5 ? "auto" : "none",
+            }}
+          >
+            <ChatInput
+              onSend={sendMessage}
+              isStreaming={isStreaming}
+              onStop={stopStreaming}
+              onOpenCommands={() => setCommandsOpen(true)}
+              commandValue={pendingCommand}
+              onCommandValueUsed={clearPendingCommand}
+            />
+          </div>
         </div>
-      </footer>
+      </div>
     </div>
   );
 }
