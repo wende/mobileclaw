@@ -1056,15 +1056,15 @@ function ChatInput({
 
       {/* Morphing center: textarea ↔ scroll-to-bottom pill */}
       <div
-        className="relative flex-1 overflow-hidden rounded-2xl border border-border bg-card/90 shadow-lg backdrop-blur-xl transition-colors focus-within:border-ring"
+        className="relative flex-1 overflow-hidden rounded-2xl border border-border/50 shadow-lg backdrop-blur-sm transition-colors outline-none"
         onClick={isPill ? onScrollToBottom : undefined}
         role={isPill ? "button" : undefined}
         tabIndex={isPill ? 0 : undefined}
         onKeyDown={isPill ? (e: React.KeyboardEvent) => { if (e.key === "Enter") onScrollToBottom?.(); } : undefined}
         style={{
-          maxWidth: "calc(600px - 400px * var(--sp, 0))",
           height: "calc(46px - 6px * var(--sp, 0))",
           cursor: isPill ? "pointer" : "text",
+          background: "oklch(from var(--card) l c h / calc(0.9 - 0.5 * var(--sp, 0)))",
         } as React.CSSProperties}
       >
         {/* Pill overlay */}
@@ -1258,10 +1258,9 @@ function SetupDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center transition-all duration-500 ease-out"
+      className="absolute inset-0 z-50 flex items-center justify-center transition-all duration-500 ease-out"
       style={{
-        backgroundColor: isClosing ? "transparent" : undefined,
-        backdropFilter: isOpen ? "blur(8px)" : isClosing ? "blur(0px)" : "blur(0px)",
+        backdropFilter: isOpen ? "blur(8px)" : "blur(0px)",
         opacity: isClosing ? 0 : isOpen ? 1 : 0,
         pointerEvents: isClosing ? "none" : "auto",
       }}
@@ -1497,6 +1496,8 @@ export default function Home() {
   const [openclawUrl, setOpenclawUrl] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const isStreamingRef = useRef(false);
+  isStreamingRef.current = isStreaming;
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
@@ -1518,6 +1519,7 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const pullStartYRef = useRef<number | null>(null);
   const isPullingRef = useRef(false);
+  const didVibrateRef = useRef(false);
   const pullContentRef = useRef<HTMLDivElement>(null);
   const setPullTransformRef = useRef<(dist: number, animate: boolean) => void>(() => {});
   const refreshStartRef = useRef(0);
@@ -2145,6 +2147,16 @@ export default function Home() {
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
       // Update pinned state: consider pinned if within ~80px of bottom
       pinnedToBottomRef.current = distanceFromBottom < 80;
+      // While streaming and pinned, lock to input mode — auto-scroll causes
+      // distanceFromBottom to fluctuate which would flicker the morph animation
+      if (isStreamingRef.current && pinnedToBottomRef.current) {
+        morph.style.setProperty("--sp", "0");
+        if (scrollPhaseRef.current !== "input") {
+          scrollPhaseRef.current = "input";
+          setScrollPhase("input");
+        }
+        return;
+      }
       const range = 60;
       const progress = Math.min(Math.max(distanceFromBottom / range, 0), 1);
       morph.style.setProperty("--sp", progress.toFixed(3));
@@ -2161,7 +2173,7 @@ export default function Home() {
   }, []);
 
   // Pull-to-refresh
-  const PULL_THRESHOLD = 120;
+  const PULL_THRESHOLD = 60;
   const refreshingRef = useRef(false);
   const pullDistanceRef = useRef(0);
   refreshingRef.current = refreshing;
@@ -2220,6 +2232,7 @@ export default function Home() {
       if (isAtBottom()) {
         pullStartYRef.current = e.touches[0].clientY;
         isPullingRef.current = false;
+        didVibrateRef.current = false;
       }
     };
 
@@ -2240,6 +2253,10 @@ export default function Home() {
           ? raw
           : PULL_THRESHOLD + (raw - PULL_THRESHOLD) * 0.15;
         pullDistanceRef.current = dist;
+        if (dist >= PULL_THRESHOLD && !didVibrateRef.current) {
+          didVibrateRef.current = true;
+          navigator.vibrate?.(10);
+        }
         setPullTransform(dist, false);
         e.preventDefault();
       } else {
@@ -2525,7 +2542,7 @@ export default function Home() {
 
 
   return (
-    <div ref={appRef} className="flex flex-col overflow-hidden bg-background" style={{ height: "100dvh" }}>
+    <div ref={appRef} className="relative flex flex-col overflow-hidden bg-background" style={{ height: "100dvh" }}>
       {/* Setup dialog */}
       <SetupDialog
         onConnect={(config) => {
@@ -2600,7 +2617,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div ref={pullContentRef} className="flex flex-1 flex-col overflow-hidden">
+      <div ref={pullContentRef} className="flex flex-1 flex-col min-h-0">
       <main
         ref={scrollRef}
         onScroll={handleScroll}
@@ -2636,16 +2653,17 @@ export default function Home() {
           <div ref={bottomRef} />
         </div>
       </main>
-      {/* Pull-to-refresh spinner — outside scroll container to avoid affecting scrollHeight.
-          h-0 so no layout space; overflow-visible so SVG still renders when revealed. */}
+      {/* Pull-to-refresh spinner — inside pullContentRef so it translates up with the content.
+          h-0 + overflow-visible: no layout space, renders upward into the revealed gap. */}
       <div
         ref={pullSpinnerRef}
-        className="flex h-0 items-center justify-center overflow-visible"
-        style={{ opacity: 0 }}
+        className="flex h-0 items-center justify-center gap-2 overflow-visible"
+        style={{ opacity: 0, transform: "translateY(calc(-3dvh - 23px))" }}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground" style={{ animation: "none" }}>
           <path d="M21 12a9 9 0 1 1-6.219-8.56" />
         </svg>
+        <span className="text-sm leading-none">🦞</span>
       </div>
       </div>
 
@@ -2654,7 +2672,7 @@ export default function Home() {
         ref={floatingBarRef}
         className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh]"
       >
-        <div ref={morphRef} className="pointer-events-auto w-full max-w-2xl" style={{ "--sp": "0" } as React.CSSProperties}>
+        <div ref={morphRef} className="pointer-events-auto w-full" style={{ "--sp": "0", maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--sp, 0))), 42rem)" } as React.CSSProperties}>
           <ChatInput
             onSend={sendMessage}
             onOpenCommands={() => setCommandsOpen(true)}
