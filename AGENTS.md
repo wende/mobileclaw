@@ -46,6 +46,8 @@ Messages use a `ContentPart[]` array with these types:
 - `image` / `image_url` — image attachments
 - `thinking` — reasoning content (extracted to `message.reasoning`)
 
+**Important:** `MessageRow` renders assistant content parts **in array order**, not grouped by type. This means tool calls appear inline where they occurred in the conversation flow (e.g. text → tool call → more text). The streaming cursor (`StreamingText`) only applies to the last text part in the array.
+
 ## Common Patterns
 
 ### Adding a new tool display

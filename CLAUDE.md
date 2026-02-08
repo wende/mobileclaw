@@ -63,5 +63,5 @@ MobileClaw connects to OpenClaw's gateway WebSocket. Protocol frames:
 `lib/demoMode.ts` provides a fully client-side simulation:
 - `DEMO_HISTORY` — curated conversation showcasing all UI features
 - `createDemoHandler(callbacks)` — returns `sendMessage`/`stop` that simulate streaming via `setTimeout` chains
-- Keyword matching: "weather", "code", "think", "error", "help" trigger different response types
+- Keyword matching: "weather", "code", "think", "error", "research", "agent", "help" trigger different response types
 - Activated by `?demo` URL param or empty URL in setup dialog

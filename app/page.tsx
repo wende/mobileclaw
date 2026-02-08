@@ -659,17 +659,38 @@ function MessageRow({ message, isStreaming }: { message: Message; isStreaming: b
             <ImageThumbnails images={images} />
           </>
         ) : (
-          <>
-            {text && (
-              <div className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
-                {isStreaming ? (
-                  <StreamingText text={text} isStreaming={isStreaming} />
-                ) : (
-                  <MarkdownContent text={text} />
-                )}
-              </div>
-            )}
-          </>
+          /* Render content parts in array order so tool calls appear inline where they occurred */
+          Array.isArray(message.content) ? message.content.map((part, i) => {
+            if (part.type === "text" && part.text) {
+              const isLastText = !(message.content as ContentPart[]).slice(i + 1).some((p) => p.type === "text" && p.text);
+              return (
+                <div key={`text-${i}`} className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
+                  {isStreaming && isLastText ? (
+                    <StreamingText text={part.text} isStreaming={isStreaming} />
+                  ) : (
+                    <MarkdownContent text={part.text} />
+                  )}
+                </div>
+              );
+            }
+            if (part.type === "tool_call" || part.type === "toolCall") {
+              return (
+                <ToolCallPill key={`tc-${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status as "running" | "success" | "error" | undefined} result={part.result} resultError={part.resultError} />
+              );
+            }
+            if (part.type === "image" || part.type === "image_url") {
+              return <ImageThumbnails key={`img-${i}`} images={[part]} />;
+            }
+            return null;
+          }) : text ? (
+            <div className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
+              {isStreaming ? (
+                <StreamingText text={text} isStreaming={isStreaming} />
+              ) : (
+                <MarkdownContent text={text} />
+              )}
+            </div>
+          ) : null
         )}
       </div>
     </div>
@@ -1126,12 +1147,14 @@ function SetupDialog({
   onConnect,
   visible,
   connectionState,
-  connectionError
+  connectionError,
+  isDemoMode,
 }: {
   onConnect: (config: ConnectionConfig) => void;
   visible: boolean;
   connectionState?: "connecting" | "connected" | "disconnected" | "error";
   connectionError?: string | null;
+  isDemoMode?: boolean;
 }) {
   const [mode, setMode] = useState<"openclaw" | "lmstudio">("openclaw");
   const [url, setUrl] = useState("ws://127.0.0.1:18789");
@@ -1463,7 +1486,7 @@ function SetupDialog({
         {/* Connect button */}
         <button
           type="button"
-          onClick={handleSubmit}
+          onClick={isDemoMode ? () => { setPhase("closing"); setTimeout(() => setPhase("closed"), 500); } : handleSubmit}
           disabled={isConnecting}
           className="w-full rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
         >
@@ -1990,9 +2013,13 @@ export default function Home() {
         setMessages((prev) => {
           const idx = prev.findIndex((m) => m.id === runId);
           if (idx < 0) return prev;
+          const target = prev[idx];
+          // Preserve existing tool_call parts, only update/add the text part
+          const existingParts = Array.isArray(target.content) ? target.content : [];
+          const nonTextParts = existingParts.filter((p: ContentPart) => p.type !== "text");
           return [
             ...prev.slice(0, idx),
-            { ...prev[idx], content: [{ type: "text", text: fullText }] },
+            { ...target, content: [...nonTextParts, { type: "text", text: fullText }] },
             ...prev.slice(idx + 1),
           ];
         });
@@ -2289,7 +2316,7 @@ export default function Home() {
 
   // Check localStorage on mount for previously saved URL and token
   useEffect(() => {
-    // Skip auto-connect in demo mode
+    // Skip auto-connect in demo mode (check URL params directly to avoid race with state)
     if (isDemoMode) return;
     const savedMode = window.localStorage.getItem("mobileclaw-mode") as BackendMode | null;
 
@@ -2511,6 +2538,7 @@ export default function Home() {
         visible={showSetup}
         connectionState={connectionState}
         connectionError={connectionError}
+        isDemoMode={isDemoMode}
       />
 
       {/* Command sheet rendered at root level so backdrop covers entire screen */}
