@@ -83,7 +83,12 @@ async function webSearch(args: { query: string; pageSize?: number }): Promise<st
   const url = new URL("https://duckduckgo.com/html/");
   url.searchParams.append("q", args.query);
 
-  const res = await fetch(url.toString(), { method: "GET", headers: spoofHeaders() });
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), { method: "GET", headers: spoofHeaders(), signal: AbortSignal.timeout(15_000) });
+  } catch (err) {
+    return `Error: Failed to fetch search results: ${(err as Error).message || "Network error"}`;
+  }
   if (!res.ok) return `Error: Failed to fetch search results: ${res.statusText}`;
 
   const html = await res.text();
@@ -107,7 +112,12 @@ async function imageSearch(args: { query: string; pageSize?: number }): Promise<
   url.searchParams.append("iax", "images");
   url.searchParams.append("ia", "images");
 
-  const res = await fetch(url.toString(), { method: "GET", headers: spoofHeaders() });
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), { method: "GET", headers: spoofHeaders(), signal: AbortSignal.timeout(15_000) });
+  } catch (err) {
+    return `Error: Failed to fetch image results: ${(err as Error).message || "Network error"}`;
+  }
   if (!res.ok) return `Error: Failed to fetch image results: ${res.statusText}`;
 
   const html = await res.text();
@@ -120,9 +130,15 @@ async function imageSearch(args: { query: string; pageSize?: number }): Promise<
   imgUrl.searchParams.append("vqd", vqdMatch[1]);
   imgUrl.searchParams.append("o", "json");
 
-  const imgRes = await fetch(imgUrl.toString(), {
-    headers: spoofHeaders("https://duckduckgo.com/"),
-  });
+  let imgRes: Response;
+  try {
+    imgRes = await fetch(imgUrl.toString(), {
+      headers: spoofHeaders("https://duckduckgo.com/"),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    return `Error: Failed to fetch image results: ${(err as Error).message || "Network error"}`;
+  }
   if (!imgRes.ok) return "Error: Failed to fetch image results.";
 
   const data = await imgRes.json();
@@ -138,7 +154,19 @@ async function imageSearch(args: { query: string; pageSize?: number }): Promise<
 async function visitWebsite(args: { url: string; contentLimit?: number }): Promise<string> {
   const contentLimit = args.contentLimit || 2000;
 
-  const res = await fetch(args.url, { method: "GET", headers: spoofHeaders() });
+  let res: Response;
+  try {
+    res = await fetch(args.url, {
+      method: "GET",
+      headers: spoofHeaders(),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    const msg = (err as Error).name === "TimeoutError"
+      ? "Timed out after 15s"
+      : (err as Error).message || "Network error";
+    return `Error: Failed to visit website: ${msg}`;
+  }
   if (!res.ok) return `Error: Failed to visit website: ${res.statusText}`;
 
   const html = await res.text();
@@ -192,15 +220,15 @@ export async function executeTool(
     return `Error: Invalid JSON arguments: ${argsJson}`;
   }
 
-  switch (name) {
-    case "Web_Search":
-    case "Web Search":
+  // Normalize: lowercase, strip underscores/spaces for flexible matching
+  const normalized = name.toLowerCase().replace(/[_ ]/g, "");
+
+  switch (normalized) {
+    case "websearch":
       return webSearch(args as { query: string; pageSize?: number });
-    case "Image_Search":
-    case "Image Search":
+    case "imagesearch":
       return imageSearch(args as { query: string; pageSize?: number });
-    case "Visit_Website":
-    case "Visit Website":
+    case "visitwebsite":
       return visitWebsite(args as { url: string; contentLimit?: number });
     default:
       return `Error: Unknown tool "${name}"`;

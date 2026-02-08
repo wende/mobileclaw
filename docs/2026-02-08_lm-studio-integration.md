@@ -85,14 +85,55 @@ When a Qwen model thinks, uses a tool, then thinks again, both thinking segments
 
 **Bug fix during implementation**: The initial version inserted new thinking parts *before the text part* in the content array. But whitespace between `</think>` and `<think>` tags leaked as text deltas, placing a text part before tool_calls — so new thinking segments ended up before tool_calls too, breaking the interleaved order.
 
+### 9. Implicit thinking model detection (no `<think>` opening tag)
+
+Some models (e.g. GLM-4.7-Flash) output thinking content as plain `delta.content` tokens **without** the opening `<think>` tag — they assume the response always starts with thinking and only emit `</think>` to mark the end. This caused the ThinkingPill to only appear after the thinking block closed.
+
+**Problem**: The stream parser only checked for `</think>` when `insideThinkTag === true`. Without an opening `<think>`, the parser never entered think mode, so all thinking content went through `onTextDelta` as regular text. The `stripThinkTags()` function in `MessageRow.tsx` handled the orphaned `</think>` during rendering, but only once the close tag arrived — making the ThinkingPill appear only at the end.
+
+**Solution** — three-layer fix in `lib/lmStudio.ts`:
+
+1. **Orphaned `</think>` detection**: When `insideThinkTag === false` and `</think>` appears in the stream, all previously accumulated `fullText` is retroactively moved to `fullThinking` and delivered via `onThinking`. The text parts in the message are replaced with a thinking part.
+
+2. **Learned implicit thinking flag** (`modelImplicitThinking`): When an orphaned `</think>` is detected, a handler-level flag is set to `true`. This persists across messages for the lifetime of the handler.
+
+3. **Auto-enter think mode**: On subsequent messages, if `modelImplicitThinking` is `true`, `insideThinkTag` starts as `true` and `onThinking` fires immediately with empty text. This means the ThinkingPill appears from the very first token of the second message onwards.
+
+**First message flow** (before detection):
+```
+tokens arrive → onTextDelta (plain text) → </think> detected →
+  fullText moved to fullThinking → onThinking fires →
+  text parts replaced with thinking part → ThinkingPill appears →
+  modelImplicitThinking = true
+```
+
+**Subsequent message flow** (after detection):
+```
+stream starts → insideThinkTag = true → onThinking("") →
+  ThinkingPill appears immediately ("Thinking..." animation) →
+  tokens arrive → onThinking updates → ThinkingPill fills in →
+  </think> → insideThinkTag = false → normal text follows
+```
+
+**Supporting changes**:
+
+- **`app/page.tsx`** `onThinking` callback: Handles the retroactive case — when thinking is detected after text was already rendered, removes text parts whose content is now in the thinking text and replaces with a thinking content part.
+- **`app/page.tsx`**: Moved `setStreamingId()` out of `setMessages()` updater functions into the callback body (for `onThinking`, `onTextDelta`, `onToolStart`). Calling a state setter inside another setter's updater is a side effect that React doesn't guarantee.
+- **`components/MessageRow.tsx`** `ThinkingPill`: Handles empty text gracefully — shows "Thinking..." with animated dots when text hasn't arrived yet.
+- **`components/MessageRow.tsx`**: Removed `part.text?.trim()` guard from thinking part rendering so thinking parts render even with empty text (needed for the immediate placeholder).
+- **`lib/lmStudio.ts`**: Added `delta.reasoning` handling alongside `delta.reasoning_content` for backends that use the shorter field name.
+
+**Why LM Studio can't tell us if a model thinks**: The `/api/v0/models` endpoint exposes a `capabilities` array, but it only contains `"tool_use"` — there is no `"thinking"` or `"reasoning"` capability flag. Model IDs contain hints (`"deepseek-r1"`, `"thinking"` in name) but that's fragile heuristics. Runtime detection via `</think>` is the most robust approach.
+
 ## Files changed
 
 | File | Change |
 |------|--------|
 | `app/api/lmstudio/route.ts` | New — CORS proxy + agentic tool loop |
 | `app/api/lmstudio/tools.ts` | New — tool definitions + server-side implementations |
-| `lib/lmStudio.ts` | Proxy routing, `<think>` parser, tool_execution event handling |
-| `app/page.tsx` | Tool pills above text, model switch effect dependency |
+| `lib/lmStudio.ts` | Proxy routing, `<think>` parser, orphaned `</think>` detection, implicit thinking flag, `reasoning` field support |
+| `app/page.tsx` | Tool pills above text, model switch effect dependency, retroactive thinking conversion, `setStreamingId` fix |
+| `components/MessageRow.tsx` | ThinkingPill empty-text state, stripped `trim()` guard on thinking parts |
 
 ## Architecture
 

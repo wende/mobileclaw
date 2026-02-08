@@ -2,7 +2,7 @@
 
 import React from "react";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useWebSocket, type WebSocketMessage } from "@/lib/useWebSocket";
 import { DEMO_HISTORY, createDemoHandler, type DemoCallbacks } from "@/lib/demoMode";
 import { createLmStudioHandler, type LmStudioConfig, type LmStudioCallbacks } from "@/lib/lmStudio";
@@ -28,9 +28,14 @@ import { SetupDialog } from "@/components/SetupDialog";
 export default function Home() {
   const [openclawUrl, setOpenclawUrl] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [isStreaming, _setIsStreaming] = useState(false);
   const isStreamingRef = useRef(false);
-  isStreamingRef.current = isStreaming;
+  // Sync ref immediately so scroll/wheel handlers see the correct value
+  // without waiting for React's async render cycle.
+  const setIsStreaming = useCallback((value: boolean) => {
+    isStreamingRef.current = value;
+    _setIsStreaming(value);
+  }, []);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
@@ -47,7 +52,6 @@ export default function Home() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
-  const autoScrollRafRef = useRef<number | null>(null);
   // Pull-to-refresh (ref-driven to avoid re-renders during gesture)
   const [refreshing, setRefreshing] = useState(false);
   const pullStartYRef = useRef<number | null>(null);
@@ -71,7 +75,14 @@ export default function Home() {
   // Track active run for streaming
   const activeRunIdRef = useRef<string | null>(null);
   const sendWSMessageRef = useRef<((message: WebSocketMessage) => boolean) | null>(null);
+  const markEstablishedRef = useRef<(() => void) | null>(null);
   const gatewayTokenRef = useRef<string | null>(null);
+
+  // <think> tag parsing state for OpenClaw content stream
+  const thinkTagStateRef = useRef<{
+    insideThinkTag: boolean;
+    tagBuffer: string;
+  }>({ insideThinkTag: false, tagBuffer: "" });
 
   // WebSocket message handler - OpenClaw protocol
   const handleWSMessage = useCallback((data: WebSocketMessage) => {
@@ -117,6 +128,8 @@ export default function Home() {
       // Handle hello-ok (successful connect)
       const resPayload = msg.payload as Record<string, unknown> | undefined;
       if (msg.ok && resPayload?.type === "hello-ok") {
+        // Protocol handshake succeeded — enable auto-reconnect
+        markEstablishedRef.current?.();
         const server = resPayload.server as Record<string, unknown> | undefined;
         if (server) setServerInfo(server);
         sessionIdRef.current = (server as Record<string, string>)?.connId ?? null;
@@ -344,6 +357,7 @@ export default function Home() {
             setIsStreaming(false);
             setStreamingId(null);
             activeRunIdRef.current = null;
+            thinkTagStateRef.current = { insideThinkTag: false, tagBuffer: "" };
             // Server final events don't include message content — re-fetch history
             sendWSMessageRef.current?.({
               type: "req",
@@ -373,30 +387,126 @@ export default function Home() {
           if (phase === "start") {
             setIsStreaming(true);
             activeRunIdRef.current = payload.runId;
+            // Reset <think> tag parser for new run
+            thinkTagStateRef.current = { insideThinkTag: false, tagBuffer: "" };
           }
         } else if (payload.stream === "content") {
-          // Live text streaming
-          const delta = (payload.data.delta ?? payload.data.text ?? "") as string;
-          if (delta) {
+          // Live text streaming with <think> tag parsing
+          const rawDelta = (payload.data.delta ?? payload.data.text ?? "") as string;
+          if (rawDelta) {
             setIsStreaming(true);
-            setMessages((prev) => {
-              let idx = prev.findIndex((m) => m.id === payload.runId);
-              if (idx >= 0) {
-                const existing = prev[idx];
-                const prevText = getTextFromContent(existing.content);
-                return [...prev.slice(0, idx), {
-                  ...existing,
-                  content: [{ type: "text", text: prevText + delta }] as ContentPart[],
-                }, ...prev.slice(idx + 1)];
+
+            // Parse <think> tags from the delta, splitting into thinking vs text
+            const ts = thinkTagStateRef.current;
+            let pending = ts.tagBuffer + rawDelta;
+            ts.tagBuffer = "";
+            let thinkDelta = "";
+            let textDelta = "";
+
+            while (pending.length > 0) {
+              if (ts.insideThinkTag) {
+                const closeIdx = pending.indexOf("</think>");
+                if (closeIdx === -1) {
+                  // Check for partial </think> at end
+                  const maxP = Math.min(pending.length, 7); // "</think>".length - 1
+                  let partial = 0;
+                  for (let len = maxP; len >= 1; len--) {
+                    if (pending.endsWith("</think>".slice(0, len))) { partial = len; break; }
+                  }
+                  if (partial > 0) {
+                    thinkDelta += pending.slice(0, pending.length - partial);
+                    ts.tagBuffer = pending.slice(pending.length - partial);
+                  } else {
+                    thinkDelta += pending;
+                  }
+                  pending = "";
+                } else {
+                  thinkDelta += pending.slice(0, closeIdx);
+                  ts.insideThinkTag = false;
+                  pending = pending.slice(closeIdx + "</think>".length);
+                }
+              } else {
+                const openIdx = pending.indexOf("<think>");
+                if (openIdx === -1) {
+                  // Check for partial <think> at end
+                  const maxP = Math.min(pending.length, 6); // "<think>".length - 1
+                  let partial = 0;
+                  for (let len = maxP; len >= 1; len--) {
+                    if (pending.endsWith("<think>".slice(0, len))) { partial = len; break; }
+                  }
+                  if (partial > 0) {
+                    textDelta += pending.slice(0, pending.length - partial);
+                    ts.tagBuffer = pending.slice(pending.length - partial);
+                  } else {
+                    textDelta += pending;
+                  }
+                  pending = "";
+                } else {
+                  textDelta += pending.slice(0, openIdx);
+                  ts.insideThinkTag = true;
+                  pending = pending.slice(openIdx + "<think>".length);
+                }
               }
-              setStreamingId(payload.runId);
-              return [...prev, {
-                role: "assistant",
-                content: [{ type: "text", text: delta }],
-                id: payload.runId,
-                timestamp: payload.ts,
-              } as Message];
-            });
+            }
+
+            // Apply thinking delta → message.reasoning
+            if (thinkDelta) {
+              setMessages((prev) => {
+                let idx = prev.findIndex((m) => m.id === payload.runId);
+                if (idx >= 0) {
+                  const existing = prev[idx];
+                  return [...prev.slice(0, idx), {
+                    ...existing,
+                    reasoning: (existing.reasoning || "") + thinkDelta,
+                  }, ...prev.slice(idx + 1)];
+                }
+                setStreamingId(payload.runId);
+                return [...prev, {
+                  role: "assistant",
+                  content: [],
+                  id: payload.runId,
+                  timestamp: payload.ts,
+                  reasoning: thinkDelta,
+                } as Message];
+              });
+            }
+
+            // Apply text delta → text content part
+            if (textDelta) {
+              setMessages((prev) => {
+                let idx = prev.findIndex((m) => m.id === payload.runId);
+                if (idx >= 0) {
+                  const existing = prev[idx];
+                  const prevText = getTextFromContent(existing.content);
+                  const nonTextParts = Array.isArray(existing.content) ? existing.content.filter((p: ContentPart) => p.type !== "text") : [];
+                  return [...prev.slice(0, idx), {
+                    ...existing,
+                    content: [...nonTextParts, { type: "text", text: prevText + textDelta }] as ContentPart[],
+                  }, ...prev.slice(idx + 1)];
+                }
+                setStreamingId(payload.runId);
+                return [...prev, {
+                  role: "assistant",
+                  content: [{ type: "text", text: textDelta }],
+                  id: payload.runId,
+                  timestamp: payload.ts,
+                } as Message];
+              });
+            }
+
+            // If neither produced output yet (e.g. just "<think>" tag), ensure message exists
+            if (!thinkDelta && !textDelta) {
+              setMessages((prev) => {
+                if (prev.some((m) => m.id === payload.runId)) return prev;
+                setStreamingId(payload.runId);
+                return [...prev, {
+                  role: "assistant",
+                  content: [],
+                  id: payload.runId,
+                  timestamp: payload.ts,
+                } as Message];
+              });
+            }
           }
         } else if (payload.stream === "reasoning") {
           // Live thinking/reasoning streaming
@@ -468,7 +578,7 @@ export default function Home() {
     }
   }, []);
 
-  const { connectionState, connect, disconnect, sendMessage: sendWSMessage, isConnected } = useWebSocket({
+  const { connectionState, connect, disconnect, sendMessage: sendWSMessage, isConnected, markEstablished } = useWebSocket({
     onMessage: handleWSMessage,
     onOpen: () => {
       setConnectionError(null);
@@ -486,10 +596,13 @@ export default function Home() {
     },
   });
 
-  // Store sendWSMessage in ref to avoid circular dependency
+  // Store callbacks in refs to avoid circular dependency with handleWSMessage
   useEffect(() => {
     sendWSMessageRef.current = sendWSMessage;
   }, [sendWSMessage]);
+  useEffect(() => {
+    markEstablishedRef.current = markEstablished;
+  }, [markEstablished]);
 
   // Demo mode: detect ?demo URL param on mount
   useEffect(() => {
@@ -586,18 +699,17 @@ export default function Home() {
     const callbacks: LmStudioCallbacks = {
       onStreamStart: (runId) => {
         setIsStreaming(true);
-        setStreamingId(runId);
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: [], id: runId, timestamp: Date.now() },
-        ]);
+        // Don't set streamingId yet — ThinkingIndicator shows while waiting for first content
       },
       onThinking: (runId, text, segment) => {
+        setStreamingId(runId);
         setMessages((prev) => {
           const idx = prev.findIndex((m) => m.id === runId);
-          if (idx < 0) return prev;
+          if (idx < 0) {
+            return [...prev, { role: "assistant", content: [{ type: "thinking", text }], id: runId, timestamp: Date.now() } as Message];
+          }
           const target = prev[idx];
-          const parts = Array.isArray(target.content) ? [...target.content] : [];
+          let parts = Array.isArray(target.content) ? [...target.content] : [];
           // Find the thinking part for this segment
           let segIdx = 0;
           const thinkPartIdx = parts.findIndex((p) => {
@@ -610,30 +722,45 @@ export default function Home() {
           if (thinkPartIdx >= 0) {
             parts[thinkPartIdx] = { ...parts[thinkPartIdx], text };
           } else {
-            // Always push at end — onTextDelta will move text part to end on next update
+            // Retroactive case: model sent thinking as plain text (no <think> tag)
+            // then </think> arrived. Remove text parts whose content is now in `text`.
+            parts = parts.filter((p) => !(p.type === "text" && text.includes(p.text || "")));
             parts.push({ type: "thinking", text });
           }
           return [...prev.slice(0, idx), { ...target, content: parts }, ...prev.slice(idx + 1)];
         });
       },
       onTextDelta: (runId, _delta, fullText) => {
+        setStreamingId(runId);
         setMessages((prev) => {
           const idx = prev.findIndex((m) => m.id === runId);
-          if (idx < 0) return prev;
+          if (idx < 0) {
+            return [...prev, { role: "assistant", content: [{ type: "text", text: fullText }], id: runId, timestamp: Date.now() } as Message];
+          }
           const target = prev[idx];
-          // Preserve existing non-text parts (tool_call, thinking), update only the text part
-          const existingParts = Array.isArray(target.content) ? target.content.filter((p: ContentPart) => p.type !== "text") : [];
+          // Update the trailing text part (current segment), or append a new one
+          // This preserves earlier text parts separated by tool_call/thinking parts
+          const parts = Array.isArray(target.content) ? [...target.content] : [];
+          const lastIdx = parts.length - 1;
+          if (lastIdx >= 0 && parts[lastIdx].type === "text") {
+            parts[lastIdx] = { ...parts[lastIdx], text: fullText };
+          } else {
+            parts.push({ type: "text", text: fullText });
+          }
           return [
             ...prev.slice(0, idx),
-            { ...target, content: [...existingParts, { type: "text", text: fullText }] },
+            { ...target, content: parts },
             ...prev.slice(idx + 1),
           ];
         });
       },
       onToolStart: (runId, name, args) => {
+        setStreamingId(runId);
         setMessages((prev) => {
           const idx = prev.findIndex((m) => m.id === runId);
-          if (idx < 0) return prev;
+          if (idx < 0) {
+            return [...prev, { role: "assistant", content: [{ type: "tool_call", name, arguments: args, status: "running" as const }], id: runId, timestamp: Date.now() } as Message];
+          }
           const target = prev[idx];
           const parts = Array.isArray(target.content) ? target.content : [];
           return [
@@ -660,6 +787,11 @@ export default function Home() {
       onStreamEnd: (runId) => {
         setIsStreaming(false);
         setStreamingId(null);
+        // Persist LM Studio conversation to localStorage
+        setMessages((prev) => {
+          try { window.localStorage.setItem("lmstudio-messages", JSON.stringify(prev)); } catch {}
+          return prev;
+        });
       },
       onError: (runId, error) => {
         setConnectionError(error);
@@ -671,7 +803,7 @@ export default function Home() {
     lmStudioHandlerRef.current = createLmStudioHandler(activeConfig, callbacks);
   }, [backendMode, currentModel]);
 
-  // Track scroll position — continuous CSS var for animations, React state only for pointer-events phase
+  // Track scroll position — continuous CSS var for morph animation, React state for pointer-events phase.
   const handleScroll = useCallback(() => {
     if (scrollRafId.current != null) return;
     scrollRafId.current = requestAnimationFrame(() => {
@@ -679,13 +811,17 @@ export default function Home() {
       const el = scrollRef.current;
       const morph = morphRef.current;
       if (!el || !morph) return;
-      // Suppress morph updates while pulling to refresh
       if (isPullingRef.current) return;
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-      // Update pinned state: consider pinned if within ~80px of bottom
-      pinnedToBottomRef.current = distanceFromBottom < 80;
-      // While streaming and pinned, lock to input mode — auto-scroll causes
-      // distanceFromBottom to fluctuate which would flicker the morph animation
+
+      // During streaming, don't update pinning from scroll position —
+      // only the wheel/touch handlers can unpin, and scrollToBottom re-pins.
+      if (!isStreamingRef.current) {
+        pinnedToBottomRef.current = distanceFromBottom < 80;
+      }
+
+      // When streaming and pinned, lock morph to input mode (--sp = 0)
+      // so programmatic scrollTop changes don't cause morph flicker.
       if (isStreamingRef.current && pinnedToBottomRef.current) {
         morph.style.setProperty("--sp", "0");
         if (scrollPhaseRef.current !== "input") {
@@ -694,6 +830,7 @@ export default function Home() {
         }
         return;
       }
+
       const range = 60;
       const progress = Math.min(Math.max(distanceFromBottom / range, 0), 1);
       morph.style.setProperty("--sp", progress.toFixed(3));
@@ -706,6 +843,7 @@ export default function Home() {
   }, []);
 
   const scrollToBottom = useCallback(() => {
+    pinnedToBottomRef.current = true;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
@@ -829,6 +967,42 @@ export default function Home() {
     };
   }, [doRefresh, setPullTransform]);
 
+  // Unpin auto-scroll when user actively scrolls up (wheel or touch)
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onTouchEnd = () => {
+      // After touch ends, re-pin only if user ended up near the bottom
+      if (isStreamingRef.current) {
+        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (dist < 80) pinnedToBottomRef.current = true;
+      }
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0 && isStreamingRef.current) {
+        pinnedToBottomRef.current = false;
+      }
+    };
+    // On mobile, detect scroll-up by watching scroll direction during streaming
+    let lastScrollTop = el.scrollTop;
+    const onScroll = () => {
+      if (isStreamingRef.current && el.scrollTop < lastScrollTop - 3) {
+        pinnedToBottomRef.current = false;
+      }
+      lastScrollTop = el.scrollTop;
+    };
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
+    el.addEventListener("wheel", onWheel, { passive: true });
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
   // iOS Safari height fix — visualViewport.height is the only value that
   // correctly shrinks when the virtual keyboard is open.  We also track the
   // keyboard offset so the fixed-position input bar stays above the keyboard.
@@ -892,6 +1066,14 @@ export default function Home() {
         lmStudioConfigRef.current = config;
         setCurrentModel(savedModel);
         setOpenclawUrl(savedUrl);
+        // Restore previous LM Studio conversation from localStorage
+        try {
+          const saved = window.localStorage.getItem("lmstudio-messages");
+          if (saved) {
+            const parsed = JSON.parse(saved) as Message[];
+            if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
+          }
+        } catch {}
       } else {
         setShowSetup(true);
       }
@@ -905,6 +1087,7 @@ export default function Home() {
   const handleConnect = useCallback((config: ConnectionConfig) => {
     setConnectionError(null);
     setMessages([]);
+    window.localStorage.removeItem("lmstudio-messages");
 
     if (config.mode === "demo") {
       window.localStorage.setItem("mobileclaw-mode", "demo");
@@ -957,6 +1140,7 @@ export default function Home() {
     lmStudioConfigRef.current = null;
     window.localStorage.removeItem("openclaw-url");
     window.localStorage.removeItem("mobileclaw-mode");
+    window.localStorage.removeItem("lmstudio-messages");
     setOpenclawUrl(null);
     setMessages([]);
     setIsStreaming(false);
@@ -965,62 +1149,27 @@ export default function Home() {
     setBackendMode("openclaw");
   }, [disconnect]);
 
-  // Auto-scroll: on non-streaming message changes (history load, new user message), scroll to bottom
+  // Auto-scroll: whenever messages change (streaming delta, history load, user send),
+  // snap to bottom if pinned. useLayoutEffect runs synchronously before paint, so
+  // the scroll adjustment is invisible — no flicker, no fighting with user scroll.
+  // Most streaming deltas don't change scrollHeight (only line-wraps do), so this
+  // is usually a no-op: scrollTop already equals the max.
   const hasScrolledInitialRef = useRef(false);
-  useEffect(() => {
-    if (isStreaming) return; // rAF loop handles streaming scroll
+  useLayoutEffect(() => {
     if (!pinnedToBottomRef.current || messages.length === 0) return;
+    const el = scrollRef.current;
+    if (!el) return;
     if (!hasScrolledInitialRef.current) {
-      // First load — instant scroll after layout settles
+      // First load — instant snap
       hasScrolledInitialRef.current = true;
-      requestAnimationFrame(() => {
-        const el = scrollRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      });
+      el.scrollTop = el.scrollHeight;
     } else {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      // Subsequent changes — snap instantly (no smooth scroll during streaming,
+      // and for non-streaming changes the snap is imperceptible since it
+      // runs before paint).
+      el.scrollTop = el.scrollHeight;
     }
-  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Continuous rAF loop during streaming (+ tail-off after) to keep pinned as content grows
-  const streamingEndTimeRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (isStreaming) {
-      streamingEndTimeRef.current = null;
-    } else if (!streamingEndTimeRef.current) {
-      // Record when streaming stopped so we can ease out
-      streamingEndTimeRef.current = Date.now();
-    }
-  }, [isStreaming]);
-
-  useEffect(() => {
-    // Start the loop when streaming begins
-    if (!isStreaming && !streamingEndTimeRef.current) return;
-
-    const tick = () => {
-      const el = scrollRef.current;
-      if (el && pinnedToBottomRef.current) {
-        const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (distFromBottom > 2) {
-          // Close 40% of the gap per frame — stops when close enough to avoid oscillation
-          el.scrollTop += Math.ceil(distFromBottom * 0.4);
-        }
-      }
-      // Keep running during streaming, or for 500ms after to ease out the typewriter tail
-      const endTime = streamingEndTimeRef.current;
-      if (isStreaming || (endTime && Date.now() - endTime < 500)) {
-        autoScrollRafRef.current = requestAnimationFrame(tick);
-      } else {
-        autoScrollRafRef.current = null;
-      }
-    };
-    autoScrollRafRef.current = requestAnimationFrame(tick);
-
-    return () => {
-      if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
-      autoScrollRafRef.current = null;
-    };
-  }, [isStreaming]);
+  }, [messages]);
 
 
   const sendMessage = useCallback((text: string) => {
@@ -1037,6 +1186,8 @@ export default function Home() {
     if (backendMode === "lmstudio") {
       // Send the full conversation history (including the new user message) to LM Studio
       setMessages((prev) => {
+        // Persist conversation (including new user message) before sending
+        try { window.localStorage.setItem("lmstudio-messages", JSON.stringify(prev)); } catch {}
         // Use a microtask to send after state is updated
         Promise.resolve().then(() => {
           lmStudioHandlerRef.current?.sendMessage(prev);
@@ -1086,8 +1237,8 @@ export default function Home() {
           setShowSetup(false);
           handleConnect(config);
         }}
+        onClose={openclawUrl || isDemoMode || backendMode !== "openclaw" ? () => setShowSetup(false) : undefined}
         visible={showSetup}
-        connectionState={connectionState}
         connectionError={connectionError}
         isDemoMode={isDemoMode}
       />
@@ -1210,7 +1361,7 @@ export default function Home() {
         ref={floatingBarRef}
         className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh]"
       >
-        <div ref={morphRef} className="pointer-events-auto w-full" style={{ "--sp": "0", maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--sp, 0))), 42rem)" } as React.CSSProperties}>
+        <div ref={morphRef} className="pointer-events-auto w-full" style={{ maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--sp, 0))), 42rem)" } as React.CSSProperties}>
           <ChatInput
             onSend={sendMessage}
             onOpenCommands={() => setCommandsOpen(true)}

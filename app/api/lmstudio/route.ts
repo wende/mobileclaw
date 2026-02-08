@@ -109,6 +109,49 @@ async function consumeStream(
   return { finishReason, toolCalls: Array.from(toolCalls.values()) };
 }
 
+// Convert tool-related messages to plain text for backends that reject role:"tool".
+// Used ONLY as a fallback when a follow-up round fails with proper tool format.
+function collapseToolMessages(
+  msgs: Record<string, unknown>[]
+): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+
+  const appendToLastAssistant = (text: string) => {
+    const last = out[out.length - 1];
+    if (last && last.role === "assistant") {
+      last.content = ((last.content as string) || "") + "\n" + text;
+    } else {
+      out.push({ role: "assistant", content: text });
+    }
+  };
+
+  for (const m of msgs) {
+    if (m.role === "tool") {
+      const result = m.content as string;
+      const name = (m.name as string) || "tool";
+      appendToLastAssistant(`[Tool "${name}" returned: ${result}]`);
+      continue;
+    }
+
+    if (
+      m.role === "assistant" &&
+      m.tool_calls &&
+      Array.isArray(m.tool_calls)
+    ) {
+      const calls = (m.tool_calls as { function: { name: string; arguments: string } }[])
+        .map((tc) => `I called ${tc.function.name} with ${tc.function.arguments}`)
+        .join(". ");
+      const text = (m.content as string) || "";
+      appendToLastAssistant(text ? `${text}\n${calls}` : calls);
+      continue;
+    }
+
+    out.push(m);
+  }
+
+  return out;
+}
+
 // POST /api/lmstudio — proxies chat completions with SSE streaming + tool loop
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -142,14 +185,37 @@ export async function POST(req: NextRequest) {
       try {
         while (round < MAX_TOOL_ROUNDS) {
           round++;
-          const upstream = await fetch(target, {
+          console.log(`[lmstudio-proxy] ── round ${round} ──`);
+          console.log(`[lmstudio-proxy] messages: ${messages.length} (roles: ${messages.map((m: Record<string,unknown>) => m.role).join(", ")})`);
+
+          let requestBody = { ...rest, messages };
+          let upstream = await fetch(target, {
             method: "POST",
             headers,
-            body: JSON.stringify({ ...rest, messages }),
+            body: JSON.stringify(requestBody),
           });
+
+          console.log(`[lmstudio-proxy] upstream status: ${upstream.status}`);
+
+          // If follow-up round fails, retry with collapsed messages (no tools)
+          if (!upstream.ok && round > 1) {
+            const errText = await upstream.text().catch(() => "");
+            console.warn(`[lmstudio-proxy] round ${round} rejected (${upstream.status}): ${errText.slice(0, 200)}`);
+            console.log(`[lmstudio-proxy] retrying with collapsed messages (no tools)`);
+
+            const collapsed = collapseToolMessages(messages);
+            const { tools: _t, tool_choice: _tc, ...restNoTools } = rest;
+            upstream = await fetch(target, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ ...restNoTools, messages: collapsed }),
+            });
+            console.log(`[lmstudio-proxy] collapsed retry status: ${upstream.status}`);
+          }
 
           if (!upstream.ok) {
             const errText = await upstream.text().catch(() => `HTTP ${upstream.status}`);
+            console.error(`[lmstudio-proxy] upstream error: ${errText.slice(0, 500)}`);
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ error: errText })}\n\n`)
             );
@@ -169,8 +235,11 @@ export async function POST(req: NextRequest) {
             encoder
           );
 
+          console.log(`[lmstudio-proxy] consumeStream done: finishReason=${finishReason}, toolCalls=${toolCalls.map(tc => tc.name).join(", ") || "none"}`);
+
           // If the model didn't request tool calls, we're done
           if (finishReason !== "tool_calls" || toolCalls.length === 0) {
+            console.log(`[lmstudio-proxy] no more tool calls, ending loop`);
             break;
           }
 
@@ -207,7 +276,14 @@ export async function POST(req: NextRequest) {
               encoder.encode(`data: ${JSON.stringify(toolStatusEvent)}\n\n`)
             );
 
-            const result = await executeTool(tc.name, tc.args);
+            let result: string;
+            try {
+              result = await executeTool(tc.name, tc.args);
+            } catch (err) {
+              result = `Error: Tool execution failed: ${(err as Error).message || "Unknown error"}`;
+            }
+
+            console.log(`[lmstudio-proxy] tool ${tc.name}: ${result.slice(0, 100)}${result.length > 100 ? "..." : ""}`);
 
             // Notify client of tool result
             const toolResultEvent = {
@@ -230,6 +306,7 @@ export async function POST(req: NextRequest) {
 
             messages.push({
               role: "tool",
+              name: tc.name,
               tool_call_id: tc.id || `call_${toolCalls.indexOf(tc)}`,
               content: result,
             });
@@ -239,6 +316,7 @@ export async function POST(req: NextRequest) {
         }
       } catch (err) {
         const errMsg = (err as Error).message || "Unknown error";
+        console.error(`[lmstudio-proxy] fatal error:`, errMsg);
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ error: errMsg })}\n\n`)
         );

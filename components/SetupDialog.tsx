@@ -6,14 +6,14 @@ import { fetchLmStudioModels, type LmStudioModel } from "@/lib/lmStudio";
 
 export function SetupDialog({
   onConnect,
+  onClose,
   visible,
-  connectionState,
   connectionError,
   isDemoMode,
 }: {
   onConnect: (config: ConnectionConfig) => void;
+  onClose?: () => void;
   visible: boolean;
-  connectionState?: "connecting" | "connected" | "disconnected" | "error";
   connectionError?: string | null;
   isDemoMode?: boolean;
 }) {
@@ -27,12 +27,16 @@ export function SetupDialog({
   const [lmsModelLoading, setLmsModelLoading] = useState(false);
   const [lmsModelError, setLmsModelError] = useState("");
   const [error, setError] = useState("");
+  // Local submit state — only true after user clicks Connect, never affected
+  // by background reconnection.  Resets when the dialog opens or on error.
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [phase, setPhase] = useState<"idle" | "entering" | "open" | "closing" | "closed">("idle");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Reset phase when dialog becomes visible again
   useEffect(() => {
     if (visible && (phase === "closed" || phase === "idle")) {
+      setIsSubmitting(false);
       // Pre-fill from localStorage if available
       const savedMode = window.localStorage.getItem("mobileclaw-mode") as "openclaw" | "lmstudio" | null;
       if (savedMode === "openclaw" || savedMode === "lmstudio") setMode(savedMode);
@@ -58,6 +62,11 @@ export function SetupDialog({
       setTimeout(() => setPhase("closed"), 500);
     }
   }, [visible]);
+
+  // Reset submitting state on connection error
+  useEffect(() => {
+    if (connectionError) setIsSubmitting(false);
+  }, [connectionError]);
 
   // Focus input once open
   useEffect(() => {
@@ -100,6 +109,7 @@ export function SetupDialog({
         }
       }
       setError("");
+      setIsSubmitting(true);
       setPhase("closing");
       setTimeout(() => {
         setPhase("closed");
@@ -126,6 +136,7 @@ export function SetupDialog({
         return;
       }
       setError("");
+      setIsSubmitting(true);
       setPhase("closing");
       setTimeout(() => {
         setPhase("closed");
@@ -138,7 +149,6 @@ export function SetupDialog({
 
   const isOpen = phase === "open";
   const isClosing = phase === "closing";
-  const isConnecting = connectionState === "connecting";
 
   return (
     <div
@@ -153,6 +163,7 @@ export function SetupDialog({
       <div
         className="absolute inset-0 bg-background/80 transition-opacity duration-500"
         style={{ opacity: isOpen ? 1 : 0 }}
+        onClick={onClose ? () => { setPhase("closing"); setTimeout(() => { setPhase("closed"); onClose(); }, 500); } : undefined}
       />
 
       {/* Card */}
@@ -226,7 +237,7 @@ export function SetupDialog({
                 onChange={(e) => { setUrl(e.target.value); setError(""); }}
                 onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
                 placeholder="ws://127.0.0.1:18789"
-                disabled={isConnecting}
+                disabled={isSubmitting}
                 className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error || connectionError ? "border-destructive" : "border-border"}`}
               />
             </div>
@@ -244,7 +255,7 @@ export function SetupDialog({
                   onChange={(e) => setToken(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
                   placeholder="Enter gateway auth token"
-                  disabled={isConnecting}
+                  disabled={isSubmitting}
                   className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                 />
               </div>
@@ -266,7 +277,7 @@ export function SetupDialog({
                   onChange={(e) => { setLmsUrl(e.target.value); setError(""); setLmsModelError(""); }}
                   onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
                   placeholder="http://127.0.0.1:1234"
-                  disabled={isConnecting}
+                  disabled={isSubmitting}
                   className={`flex-1 rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error || connectionError || lmsModelError ? "border-destructive" : "border-border"}`}
                 />
                 <button
@@ -302,7 +313,7 @@ export function SetupDialog({
                 onChange={(e) => setLmsApiKey(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
                 placeholder="lm-studio or leave empty"
-                disabled={isConnecting}
+                disabled={isSubmitting}
                 className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               />
             </div>
@@ -317,7 +328,7 @@ export function SetupDialog({
                   id="lmstudio-model"
                   value={lmsModel}
                   onChange={(e) => setLmsModel(e.target.value)}
-                  disabled={isConnecting}
+                  disabled={isSubmitting}
                   className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 appearance-none"
                 >
                   {lmsModels.map((m) => (
@@ -332,7 +343,7 @@ export function SetupDialog({
                   onChange={(e) => { setLmsModel(e.target.value); setError(""); }}
                   onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
                   placeholder="Click Fetch or type model name"
-                  disabled={isConnecting}
+                  disabled={isSubmitting}
                   className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error ? "border-destructive" : "border-border"}`}
                 />
               )}
@@ -347,10 +358,10 @@ export function SetupDialog({
         <button
           type="button"
           onClick={isDemoMode ? () => { setPhase("closing"); setTimeout(() => setPhase("closed"), 500); } : handleSubmit}
-          disabled={isConnecting}
+          disabled={isSubmitting}
           className="w-full rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {isConnecting ? (
+          {isSubmitting ? (
             <>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
                 <path d="M21 12a9 9 0 1 1-6.219-8.56" />

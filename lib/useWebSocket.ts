@@ -28,8 +28,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intentionalCloseRef = useRef(false);
-  // true until the first successful onopen, then false forever for this url
-  const hasNeverConnectedRef = useRef(false);
+  // Set to true by the consumer (via markEstablished) after the full protocol
+  // handshake succeeds.  Auto-reconnect only fires when this is true, so a
+  // connection that opened at the TCP/WS level but was rejected by the server
+  // (wrong auth, bad protocol, etc.) will NOT trigger a reconnect loop.
+  const everEstablishedRef = useRef(false);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -59,7 +62,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
       ws.onopen = () => {
         console.log("[WS] Connection opened");
-        hasNeverConnectedRef.current = false;
         setConnectionState("connected");
         reconnectAttemptRef.current = 0;
         optionsRef.current.onOpen?.();
@@ -70,18 +72,24 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         wsRef.current = null;
         optionsRef.current.onClose?.();
 
-        // If we never successfully connected, this server is unreachable.
-        // Report failure immediately — don't retry.
-        if (hasNeverConnectedRef.current && !intentionalCloseRef.current) {
-          console.log("[WS] Initial connection failed — server unreachable");
+        if (intentionalCloseRef.current) {
+          setConnectionState("disconnected");
+          return;
+        }
+
+        // Only auto-reconnect if the connection was fully established
+        // (consumer called markEstablished after protocol handshake).
+        // Otherwise treat it as an initial connect failure — no retry loop.
+        if (!everEstablishedRef.current) {
+          console.log("[WS] Connection never established — not reconnecting");
           urlRef.current = null;
           setConnectionState("disconnected");
           optionsRef.current.onInitialConnectFail?.();
           return;
         }
 
-        if (!intentionalCloseRef.current && urlRef.current) {
-          // Was previously connected — silent background reconnect
+        if (urlRef.current) {
+          // Was fully established before — silent background reconnect
           const attempt = reconnectAttemptRef.current;
           const delay = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)];
           console.log(`[WS] Reconnecting in ${delay}ms (attempt ${attempt + 1})...`);
@@ -115,17 +123,23 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     } catch (err) {
       setConnectionState("error");
       console.error("Failed to create WebSocket connection:", err);
+      optionsRef.current.onInitialConnectFail?.();
     }
   }, []);
 
   const connect = useCallback((url: string) => {
     clearReconnectTimer();
     intentionalCloseRef.current = false;
-    hasNeverConnectedRef.current = true;
+    everEstablishedRef.current = false;
     urlRef.current = url;
     reconnectAttemptRef.current = 0;
     connectInternal(url);
   }, [connectInternal, clearReconnectTimer]);
+
+  /** Call after a successful protocol handshake to enable auto-reconnect. */
+  const markEstablished = useCallback(() => {
+    everEstablishedRef.current = true;
+  }, []);
 
   const disconnect = useCallback(() => {
     clearReconnectTimer();
@@ -163,5 +177,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     disconnect,
     sendMessage,
     isConnected: connectionState === "connected",
+    markEstablished,
   };
 }

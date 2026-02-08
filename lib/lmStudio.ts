@@ -155,6 +155,9 @@ export function createLmStudioHandler(
   callbacks: LmStudioCallbacks
 ) {
   let abortController: AbortController | null = null;
+  // Learned flag: if we ever see an orphaned </think> (no opening <think>),
+  // this model implicitly starts in thinking mode. Apply to all future messages.
+  let modelImplicitThinking = false;
 
   async function sendMessage(messages: Message[]) {
     abortController?.abort();
@@ -203,8 +206,14 @@ export function createLmStudioHandler(
       let fullThinking = "";
       let thinkingSegment = 0;
       // Track <think>...</think> tag parsing state
-      let insideThinkTag = false;
+      // If model was previously detected as implicit-thinking, start inside think mode
+      let insideThinkTag = modelImplicitThinking;
       let tagBuffer = ""; // accumulates partial tag matches
+
+      // If starting in implicit think mode, signal thinking immediately
+      if (insideThinkTag) {
+        callbacks.onThinking(runId, "", thinkingSegment);
+      }
 
       // Accumulate tool calls by index
       const toolCalls = new Map<number, { id: string; name: string; args: string; started: boolean }>();
@@ -234,6 +243,13 @@ export function createLmStudioHandler(
 
           try {
             const chunk = JSON.parse(data);
+
+            // Handle proxy-level errors (no choices field)
+            if (chunk.error && !chunk.choices) {
+              callbacks.onError(runId, typeof chunk.error === "string" ? chunk.error : JSON.stringify(chunk.error));
+              continue;
+            }
+
             const choice = chunk.choices?.[0];
             if (!choice) continue;
             const delta = choice.delta;
@@ -268,13 +284,33 @@ export function createLmStudioHandler(
                     pending = pending.slice(closeIdx + "</think>".length);
                   }
                 } else {
+                  // Check for orphaned </think> (model skipped <think> opening tag)
+                  const orphanCloseIdx = pending.indexOf("</think>");
+                  if (orphanCloseIdx !== -1) {
+                    // This model implicitly starts thinking — remember for future messages
+                    modelImplicitThinking = true;
+                    // Everything before </think> is thinking content
+                    const thinkContent = pending.slice(0, orphanCloseIdx);
+                    if (thinkContent) { fullThinking += thinkContent; }
+                    // Also retroactively move any previously accumulated text to thinking
+                    if (fullText) {
+                      fullThinking = fullText + fullThinking;
+                      fullText = "";
+                    }
+                    callbacks.onThinking(runId, fullThinking, thinkingSegment);
+                    pending = pending.slice(orphanCloseIdx + "</think>".length);
+                    continue;
+                  }
+
                   const openIdx = pending.indexOf("<think>");
                   if (openIdx === -1) {
-                    // Check for a partial <think> at the end
+                    // Check for partial tags at the end
                     const partialOpen = partialTagSuffix(pending, "<think>");
-                    if (partialOpen > 0) {
-                      const safe = pending.slice(0, pending.length - partialOpen);
-                      tagBuffer = pending.slice(pending.length - partialOpen);
+                    const partialClose = partialTagSuffix(pending, "</think>");
+                    const partial = Math.max(partialOpen, partialClose);
+                    if (partial > 0) {
+                      const safe = pending.slice(0, pending.length - partial);
+                      tagBuffer = pending.slice(pending.length - partial);
                       if (safe) { fullText += safe; callbacks.onTextDelta(runId, safe, fullText); }
                     } else {
                       fullText += pending;
@@ -285,15 +321,18 @@ export function createLmStudioHandler(
                     const before = pending.slice(0, openIdx);
                     if (before) { fullText += before; callbacks.onTextDelta(runId, before, fullText); }
                     insideThinkTag = true;
+                    // Immediately signal thinking started so UI creates the block
+                    callbacks.onThinking(runId, fullThinking, thinkingSegment);
                     pending = pending.slice(openIdx + "<think>".length);
                   }
                 }
               }
             }
 
-            // Reasoning/thinking content (LM Studio reasoning_content field)
-            if (delta.reasoning_content) {
-              fullThinking += delta.reasoning_content;
+            // Reasoning/thinking content (various field names used by different backends)
+            const reasoningDelta = delta.reasoning_content || delta.reasoning;
+            if (reasoningDelta) {
+              fullThinking += reasoningDelta;
               callbacks.onThinking(runId, fullThinking, thinkingSegment);
             }
 
@@ -317,7 +356,8 @@ export function createLmStudioHandler(
               const te = delta.tool_execution;
               console.log("[lmStudio] tool_execution event:", te.status, te.name, te.call_id);
               if (te.status === "running") {
-                // Reset thinking accumulator so post-tool thinking becomes a new segment
+                // Reset accumulators so post-tool content becomes new segments
+                fullText = "";
                 fullThinking = "";
                 thinkingSegment++;
                 callbacks.onToolStart(runId, te.name, te.args || "");
