@@ -605,17 +605,49 @@ function MessageRow({ message, isStreaming }: { message: Message; isStreaming: b
 
   const isUser = message.role === "user";
 
+  // Build interleaved thinking + tool_call parts from content array (preserves chronological order)
+  // Filter out thinking parts that are empty/whitespace-only (can happen from <think> tag residue)
+  const interleavedParts = Array.isArray(message.content)
+    ? (message.content as ContentPart[]).filter((p) =>
+        (p.type === "thinking" && p.text?.trim()) || p.type === "tool_call" || p.type === "toolCall"
+      )
+    : [];
+  const hasThinkingParts = interleavedParts.some((p) => p.type === "thinking");
+
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
       <div className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground" : "flex flex-col gap-1.5"}`}>
-        {message.reasoning && (
-          <details className="w-fit max-w-full rounded-lg border border-border bg-secondary">
-            <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline-block opacity-50 mr-1.5 align-[-1px]"><path d="M12 2a5 5 0 0 1 4.7 3.2A4 4 0 0 1 20 9c0 1.5-.8 2.8-2 3.5v0A4 4 0 0 1 16 20H8a4 4 0 0 1-2-7.5A4 4 0 0 1 4 9a4 4 0 0 1 3.3-3.9A5 5 0 0 1 12 2z" /><path d="M12 2v20" /></svg>
-              {thinkingPreview(message.reasoning)}
-            </summary>
-            <p className="px-3 pb-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words overflow-hidden">{message.reasoning}</p>
-          </details>
+        {hasThinkingParts ? (
+          // Render interleaved thinking pills and tool call pills in content order
+          interleavedParts.map((part, i) =>
+            part.type === "thinking" && part.text ? (
+              <details key={`thinking-${i}`} className="w-fit max-w-full rounded-lg border border-border bg-secondary">
+                <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline-block opacity-50 mr-1.5 align-[-1px]"><path d="M12 2a5 5 0 0 1 4.7 3.2A4 4 0 0 1 20 9c0 1.5-.8 2.8-2 3.5v0A4 4 0 0 1 16 20H8a4 4 0 0 1-2-7.5A4 4 0 0 1 4 9a4 4 0 0 1 3.3-3.9A5 5 0 0 1 12 2z" /><path d="M12 2v20" /></svg>
+                  {thinkingPreview(part.text)}
+                </summary>
+                <p className="px-3 pb-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words overflow-hidden">{part.text}</p>
+              </details>
+            ) : (part.type === "tool_call" || part.type === "toolCall") ? (
+              <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status as "running" | "success" | "error" | undefined} result={part.result} resultError={part.resultError} />
+            ) : null
+          )
+        ) : (
+          // Fallback: legacy rendering for OpenClaw/demo messages using message.reasoning
+          <>
+            {message.reasoning && (
+              <details className="w-fit max-w-full rounded-lg border border-border bg-secondary">
+                <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline-block opacity-50 mr-1.5 align-[-1px]"><path d="M12 2a5 5 0 0 1 4.7 3.2A4 4 0 0 1 20 9c0 1.5-.8 2.8-2 3.5v0A4 4 0 0 1 16 20H8a4 4 0 0 1-2-7.5A4 4 0 0 1 4 9a4 4 0 0 1 3.3-3.9A5 5 0 0 1 12 2z" /><path d="M12 2v20" /></svg>
+                  {thinkingPreview(message.reasoning)}
+                </summary>
+                <p className="px-3 pb-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words overflow-hidden">{message.reasoning}</p>
+              </details>
+            )}
+            {toolCalls.map((tc, i) => (
+              <ToolCallPill key={`${tc.name}-${i}`} name={tc.name || "tool"} args={typeof tc.arguments === "string" ? tc.arguments : tc.arguments ? JSON.stringify(tc.arguments) : undefined} status={tc.status as "running" | "success" | "error" | undefined} result={tc.result} resultError={tc.resultError} />
+            ))}
+          </>
         )}
         {isUser ? (
           <>
@@ -639,9 +671,6 @@ function MessageRow({ message, isStreaming }: { message: Message; isStreaming: b
             )}
           </>
         )}
-        {toolCalls.map((tc, i) => (
-          <ToolCallPill key={`${tc.name}-${i}`} name={tc.name || "tool"} args={typeof tc.arguments === "string" ? tc.arguments : tc.arguments ? JSON.stringify(tc.arguments) : undefined} status={tc.status as "running" | "success" | "error" | undefined} result={tc.result} resultError={tc.resultError} />
-        ))}
       </div>
     </div>
   );
@@ -781,7 +810,7 @@ function CommandSheet({
     <>
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 z-40 bg-foreground/10 backdrop-blur-sm transition-opacity duration-200 ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
+        className={`fixed inset-0 z-40 bg-foreground/10 backdrop-blur-sm transition-[opacity,visibility] duration-200 ${open ? "visible opacity-100" : "invisible opacity-0 pointer-events-none"}`}
         onClick={onClose}
         onMouseDown={onClose}
         role="button"
@@ -795,7 +824,7 @@ function CommandSheet({
         role="dialog"
         aria-modal="true"
         aria-label="Commands"
-        className={`fixed inset-x-0 bottom-0 z-50 flex max-h-[70dvh] flex-col rounded-t-2xl border-t border-border bg-background shadow-lg transition-transform duration-300 ease-out ${open ? "translate-y-0" : "pointer-events-none translate-y-full"}`}
+        className={`fixed inset-x-0 bottom-0 z-50 flex max-h-[70dvh] flex-col rounded-t-2xl border-t border-border bg-background shadow-lg transition-[transform,visibility] duration-300 ease-out ${open ? "visible translate-y-0" : "invisible translate-y-full pointer-events-none"}`}
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
@@ -2019,11 +2048,28 @@ export default function Home() {
           { role: "assistant", content: [], id: runId, timestamp: Date.now() },
         ]);
       },
-      onThinking: (runId, text) => {
+      onThinking: (runId, text, segment) => {
         setMessages((prev) => {
           const idx = prev.findIndex((m) => m.id === runId);
           if (idx < 0) return prev;
-          return [...prev.slice(0, idx), { ...prev[idx], reasoning: text }, ...prev.slice(idx + 1)];
+          const target = prev[idx];
+          const parts = Array.isArray(target.content) ? [...target.content] : [];
+          // Find the thinking part for this segment
+          let segIdx = 0;
+          const thinkPartIdx = parts.findIndex((p) => {
+            if (p.type === "thinking") {
+              if (segIdx === segment) return true;
+              segIdx++;
+            }
+            return false;
+          });
+          if (thinkPartIdx >= 0) {
+            parts[thinkPartIdx] = { ...parts[thinkPartIdx], text };
+          } else {
+            // Always push at end — onTextDelta will move text part to end on next update
+            parts.push({ type: "thinking", text });
+          }
+          return [...prev.slice(0, idx), { ...target, content: parts }, ...prev.slice(idx + 1)];
         });
       },
       onTextDelta: (runId, _delta, fullText) => {
@@ -2031,7 +2077,7 @@ export default function Home() {
           const idx = prev.findIndex((m) => m.id === runId);
           if (idx < 0) return prev;
           const target = prev[idx];
-          // Preserve existing tool_call parts, update only the text part
+          // Preserve existing non-text parts (tool_call, thinking), update only the text part
           const existingParts = Array.isArray(target.content) ? target.content.filter((p: ContentPart) => p.type !== "text") : [];
           return [
             ...prev.slice(0, idx),
@@ -2075,8 +2121,11 @@ export default function Home() {
         setConnectionError(error);
       },
     };
-    lmStudioHandlerRef.current = createLmStudioHandler(config, callbacks);
-  }, [backendMode]);
+    // Use currentModel so the handler is recreated when the model changes
+    const activeConfig = { ...config, model: currentModel || config.model };
+    lmStudioConfigRef.current = activeConfig;
+    lmStudioHandlerRef.current = createLmStudioHandler(activeConfig, callbacks);
+  }, [backendMode, currentModel]);
 
   // Track scroll position — continuous CSS var for animations, React state only for pointer-events phase
   const handleScroll = useCallback(() => {

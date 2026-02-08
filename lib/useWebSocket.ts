@@ -40,6 +40,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
   const connectInternal = useCallback((url: string) => {
     if (wsRef.current) {
+      // Prevent old socket from triggering reconnect logic or updating state
+      wsRef.current.onclose = null;
+      wsRef.current.onerror = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onopen = null;
       wsRef.current.close();
     }
 
@@ -82,11 +87,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       };
 
       ws.onmessage = (event) => {
+        if (typeof event.data !== "string") {
+          console.warn("[WS] Received non-text message:", event.data);
+          return;
+        }
         try {
           const data = JSON.parse(event.data) as WebSocketMessage;
           optionsRef.current.onMessage?.(data);
         } catch (err) {
-          console.error("Failed to parse WebSocket message:", err);
+          console.error("Failed to parse WebSocket message:", err, "Raw data:", event.data);
         }
       };
     } catch (err) {
