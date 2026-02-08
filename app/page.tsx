@@ -1507,6 +1507,7 @@ export default function Home() {
   const [scrollPhase, setScrollPhase] = useState<"input" | "pill">("input");
   const appRef = useRef<HTMLDivElement>(null);
   const morphRef = useRef<HTMLDivElement>(null);
+  const floatingBarRef = useRef<HTMLDivElement>(null);
   const scrollRafId = useRef<number | null>(null);
   const scrollPhaseRef = useRef<"input" | "pill">("input");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -1938,7 +1939,11 @@ export default function Home() {
       setConnectionError(null);
     },
     onError: () => {
-      setConnectionError("Failed to connect to server");
+      setConnectionError("Connection error");
+    },
+    onInitialConnectFail: () => {
+      setConnectionError("Could not reach server");
+      setShowSetup(true);
     },
     onClose: () => {
       setIsStreaming(false);
@@ -2270,28 +2275,58 @@ export default function Home() {
     };
   }, [doRefresh, setPullTransform]);
 
-  // iOS Safari height fix — window.innerHeight is the only reliable value
+  // iOS Safari height fix — visualViewport.height is the only value that
+  // correctly shrinks when the virtual keyboard is open.  We also track the
+  // keyboard offset so the fixed-position input bar stays above the keyboard.
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+
   useEffect(() => {
-    const setHeight = () => {
-      if (appRef.current) {
-        appRef.current.style.height = `${window.innerHeight}px`;
+    const vv = window.visualViewport;
+
+    // Lock the container to the initial full-screen height — never change it.
+    // iOS reports smaller values when the keyboard opens, but resizing the
+    // container is what causes the layout to break.
+    if (appRef.current) {
+      appRef.current.style.height = `${window.innerHeight}px`;
+    }
+
+    const onViewportResize = () => {
+      if (!vv) return;
+      const offset = Math.round(window.innerHeight - vv.height);
+      // Move floating bar immediately via DOM — no React render delay
+      if (floatingBarRef.current) {
+        floatingBarRef.current.style.bottom = offset > 0 ? `${offset}px` : "0";
       }
+      setKeyboardOffset((prev) => prev === offset ? prev : offset);
     };
-    setHeight();
-    window.addEventListener("resize", setHeight);
-    // visualViewport fires on iOS when address bar shows/hides
-    window.visualViewport?.addEventListener("resize", setHeight);
+
+    vv?.addEventListener("resize", onViewportResize);
     return () => {
-      window.removeEventListener("resize", setHeight);
-      window.visualViewport?.removeEventListener("resize", setHeight);
+      vv?.removeEventListener("resize", onViewportResize);
     };
   }, []);
+
+  // When the keyboard opens, scroll messages to bottom (once)
+  const prevKeyboardOffsetRef = useRef(0);
+  useEffect(() => {
+    const wasOpen = prevKeyboardOffsetRef.current > 0;
+    const isOpen = keyboardOffset > 0;
+    prevKeyboardOffsetRef.current = keyboardOffset;
+    if (isOpen && !wasOpen) {
+      bottomRef.current?.scrollIntoView({ behavior: "instant" });
+    }
+  }, [keyboardOffset]);
 
   // Check localStorage on mount for previously saved URL and token
   useEffect(() => {
     // Skip auto-connect in demo mode
     if (isDemoMode) return;
     const savedMode = window.localStorage.getItem("mobileclaw-mode") as BackendMode | null;
+
+    if (savedMode === "demo") {
+      // Will be handled by the demo mode effect
+      return;
+    }
 
     if (savedMode === "lmstudio") {
       const savedUrl = window.localStorage.getItem("lmstudio-url");
@@ -2307,20 +2342,9 @@ export default function Home() {
         setShowSetup(true);
       }
     } else {
-      const saved = window.localStorage.getItem("openclaw-url");
-      const savedToken = window.localStorage.getItem("openclaw-token");
-      if (savedToken) gatewayTokenRef.current = savedToken;
-      if (saved) {
-        setBackendMode("openclaw");
-        setOpenclawUrl(saved);
-        let wsUrl = saved;
-        if (!saved.startsWith("ws://") && !saved.startsWith("wss://")) {
-          wsUrl = saved.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
-        }
-        connect(wsUrl);
-      } else {
-        setShowSetup(true);
-      }
+      // OpenClaw mode — always show setup dialog (pre-filled from localStorage).
+      // Don't auto-connect; let the user explicitly tap Connect.
+      setShowSetup(true);
     }
   }, [connect, isDemoMode]);
 
@@ -2626,7 +2650,10 @@ export default function Home() {
       </div>
 
       {/* Floating morphing bar -- driven by continuous scrollProgress (0=bottom, 1=scrolled) */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh]">
+      <div
+        ref={floatingBarRef}
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh]"
+      >
         <div ref={morphRef} className="pointer-events-auto w-full max-w-2xl" style={{ "--sp": "0" } as React.CSSProperties}>
           <ChatInput
             onSend={sendMessage}

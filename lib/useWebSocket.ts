@@ -14,6 +14,8 @@ export interface UseWebSocketOptions {
   onOpen?: () => void;
   onClose?: () => void;
   onError?: (error: Event) => void;
+  /** Called only when the very first connection attempt fails (server unreachable). */
+  onInitialConnectFail?: () => void;
 }
 
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]; // escalating backoff
@@ -26,6 +28,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intentionalCloseRef = useRef(false);
+  // true until the first successful onopen, then false forever for this url
+  const hasNeverConnectedRef = useRef(false);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -40,7 +44,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
   const connectInternal = useCallback((url: string) => {
     if (wsRef.current) {
-      // Prevent old socket from triggering reconnect logic or updating state
       wsRef.current.onclose = null;
       wsRef.current.onerror = null;
       wsRef.current.onmessage = null;
@@ -56,6 +59,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
       ws.onopen = () => {
         console.log("[WS] Connection opened");
+        hasNeverConnectedRef.current = false;
         setConnectionState("connected");
         reconnectAttemptRef.current = 0;
         optionsRef.current.onOpen?.();
@@ -66,8 +70,18 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         wsRef.current = null;
         optionsRef.current.onClose?.();
 
+        // If we never successfully connected, this server is unreachable.
+        // Report failure immediately — don't retry.
+        if (hasNeverConnectedRef.current && !intentionalCloseRef.current) {
+          console.log("[WS] Initial connection failed — server unreachable");
+          urlRef.current = null;
+          setConnectionState("disconnected");
+          optionsRef.current.onInitialConnectFail?.();
+          return;
+        }
+
         if (!intentionalCloseRef.current && urlRef.current) {
-          // Auto-reconnect with backoff
+          // Was previously connected — silent background reconnect
           const attempt = reconnectAttemptRef.current;
           const delay = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)];
           console.log(`[WS] Reconnecting in ${delay}ms (attempt ${attempt + 1})...`);
@@ -107,6 +121,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const connect = useCallback((url: string) => {
     clearReconnectTimer();
     intentionalCloseRef.current = false;
+    hasNeverConnectedRef.current = true;
     urlRef.current = url;
     reconnectAttemptRef.current = 0;
     connectInternal(url);
