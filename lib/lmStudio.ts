@@ -203,7 +203,11 @@ export function createLmStudioHandler(
       let fullThinking = "";
       let thinkingSegment = 0;
       // Track <think>...</think> tag parsing state
-      let insideThinkTag = false;
+      // Some models (e.g. GLM) start responding in thinking mode without
+      // an explicit <think> tag — detect from model name
+      const modelLower = config.model.toLowerCase();
+      const implicitThinking = modelLower.includes("glm");
+      let insideThinkTag = implicitThinking;
       let tagBuffer = ""; // accumulates partial tag matches
 
       // Accumulate tool calls by index
@@ -269,12 +273,30 @@ export function createLmStudioHandler(
                   }
                 } else {
                   const openIdx = pending.indexOf("<think>");
-                  if (openIdx === -1) {
-                    // Check for a partial <think> at the end
+                  const closeIdx = pending.indexOf("</think>");
+
+                  // </think> found before <think> — model was implicitly in thinking mode
+                  // (e.g. GLM outputs thinking without <think> prefix)
+                  if (closeIdx !== -1 && (openIdx === -1 || closeIdx < openIdx)) {
+                    const before = pending.slice(0, closeIdx);
+                    // Retroactively move any already-emitted text to thinking
+                    if (fullText || before) {
+                      fullThinking += fullText + before;
+                      if (fullText) {
+                        fullText = "";
+                        callbacks.onTextDelta(runId, "", "");
+                      }
+                      callbacks.onThinking(runId, fullThinking, thinkingSegment);
+                    }
+                    pending = pending.slice(closeIdx + "</think>".length);
+                  } else if (openIdx === -1) {
+                    // No think tags — check for partial tags at the end
                     const partialOpen = partialTagSuffix(pending, "<think>");
-                    if (partialOpen > 0) {
-                      const safe = pending.slice(0, pending.length - partialOpen);
-                      tagBuffer = pending.slice(pending.length - partialOpen);
+                    const partialClose = partialTagSuffix(pending, "</think>");
+                    const partial = Math.max(partialOpen, partialClose);
+                    if (partial > 0) {
+                      const safe = pending.slice(0, pending.length - partial);
+                      tagBuffer = pending.slice(pending.length - partial);
                       if (safe) { fullText += safe; callbacks.onTextDelta(runId, safe, fullText); }
                     } else {
                       fullText += pending;
@@ -324,6 +346,11 @@ export function createLmStudioHandler(
               } else if (te.status === "done") {
                 console.log("[lmStudio] calling onToolEnd for", te.name);
                 callbacks.onToolEnd(runId, te.name, te.result || "", false);
+                // Models that start in implicit thinking mode will also start
+                // thinking in the next agentic round after tool execution
+                if (implicitThinking) {
+                  insideThinkTag = true;
+                }
               }
             }
 
