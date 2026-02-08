@@ -31,11 +31,16 @@ export function SetupDialog({
   // by background reconnection.  Resets when the dialog opens or on error.
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [phase, setPhase] = useState<"idle" | "entering" | "open" | "closing" | "closed">("idle");
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Reset phase when dialog becomes visible again
+  // Reset phase when dialog becomes visible again.
+  // Uses phaseRef to read the latest phase without adding it as a dependency
+  // (adding phase to deps would re-fire on every animation step).
   useEffect(() => {
-    if (visible && (phase === "closed" || phase === "idle")) {
+    const currentPhase = phaseRef.current;
+    if (visible && (currentPhase === "closed" || currentPhase === "idle")) {
       setIsSubmitting(false);
       // Pre-fill from localStorage if available
       const savedMode = window.localStorage.getItem("mobileclaw-mode") as "openclaw" | "lmstudio" | null;
@@ -57,7 +62,7 @@ export function SetupDialog({
         requestAnimationFrame(() => setPhase("open"));
       });
     }
-    if (!visible && phase === "open") {
+    if (!visible && currentPhase === "open") {
       setPhase("closing");
       setTimeout(() => setPhase("closed"), 500);
     }

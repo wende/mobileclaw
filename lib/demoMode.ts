@@ -1,29 +1,6 @@
 // Demo mode — simulates an OpenClaw backend with curated history and keyword-matched responses
 
-interface ContentPart {
-  type: string;
-  text?: string;
-  name?: string;
-  arguments?: string;
-  status?: "running" | "success" | "error";
-  result?: string;
-  resultError?: boolean;
-  image_url?: { url?: string };
-  thinking?: string;
-}
-
-interface Message {
-  role: string;
-  content: ContentPart[] | string | null;
-  timestamp?: number;
-  id?: string;
-  reasoning?: string;
-  toolName?: string;
-  toolArgs?: string;
-  isError?: boolean;
-  stopReason?: string;
-  isContext?: boolean;
-}
+import type { ContentPart, Message } from "@/types/chat";
 
 // ── Demo conversation history ────────────────────────────────────────────────
 
