@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -62,14 +66,21 @@
   },
   "devDependencies": {
     "@locator/webpack-loader": "^0.5.1",
+    "@playwright/test": "^1.55.0",
     "@tailwindcss/postcss": "^4.1.9",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@treelocator/runtime": "^0.2.0",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5.1.4",
+    "jsdom": "^28.0.0",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }
