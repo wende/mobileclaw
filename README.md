@@ -1,6 +1,8 @@
 # MobileClaw
+<img width="412" height="888" alt="Screenshot 2026-02-17 at 19 22 02" src="https://github.com/user-attachments/assets/2ad0a316-26c8-420f-87c4-9320d8024286" />
+<img width="412" height="892" alt="Screenshot 2026-02-17 at 19 22 40" src="https://github.com/user-attachments/assets/3578223d-8b2f-4d8e-b379-cb997dac4452" />
 
-A mobile-first chat UI for [OpenClaw](https://github.com/user/openclaw) — the open-source AI agent platform. Built with Next.js, Tailwind CSS v4, and zero UI dependencies.
+A mobile-first chat UI for [OpenClaw](https://github.com/user/openclaw) as well as LM Studio models (with tooling) — Built with Next.js, Tailwind CSS v4, and zero UI dependencies.
 
 ## Features
 
