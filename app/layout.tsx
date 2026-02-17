@@ -1,12 +1,10 @@
 import React from "react"
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { GeistSans } from 'geist/font/sans'
+import { GeistMono } from 'geist/font/mono'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 import { LocatorProvider } from './LocatorProvider'
-
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const viewport = {
   width: 'device-width',
@@ -18,6 +16,12 @@ export const metadata: Metadata = {
   title: 'OpenClaw Chat',
   description: 'A minimal, animated chat interface with real-time streaming',
   generator: 'v0.app',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'MobileClaw',
+  },
   icons: {
     icon: [
       {
@@ -44,7 +48,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`font-sans antialiased`}>
+      <body className={`${GeistSans.variable} ${GeistMono.variable} font-sans antialiased`}>
         <LocatorProvider>{children}</LocatorProvider>
         <Analytics />
       </body>

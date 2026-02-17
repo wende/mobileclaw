@@ -173,7 +173,8 @@ export function ChatInput({
         tabIndex={isPill ? 0 : undefined}
         onKeyDown={isPill ? (e: React.KeyboardEvent) => { if (e.key === "Enter") onScrollToBottom?.(); } : undefined}
         style={{
-          height: "calc(46px - 6px * var(--sp, 0))",
+          minHeight: "calc(46px - 6px * var(--sp, 0))",
+          maxHeight: "calc(200px - 160px * var(--sp, 0))",
           cursor: isPill ? "pointer" : "text",
           background: "oklch(from var(--card) l c h / calc(0.9 - 0.5 * var(--sp, 0)))",
         } as React.CSSProperties}
@@ -191,7 +192,7 @@ export function ChatInput({
 
         {/* Textarea */}
         <div
-          className="h-full px-4 py-2.5 flex items-center"
+          className="px-4 py-2.5 flex items-center"
           style={{
             opacity: "calc(1 - var(--sp, 0))",
             pointerEvents: isPill ? "none" : "auto",
