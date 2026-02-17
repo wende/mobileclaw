@@ -17,6 +17,7 @@ import type {
   ConnectionConfig,
 } from "@/types/chat";
 import { getTextFromContent, getMessageSide, formatMessageTime, updateAt, updateMessageById } from "@/lib/messageUtils";
+import { requestNotificationPermission, notifyMessageComplete } from "@/lib/notifications";
 import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 import { CommandSheet } from "@/components/CommandSheet";
@@ -83,6 +84,17 @@ export default function Home() {
     insideThinkTag: boolean;
     tagBuffer: string;
   }>({ insideThinkTag: false, tagBuffer: "" });
+
+  // Notification: extract message preview and fire notification for a completed run
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
+  const notifyForRun = useCallback((runId: string | null) => {
+    const msg = messagesRef.current.find(
+      (m) => m.id === runId && m.role === "assistant"
+    );
+    const preview = msg ? getTextFromContent(msg.content) : "";
+    notifyMessageComplete(preview);
+  }, []);
 
   // ── WebSocket sub-handlers ─────────────────────────────────────────────────
 
@@ -319,6 +331,7 @@ export default function Home() {
         break;
 
       case "final":
+        notifyForRun(activeRunIdRef.current);
         setIsStreaming(false);
         setStreamingId(null);
         activeRunIdRef.current = null;
@@ -339,7 +352,7 @@ export default function Home() {
         activeRunIdRef.current = null;
         break;
     }
-  }, [requestHistory]);
+  }, [requestHistory, notifyForRun]);
 
   /** Handle agent events (lifecycle/content/reasoning/tool streams). */
   const handleAgentEvent = useCallback((payload: AgentEventPayload) => {
@@ -598,6 +611,7 @@ export default function Home() {
         }));
       },
       onStreamEnd: (runId) => {
+        notifyForRun(runId);
         setIsStreaming(false);
         setStreamingId(null);
       },
@@ -690,6 +704,7 @@ export default function Home() {
         }));
       },
       onStreamEnd: (runId) => {
+        notifyForRun(runId);
         setIsStreaming(false);
         setStreamingId(null);
         // Persist LM Studio conversation to localStorage
@@ -1082,6 +1097,9 @@ export default function Home() {
 
 
   const sendMessage = useCallback((text: string) => {
+    // Request notification permission on first user interaction (no-op if already granted/denied)
+    requestNotificationPermission();
+
     const userMsg: Message = { role: "user", content: [{ type: "text", text }], id: `u-${Date.now()}`, timestamp: Date.now() };
     setMessages((prev) => [...prev, userMsg]);
 

@@ -1,0 +1,21 @@
+{
+  "name": "MobileClaw",
+  "short_name": "MobileClaw",
+  "description": "Mobile-first chat UI for OpenClaw",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "icons": [
+    {
+      "src": "/icon-light-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
