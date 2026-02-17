@@ -41,15 +41,23 @@ export function notifyMessageComplete(messagePreview: string): void {
     ? messagePreview.slice(0, 117) + "..."
     : messagePreview;
 
-  const notification = new Notification(title, {
-    body: body || "Agent finished responding",
-    tag: "mobileclaw-message",
-    icon: "/apple-icon.png",
-  });
+  try {
+    const notification = new Notification(title, {
+      body: body || "Agent finished responding",
+      tag: "mobileclaw-message",
+      icon: "/apple-icon.png",
+    });
 
-  // Bring the app to focus when tapped
-  notification.onclick = () => {
-    window.focus();
-    notification.close();
-  };
+    // Bring the app to focus when tapped
+    notification.onclick = () => {
+      try {
+        window.focus();
+      } catch {
+        // Best-effort focus; ignore failures in restrictive environments
+      }
+      notification.close();
+    };
+  } catch {
+    // Some environments throw even when Notification exists and permission is granted
+  }
 }
