@@ -1,6 +1,10 @@
+export type ContentPartType = "text" | "tool_call" | "toolCall" | "thinking" | "image" | "image_url";
+export type MessageRole = "user" | "assistant" | "system" | "tool" | "toolResult" | "tool_result";
+
 export interface ContentPart {
-  type: string;
+  type: ContentPartType;
   text?: string;
+  thinking?: string;
   name?: string;
   arguments?: string;
   status?: "running" | "success" | "error";
@@ -11,7 +15,7 @@ export interface ContentPart {
 }
 
 export interface Message {
-  role: string;
+  role: MessageRole;
   content: ContentPart[] | string | null;
   timestamp?: number;
   id?: string;
@@ -76,10 +80,12 @@ export interface ChatEventPayload {
 }
 
 // Agent event payload — actual format uses stream + data
+export type AgentStreamType = "lifecycle" | "content" | "tool" | "reasoning";
+
 export interface AgentEventPayload {
   runId: string;
   sessionKey: string;
-  stream: string; // "lifecycle", "content", "tool", "reasoning", etc.
+  stream: AgentStreamType;
   data: Record<string, unknown>;
   seq: number;
   ts: number;

@@ -3,6 +3,8 @@
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+import type { ContentPart, Message } from "@/types/chat";
+
 export interface LmStudioConfig {
   baseUrl: string;
   apiKey?: string;
@@ -13,29 +15,6 @@ export interface LmStudioModel {
   id: string;
   object: string;
   owned_by: string;
-}
-
-interface ContentPart {
-  type: string;
-  text?: string;
-  name?: string;
-  arguments?: string;
-  status?: "running" | "success" | "error";
-  result?: string;
-  resultError?: boolean;
-}
-
-interface Message {
-  role: string;
-  content: ContentPart[] | string | null;
-  timestamp?: number;
-  id?: string;
-  reasoning?: string;
-  toolName?: string;
-  toolArgs?: string;
-  isError?: boolean;
-  stopReason?: string;
-  isContext?: boolean;
 }
 
 // OpenAI chat completion message format
