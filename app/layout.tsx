@@ -16,6 +16,12 @@ export const metadata: Metadata = {
   title: 'OpenClaw Chat',
   description: 'A minimal, animated chat interface with real-time streaming',
   generator: 'v0.app',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'MobileClaw',
+  },
   icons: {
     icon: [
       {
