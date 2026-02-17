@@ -38,6 +38,47 @@ export default function Home() {
     _setIsStreaming(value);
   }, []);
   const [streamingId, setStreamingId] = useState<string | null>(null);
+  // LM Studio "Thinking..." state: set true when message sent, false when first content arrives.
+  // Uses double-RAF in sendMessage to ensure browser paints before fetch starts.
+  const [awaitingResponse, setAwaitingResponse] = useState(false);
+  // Track when ThinkingIndicator is exiting (dissolving animation)
+  const [thinkingExiting, setThinkingExiting] = useState(false);
+  // Show indicator while awaiting OR while exit animation is in progress
+  const showThinkingIndicator = awaitingResponse || thinkingExiting;
+
+  // Transition from awaiting to streaming: start exit animation instead of abrupt hide
+  const awaitingResponseRef = useRef(false);
+  awaitingResponseRef.current = awaitingResponse;
+  // Track when we just finished the exit animation (for fade-in effect)
+  const [justRevealedId, setJustRevealedId] = useState<string | null>(null);
+
+  // Reset all thinking indicator state (used when conversation is cleared)
+  const resetThinkingState = useCallback(() => {
+    setAwaitingResponse(false);
+    setThinkingExiting(false);
+    setJustRevealedId(null);
+  }, []);
+
+  const beginContentArrival = useCallback(() => {
+    if (awaitingResponseRef.current) {
+      setAwaitingResponse(false);
+      setThinkingExiting(true);
+    }
+  }, []);
+  const onThinkingExitComplete = useCallback(() => {
+    setThinkingExiting(false);
+    // Mark the streaming message as "just revealed" for fade-in animation
+    setJustRevealedId(streamingId);
+    // Clear the flag after animation completes
+    setTimeout(() => setJustRevealedId(null), 250);
+  }, [streamingId]);
+
+  // Reset thinking state when messages are cleared (e.g., /new command)
+  useEffect(() => {
+    if (messages.length === 0) {
+      resetThinkingState();
+    }
+  }, [messages.length, resetThinkingState]);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
@@ -274,12 +315,21 @@ export default function Home() {
     }
 
     // Merge: keep optimistic user messages not yet in server history
+    // Match by content text, not timestamp (server may use different timestamp)
     setMessages((prev: Message[]) => {
-      const historyTimestamps = new Set(finalMessages.map((m) => m.timestamp));
+      const historyUserTexts = new Set(
+        finalMessages
+          .filter((m) => m.role === "user")
+          .map((m) => getTextFromContent(m.content))
+      );
       const optimistic = prev.filter(
-        (m) => m.role === "user" && m.id?.startsWith("u-") && !historyTimestamps.has(m.timestamp)
+        (m) =>
+          m.role === "user" &&
+          m.id?.startsWith("u-") &&
+          !historyUserTexts.has(getTextFromContent(m.content))
       );
       if (optimistic.length === 0) return finalMessages;
+      console.log("[handleHistoryResponse] Keeping optimistic messages:", optimistic.length);
       return [...finalMessages, ...optimistic].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
     });
 
@@ -298,9 +348,11 @@ export default function Home() {
 
   /** Handle chat events (delta/final/aborted/error). */
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
+    console.log("[ChatEvent]", payload.state, payload.runId, payload.message?.role, payload.message?.content);
     switch (payload.state) {
       case "delta":
         if (payload.message) {
+          beginContentArrival();
           setIsStreaming(true);
           activeRunIdRef.current = payload.runId;
           const msg = payload.message;
@@ -312,12 +364,20 @@ export default function Home() {
               : msg.content;
 
             if (existingIdx >= 0) {
+              console.log("[ChatEvent delta] Updating existing message at idx", existingIdx, "role:", msg.role);
               return updateAt(prev, existingIdx, (existing) => ({
                 ...existing,
                 content: newContent,
                 reasoning: msg.reasoning || existing.reasoning,
               }));
             }
+            // Don't create new user messages from server events — they're added optimistically
+            // on the client side with a different ID (u-${timestamp})
+            if (msg.role === "user") {
+              console.log("[ChatEvent delta] Skipping user message creation (already added optimistically)");
+              return prev;
+            }
+            console.log("[ChatEvent delta] Creating NEW message, role:", msg.role, "runId:", payload.runId, "current messages:", prev.length);
             setStreamingId(payload.runId);
             return [...prev, {
               role: msg.role,
@@ -332,6 +392,7 @@ export default function Home() {
 
       case "final":
         notifyForRun(activeRunIdRef.current);
+        setAwaitingResponse(false);
         setIsStreaming(false);
         setStreamingId(null);
         activeRunIdRef.current = null;
@@ -340,22 +401,25 @@ export default function Home() {
         break;
 
       case "aborted":
+        setAwaitingResponse(false);
         setIsStreaming(false);
         setStreamingId(null);
         activeRunIdRef.current = null;
         break;
 
       case "error":
+        setAwaitingResponse(false);
         setConnectionError(payload.errorMessage || "Chat error");
         setIsStreaming(false);
         setStreamingId(null);
         activeRunIdRef.current = null;
         break;
     }
-  }, [requestHistory, notifyForRun]);
+  }, [requestHistory, notifyForRun, beginContentArrival]);
 
   /** Handle agent events (lifecycle/content/reasoning/tool streams). */
   const handleAgentEvent = useCallback((payload: AgentEventPayload) => {
+    console.log("[AgentEvent]", payload.stream, payload.runId, payload.data);
     if (payload.stream === "lifecycle") {
       const phase = payload.data.phase as string;
       if (phase === "start") {
@@ -369,6 +433,7 @@ export default function Home() {
     if (payload.stream === "content") {
       const rawDelta = (payload.data.delta ?? payload.data.text ?? "") as string;
       if (!rawDelta) return;
+      beginContentArrival();
       setIsStreaming(true);
 
       // Parse <think> tags from the delta
@@ -447,7 +512,10 @@ export default function Home() {
 
     if (payload.stream === "reasoning") {
       const delta = (payload.data.delta ?? payload.data.text ?? "") as string;
-      if (delta) appendReasoning(payload.runId, payload.ts, delta);
+      if (delta) {
+        beginContentArrival();
+        appendReasoning(payload.runId, payload.ts, delta);
+      }
       return;
     }
 
@@ -456,6 +524,7 @@ export default function Home() {
       const toolName = payload.data.name as string;
 
       if (phase === "start" && toolName) {
+        beginContentArrival();
         setMessages((prev: Message[]) => {
           let idx = prev.findIndex((m) => m.id === payload.runId);
           if (idx < 0) idx = prev.findLastIndex((m) => m.role === "assistant");
@@ -491,7 +560,7 @@ export default function Home() {
         });
       }
     }
-  }, [appendReasoning, ensureStreamingMessage]);
+  }, [appendReasoning, ensureStreamingMessage, beginContentArrival]);
 
   // ── Main WebSocket message dispatcher ─────────────────────────────────────
 
@@ -627,11 +696,12 @@ export default function Home() {
     }
     const config = lmStudioConfigRef.current;
     const callbacks: LmStudioCallbacks = {
-      onStreamStart: (runId) => {
-        setIsStreaming(true);
+      onStreamStart: (_runId) => {
+        // isStreaming is already true (set in sendMessage)
         // Don't set streamingId yet — ThinkingIndicator shows while waiting for first content
       },
       onThinking: (runId, text, segment) => {
+        if (text) beginContentArrival();
         setStreamingId(runId);
         setMessages((prev: Message[]) => {
           const idx = prev.findIndex((m) => m.id === runId);
@@ -659,6 +729,7 @@ export default function Home() {
         });
       },
       onTextDelta: (runId, _delta, fullText) => {
+        if (fullText) beginContentArrival();
         setStreamingId(runId);
         setMessages((prev: Message[]) => {
           const idx = prev.findIndex((m) => m.id === runId);
@@ -678,6 +749,7 @@ export default function Home() {
         });
       },
       onToolStart: (runId, name, args) => {
+        beginContentArrival();
         setStreamingId(runId);
         setMessages((prev: Message[]) => {
           const idx = prev.findIndex((m) => m.id === runId);
@@ -705,6 +777,7 @@ export default function Home() {
       },
       onStreamEnd: (runId) => {
         notifyForRun(runId);
+        setAwaitingResponse(false);
         setIsStreaming(false);
         setStreamingId(null);
         // Persist LM Studio conversation to localStorage
@@ -713,15 +786,22 @@ export default function Home() {
           return prev;
         });
       },
-      onError: (runId, error) => {
+      onError: (_runId, error) => {
+        setAwaitingResponse(false);
         setConnectionError(error);
       },
     };
     // Use currentModel so the handler is recreated when the model changes
     const activeConfig = { ...config, model: currentModel || config.model };
     lmStudioConfigRef.current = activeConfig;
-    lmStudioHandlerRef.current = createLmStudioHandler(activeConfig, callbacks);
-  }, [backendMode, currentModel]);
+    const handler = createLmStudioHandler(activeConfig, callbacks);
+    lmStudioHandlerRef.current = handler;
+
+    // Cleanup: stop any in-progress streams when handler is recreated
+    return () => {
+      handler.stop();
+    };
+  }, [backendMode, currentModel, beginContentArrival]);
 
   // Track scroll position — continuous CSS var for morph animation, React state for pointer-events phase.
   const handleScroll = useCallback(() => {
@@ -998,15 +1078,28 @@ export default function Home() {
         setShowSetup(true);
       }
     } else {
-      // OpenClaw mode — always show setup dialog (pre-filled from localStorage).
-      // Don't auto-connect; let the user explicitly tap Connect.
-      setShowSetup(true);
+      // OpenClaw mode — auto-connect if we have saved URL, otherwise show setup
+      const savedUrl = window.localStorage.getItem("openclaw-url");
+      const savedToken = window.localStorage.getItem("openclaw-token");
+      if (savedUrl) {
+        gatewayTokenRef.current = savedToken ?? null;
+        setBackendMode("openclaw");
+        setOpenclawUrl(savedUrl);
+        let wsUrl = savedUrl;
+        if (!savedUrl.startsWith("ws://") && !savedUrl.startsWith("wss://")) {
+          wsUrl = savedUrl.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+        }
+        connect(wsUrl);
+      } else {
+        setShowSetup(true);
+      }
     }
   }, [connect, isDemoMode]);
 
   const handleConnect = useCallback((config: ConnectionConfig) => {
     setConnectionError(null);
     setMessages([]);
+    resetThinkingState();
     window.localStorage.removeItem("lmstudio-messages");
 
     if (config.mode === "demo") {
@@ -1051,7 +1144,7 @@ export default function Home() {
       wsUrl = config.url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
     }
     connect(wsUrl);
-  }, [connect, disconnect]);
+  }, [connect, disconnect, resetThinkingState]);
 
   const handleDisconnect = useCallback(() => {
     disconnect();
@@ -1071,7 +1164,8 @@ export default function Home() {
     setStreamingId(null);
     setConnectionError(null);
     setBackendMode("openclaw");
-  }, [disconnect]);
+    resetThinkingState();
+  }, [disconnect, resetThinkingState]);
 
   // Auto-scroll: whenever messages change (streaming delta, history load, user send),
   // snap to bottom if pinned. useLayoutEffect runs synchronously before paint, so
@@ -1100,7 +1194,11 @@ export default function Home() {
     // Request notification permission on first user interaction (no-op if already granted/denied)
     requestNotificationPermission();
 
+    // Re-pin to bottom so auto-scroll kicks in for the new user message
+    pinnedToBottomRef.current = true;
+
     const userMsg: Message = { role: "user", content: [{ type: "text", text }], id: `u-${Date.now()}`, timestamp: Date.now() };
+    console.log("[sendMessage] Adding user message:", userMsg.id);
     setMessages((prev) => [...prev, userMsg]);
 
     // Demo mode — route through local handler
@@ -1111,13 +1209,18 @@ export default function Home() {
 
     // LM Studio mode — route through HTTP+SSE handler
     if (backendMode === "lmstudio") {
+      // Show "Thinking..." immediately while waiting for server response
+      setAwaitingResponse(true);
       // Send the full conversation history (including the new user message) to LM Studio
       setMessages((prev) => {
         // Persist conversation (including new user message) before sending
         try { window.localStorage.setItem("lmstudio-messages", JSON.stringify(prev)); } catch {}
-        // Use a microtask to send after state is updated
-        Promise.resolve().then(() => {
-          lmStudioHandlerRef.current?.sendMessage(prev);
+        // Use double-RAF to ensure browser paints "Thinking..." before fetch starts
+        // First RAF schedules for next frame, second RAF runs after that frame paints
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            lmStudioHandlerRef.current?.sendMessage(prev);
+          });
         });
         return prev;
       });
@@ -1126,6 +1229,9 @@ export default function Home() {
 
     // OpenClaw mode — WebSocket
     if (!isConnected) return;
+
+    // Show "Thinking..." immediately
+    setAwaitingResponse(true);
 
     // Generate idempotency key for this run
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1201,35 +1307,38 @@ export default function Home() {
             <p className="truncate text-[11px] text-muted-foreground">{currentModel}</p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {isDemoMode || backendMode === "demo" ? (
-            <>
-              <span className="h-2 w-2 rounded-full bg-blue-500" />
-              <span className="text-[11px] text-muted-foreground">Demo</span>
-            </>
-          ) : backendMode === "lmstudio" ? (
-            <>
-              <span className="h-2 w-2 rounded-full bg-green-500" />
-              <span className="text-[11px] text-muted-foreground">LM Studio</span>
-            </>
-          ) : (
-            <>
-              <span className={`h-2 w-2 rounded-full ${
-                connectionState === "connected"
-                  ? "bg-green-500"
-                  : connectionState === "connecting"
-                    ? "bg-yellow-500 animate-pulse"
-                    : "bg-red-500"
-              }`} />
-              <span className="text-[11px] text-muted-foreground">
-                {connectionState === "connected"
-                  ? "Connected"
-                  : connectionState === "connecting"
-                    ? "Connecting..."
-                    : "Disconnected"}
-              </span>
-            </>
-          )}
+        <div className="flex shrink-0 flex-col items-end gap-0.5">
+          <div className="flex items-center gap-1.5">
+            {isDemoMode || backendMode === "demo" ? (
+              <>
+                <span className="h-2 w-2 rounded-full bg-blue-500" />
+                <span className="text-[11px] text-muted-foreground">Demo</span>
+              </>
+            ) : backendMode === "lmstudio" ? (
+              <>
+                <span className="h-2 w-2 rounded-full bg-green-500" />
+                <span className="text-[11px] text-muted-foreground">LM Studio</span>
+              </>
+            ) : (
+              <>
+                <span className={`h-2 w-2 rounded-full ${
+                  connectionState === "connected"
+                    ? "bg-green-500"
+                    : connectionState === "connecting"
+                      ? "bg-yellow-500 animate-pulse"
+                      : "bg-red-500"
+                }`} />
+                <span className="text-[11px] text-muted-foreground">
+                  {connectionState === "connected"
+                    ? "Connected"
+                    : connectionState === "connecting"
+                      ? "Connecting..."
+                      : "Disconnected"}
+                </span>
+              </>
+            )}
+          </div>
+          <span className="text-[10px] text-muted-foreground/60 font-mono">{process.env.NEXT_PUBLIC_GIT_SHA}</span>
         </div>
       </header>
 
@@ -1249,23 +1358,32 @@ export default function Home() {
             const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
             const isTimeGap = timGap > 10 * 60 * 1000;
             const showTimestamp = side !== "center" && (isNewTurn || isTimeGap);
+            // Don't render the streaming message at all while ThinkingIndicator is dissolving
+            const isHiddenDuringExit = thinkingExiting && msg.id === streamingId;
+            if (isHiddenDuringExit) return null;
+
+            // Apply fade-in animation when message is first revealed after exit
+            const fadeInClass = msg.id === justRevealedId ? "animate-[fadeIn_200ms_ease-out]" : "";
+
             return (
               <React.Fragment key={msg.id || idx}>
                 {isTimeGap && !isNewTurn && msg.timestamp && (
-                  <div className="flex justify-center py-1">
+                  <div className={`flex justify-center py-1 ${fadeInClass}`}>
                     <span className="text-[10px] text-muted-foreground/60">{formatMessageTime(msg.timestamp)}</span>
                   </div>
                 )}
                 {showTimestamp && isNewTurn && msg.timestamp && (
-                  <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
+                  <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"} ${fadeInClass}`}>
                     {formatMessageTime(msg.timestamp)}
                   </p>
                 )}
-                <MessageRow message={msg} isStreaming={isStreaming && msg.id === streamingId} />
+                <div className={fadeInClass}>
+                  <MessageRow message={msg} isStreaming={isStreaming && msg.id === streamingId} />
+                </div>
               </React.Fragment>
             );
           })}
-          {isStreaming && !streamingId && <ThinkingIndicator />}
+          {showThinkingIndicator && <ThinkingIndicator isExiting={thinkingExiting} onExitComplete={onThinkingExitComplete} />}
           <div ref={bottomRef} />
         </div>
       </main>

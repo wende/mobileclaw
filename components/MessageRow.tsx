@@ -184,7 +184,7 @@ export function MessageRow({ message, isStreaming }: { message: Message; isStrea
         {isUser ? (
           <>
             {text && (
-              <div className="text-sm leading-relaxed break-words">
+              <div className="text-sm leading-relaxed break-words whitespace-pre-wrap">
                 {text}
               </div>
             )}

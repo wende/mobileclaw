@@ -143,7 +143,6 @@ export function createLmStudioHandler(
     abortController = new AbortController();
 
     const runId = `lms-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    callbacks.onStreamStart(runId);
 
     const openaiMessages = toOpenAIMessages(messages);
     const url = "/api/lmstudio";
@@ -177,6 +176,9 @@ export function createLmStudioHandler(
         callbacks.onStreamEnd(runId);
         return;
       }
+
+      // Server accepted the request — signal stream start
+      callbacks.onStreamStart(runId);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -373,7 +375,7 @@ export function createLmStudioHandler(
       callbacks.onStreamEnd(runId);
     } catch (err) {
       if ((err as Error).name === "AbortError") {
-        callbacks.onStreamEnd(runId);
+        // Don't call onStreamEnd for aborted requests — the abort was intentional
         return;
       }
       callbacks.onError(runId, (err as Error).message || "Unknown error");
