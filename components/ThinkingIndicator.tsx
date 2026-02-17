@@ -5,12 +5,15 @@ import { useEffect, useState, useRef } from "react";
 interface ThinkingIndicatorProps {
   isExiting?: boolean;
   onExitComplete?: () => void;
+  startTime?: number; // Timestamp when thinking started
 }
 
-export function ThinkingIndicator({ isExiting, onExitComplete }: ThinkingIndicatorProps) {
+export function ThinkingIndicator({ isExiting, onExitComplete, startTime }: ThinkingIndicatorProps) {
   const text = "Thinking...";
   const [visibleCount, setVisibleCount] = useState(text.length);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
 
   // Track mounted state for safe state updates
@@ -23,8 +26,40 @@ export function ThinkingIndicator({ isExiting, onExitComplete }: ThinkingIndicat
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, []);
+
+  // Update elapsed time every second
+  useEffect(() => {
+    if (!startTime || isExiting) {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      return;
+    }
+
+    // Initial calculation
+    const updateElapsed = () => {
+      if (mountedRef.current) {
+        setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
+      }
+    };
+    updateElapsed();
+
+    timerRef.current = setInterval(updateElapsed, 1000);
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [startTime, isExiting]);
 
   useEffect(() => {
     // Clear any existing interval first
@@ -71,7 +106,7 @@ export function ThinkingIndicator({ isExiting, onExitComplete }: ThinkingIndicat
   const hasDots = visibleCount > 8; // "Thinking." ends at index 8
 
   return (
-    <div className="flex gap-3">
+    <div className="flex flex-col gap-0.5">
       <div className="text-sm text-muted-foreground flex items-center">
         {hasDots ? (
           <>
@@ -86,6 +121,9 @@ export function ThinkingIndicator({ isExiting, onExitComplete }: ThinkingIndicat
           <span>{visibleText}</span>
         )}
       </div>
+      {startTime && elapsedSeconds > 0 && !isExiting && (
+        <div className="text-[10px] text-muted-foreground/50 tabular-nums">{elapsedSeconds}s</div>
+      )}
     </div>
   );
 }

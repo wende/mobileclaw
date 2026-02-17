@@ -25,6 +25,7 @@ export interface Message {
   isError?: boolean;
   stopReason?: string;
   isContext?: boolean;
+  thinkingDuration?: number; // Seconds spent "thinking" before first content
 }
 
 // OpenClaw WebSocket protocol types

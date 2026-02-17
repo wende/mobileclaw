@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { MarkdownContent, StreamingCursor } from "@/components/markdown/MarkdownContent";
+import { MarkdownContent, BlockCursor, StreamingCursor } from "@/components/markdown/MarkdownContent";
 
 // Module-level: remembered rate from previous responses (persists across component instances)
 let learnedCharsPerMs = 0.15; // Default: ~150 chars/sec, learned from history
@@ -134,10 +134,21 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
   }, [isStreaming]);
 
   const visibleText = text.slice(0, displayLen);
-  return (
-    <>
-      <MarkdownContent text={visibleText} />
-      {isStreaming && <StreamingCursor />}
-    </>
-  );
+
+  // When streaming with text, show last char with block cursor (reversed colors)
+  // When streaming with no text yet, show empty block cursor
+  if (isStreaming) {
+    if (visibleText.length > 0) {
+      const textWithoutLast = visibleText.slice(0, -1);
+      const lastChar = visibleText.slice(-1);
+      // If last char is whitespace/newline, show a visible space block instead
+      const cursorContent = /\s/.test(lastChar) ? " " : lastChar;
+      const cursor = <BlockCursor>{cursorContent}</BlockCursor>;
+      return <MarkdownContent text={textWithoutLast} cursor={cursor} />;
+    }
+    // No text yet - show empty cursor
+    return <StreamingCursor />;
+  }
+
+  return <MarkdownContent text={visibleText} />;
 }

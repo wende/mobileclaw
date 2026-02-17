@@ -45,6 +45,8 @@ export default function Home() {
   const [thinkingExiting, setThinkingExiting] = useState(false);
   // Show indicator while awaiting OR while exit animation is in progress
   const showThinkingIndicator = awaitingResponse || thinkingExiting;
+  // Track when thinking started for duration display
+  const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null);
 
   // Transition from awaiting to streaming: start exit animation instead of abrupt hide
   const awaitingResponseRef = useRef(false);
@@ -57,12 +59,27 @@ export default function Home() {
     setAwaitingResponse(false);
     setThinkingExiting(false);
     setJustRevealedId(null);
+    setThinkingStartTime(null);
   }, []);
+
+  // Ref to access thinkingStartTime in callbacks without dependency
+  const thinkingStartTimeRef = useRef<number | null>(null);
+  thinkingStartTimeRef.current = thinkingStartTime;
+  // Pending duration to apply when assistant message is created
+  const pendingThinkingDurationRef = useRef<number | null>(null);
 
   const beginContentArrival = useCallback(() => {
     if (awaitingResponseRef.current) {
+      // Calculate thinking duration and store in ref for message creation
+      const startTime = thinkingStartTimeRef.current;
+      const duration = startTime ? Math.round((Date.now() - startTime) / 1000) : null;
+      if (duration !== null && duration > 0) {
+        pendingThinkingDurationRef.current = duration;
+      }
+
       setAwaitingResponse(false);
       setThinkingExiting(true);
+      setThinkingStartTime(null);
     }
   }, []);
   const onThinkingExitComplete = useCallback(() => {
@@ -77,8 +94,22 @@ export default function Home() {
   useEffect(() => {
     if (messages.length === 0) {
       resetThinkingState();
+      pendingThinkingDurationRef.current = null;
     }
   }, [messages.length, resetThinkingState]);
+
+  // Apply pending thinking duration to newly created assistant messages
+  useLayoutEffect(() => {
+    const duration = pendingThinkingDurationRef.current;
+    if (!duration) return;
+
+    // Find the last assistant message without a duration (the one being streamed)
+    const targetIdx = messages.findLastIndex((m) => m.role === "assistant" && !m.thinkingDuration);
+    if (targetIdx >= 0) {
+      pendingThinkingDurationRef.current = null;
+      setMessages((prev) => updateAt(prev, targetIdx, (msg) => ({ ...msg, thinkingDuration: duration })));
+    }
+  }, [messages]);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
@@ -108,6 +139,22 @@ export default function Home() {
   const sessionKeyRef = useRef<string>("main");
   const [isDemoMode, setIsDemoMode] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
+
+  // Theme state (light/dark mode)
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  useEffect(() => {
+    // Read initial theme from document (set by layout script before hydration)
+    const isDark = document.documentElement.classList.contains("dark");
+    setTheme(isDark ? "dark" : "light");
+  }, []);
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => {
+      const next = prev === "light" ? "dark" : "light";
+      document.documentElement.classList.toggle("dark", next === "dark");
+      try { localStorage.setItem("theme", next); } catch {}
+      return next;
+    });
+  }, []);
 
   // Backend mode: openclaw (WebSocket), lmstudio (HTTP+SSE), or demo
   const [backendMode, setBackendMode] = useState<BackendMode>("openclaw");
@@ -1211,6 +1258,7 @@ export default function Home() {
     if (backendMode === "lmstudio") {
       // Show "Thinking..." immediately while waiting for server response
       setAwaitingResponse(true);
+      setThinkingStartTime(Date.now());
       // Send the full conversation history (including the new user message) to LM Studio
       setMessages((prev) => {
         // Persist conversation (including new user message) before sending
@@ -1232,6 +1280,7 @@ export default function Home() {
 
     // Show "Thinking..." immediately
     setAwaitingResponse(true);
+    setThinkingStartTime(Date.now());
 
     // Generate idempotency key for this run
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1290,7 +1339,6 @@ export default function Home() {
           className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card transition-colors hover:bg-accent active:bg-accent"
           aria-label="Open settings"
         >
-
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 8c-1.5-1-2.5-3-2-5 1 .5 2.5 1 3.5 2.5M19 8c1.5-1 2.5-3 2-5-1 .5-2.5 1-3.5 2.5" />
             <path d="M4.5 14.5C3 13 2 11 2 9c0-1 .5-2 1.5-2.5C5 6 6.5 7 7 8.5M19.5 14.5C21 13 22 11 22 9c0-1-.5-2-1.5-2.5C19 6 17.5 7 17 8.5" />
@@ -1307,6 +1355,23 @@ export default function Home() {
             <p className="truncate text-[11px] text-muted-foreground">{currentModel}</p>
           )}
         </div>
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card transition-colors hover:bg-accent active:bg-accent"
+          aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+        >
+          {theme === "light" ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+            </svg>
+          )}
+        </button>
         <div className="flex shrink-0 flex-col items-end gap-0.5">
           <div className="flex items-center gap-1.5">
             {isDemoMode || backendMode === "demo" ? (
@@ -1375,6 +1440,9 @@ export default function Home() {
                 {showTimestamp && isNewTurn && msg.timestamp && (
                   <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"} ${fadeInClass}`}>
                     {formatMessageTime(msg.timestamp)}
+                    {msg.role === "assistant" && msg.thinkingDuration && msg.thinkingDuration > 0 && (
+                      <span className="ml-1">· {msg.thinkingDuration}s</span>
+                    )}
                   </p>
                 )}
                 <div className={fadeInClass}>
@@ -1383,7 +1451,7 @@ export default function Home() {
               </React.Fragment>
             );
           })}
-          {showThinkingIndicator && <ThinkingIndicator isExiting={thinkingExiting} onExitComplete={onThinkingExitComplete} />}
+          {showThinkingIndicator && <ThinkingIndicator isExiting={thinkingExiting} onExitComplete={onThinkingExitComplete} startTime={thinkingStartTime ?? undefined} />}
           <div ref={bottomRef} />
         </div>
       </main>

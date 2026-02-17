@@ -150,7 +150,7 @@ export function ChatInput({
       <button
         type="button"
         onClick={onOpenCommands}
-        className="flex shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground overflow-hidden"
+        className="mb-1 flex shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground overflow-hidden"
         style={{
           opacity: "max(0, 1 - var(--sp, 0) * 2.5)",
           width: "calc(40px * (1 - var(--sp, 0)))",
@@ -215,7 +215,7 @@ export function ChatInput({
         type="button"
         onClick={submit}
         disabled={!value.trim()}
-        className="flex shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:opacity-80 overflow-hidden"
+        className="mb-1 flex shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:opacity-80 overflow-hidden"
         style={{
           opacity: value.trim() ? "max(0, 1 - var(--sp, 0) * 2.5)" : "max(0, (1 - var(--sp, 0) * 2.5) * 0.3)",
           width: "calc(40px * (1 - var(--sp, 0)))",

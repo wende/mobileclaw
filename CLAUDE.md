@@ -10,6 +10,7 @@ MobileClaw is a mobile-first chat UI for the [OpenClaw](https://github.com/user/
 - **Tailwind CSS v4** with OKLch color tokens
 - **TypeScript** (strict mode disabled for speed)
 - **Geist font** via `geist` package (sans + mono)
+- **pnpm** — package manager (do NOT use npm or create package-lock.json)
 - **Vitest** for unit testing
 - No component library — all UI is hand-rolled with inline SVG icons
 

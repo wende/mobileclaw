@@ -2,8 +2,14 @@
 
 import React, { useState } from "react";
 
+// Block cursor wrapper for the last character - reversed colors like a terminal
+export function BlockCursor({ children }: { children: React.ReactNode }) {
+  return <span className="bg-foreground text-background inline-block min-w-[0.5em]">{children}</span>;
+}
+
+// Legacy cursor for empty streaming state
 export function StreamingCursor() {
-  return <span className="ml-0.5 inline-block h-4 w-[2px] bg-foreground animate-pulse" />;
+  return <span className="inline-block w-2 h-4 bg-foreground animate-pulse" />;
 }
 
 export function CodeBlock({ lang, code }: { lang?: string; code: string }) {
@@ -26,13 +32,14 @@ export function CodeBlock({ lang, code }: { lang?: string; code: string }) {
   );
 }
 
-export function MarkdownContent({ text }: { text: string }) {
+export function MarkdownContent({ text, cursor }: { text: string; cursor?: React.ReactNode }) {
   // Split text by code blocks first
   const segments = text.split(/(```[\s\S]*?```)/g);
 
   return (
     <>
       {segments.map((segment, i) => {
+        const isLast = i === segments.length - 1;
         // Fenced code block
         if (segment.startsWith("```") && segment.endsWith("```")) {
           const inner = segment.slice(3, -3);
@@ -42,41 +49,43 @@ export function MarkdownContent({ text }: { text: string }) {
           return <CodeBlock key={i} lang={lang} code={code} />;
         }
 
-        // Inline markdown
-        return <InlineMarkdown key={i} text={segment} />;
+        // Inline markdown - pass cursor to the last segment
+        return <InlineMarkdown key={i} text={segment} cursor={isLast ? cursor : undefined} />;
       })}
     </>
   );
 }
 
-export function InlineMarkdown({ text }: { text: string }) {
+export function InlineMarkdown({ text, cursor }: { text: string; cursor?: React.ReactNode }) {
   const lines = text.split("\n");
   const elements: React.ReactNode[] = [];
   let i = 0;
 
   while (i < lines.length) {
     const line = lines[i];
+    const isLastLine = i === lines.length - 1;
+    const cursorForThis = isLastLine ? cursor : undefined;
 
     // Empty line
     if (line.trim() === "") {
-      elements.push(<div key={`br-${i}`} className="h-2" />);
+      elements.push(<div key={`br-${i}`} className="h-2">{cursorForThis}</div>);
       i++;
       continue;
     }
 
     // Headings
     if (line.startsWith("# ")) {
-      elements.push(<h1 key={`h1-${i}`} className="text-lg font-bold text-foreground mt-4 mb-1">{renderInline(line.slice(2))}</h1>);
+      elements.push(<h1 key={`h1-${i}`} className="text-lg font-bold text-foreground mt-4 mb-1">{renderInline(line.slice(2))}{cursorForThis}</h1>);
       i++;
       continue;
     }
     if (line.startsWith("## ")) {
-      elements.push(<h2 key={`h2-${i}`} className="text-base font-semibold text-foreground mt-3 mb-1">{renderInline(line.slice(3))}</h2>);
+      elements.push(<h2 key={`h2-${i}`} className="text-base font-semibold text-foreground mt-3 mb-1">{renderInline(line.slice(3))}{cursorForThis}</h2>);
       i++;
       continue;
     }
     if (line.startsWith("### ")) {
-      elements.push(<h3 key={`h3-${i}`} className="text-sm font-semibold text-foreground mt-2 mb-1">{renderInline(line.slice(4))}</h3>);
+      elements.push(<h3 key={`h3-${i}`} className="text-sm font-semibold text-foreground mt-2 mb-1">{renderInline(line.slice(4))}{cursorForThis}</h3>);
       i++;
       continue;
     }
@@ -90,7 +99,7 @@ export function InlineMarkdown({ text }: { text: string }) {
       }
       elements.push(
         <blockquote key={`bq-${i}`} className="my-2 border-l-2 border-border pl-3 text-muted-foreground italic">
-          {renderInline(quoteLines.join("\n"))}
+          {renderInline(quoteLines.join("\n"))}{isLastLine ? cursor : undefined}
         </blockquote>
       );
       continue;
@@ -115,12 +124,13 @@ export function InlineMarkdown({ text }: { text: string }) {
         if (match) listItems.push({ depth: match[1].length, text: match[2] });
         i++;
       }
+      const listIsLast = i >= lines.length;
       elements.push(
         <ul key={`ul-${i}`} className="my-1.5 flex flex-col gap-0.5">
           {listItems.map((item, j) => (
             <li key={j} className="flex gap-1.5 text-foreground" style={{ paddingLeft: `${item.depth * 8 + 4}px` }}>
               <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
-              <span>{renderInline(item.text)}</span>
+              <span>{renderInline(item.text)}{listIsLast && j === listItems.length - 1 ? cursor : undefined}</span>
             </li>
           ))}
         </ul>
@@ -136,12 +146,13 @@ export function InlineMarkdown({ text }: { text: string }) {
         if (match) listItems.push(match[1]);
         i++;
       }
+      const listIsLast = i >= lines.length;
       elements.push(
         <ol key={`ol-${i}`} className="my-1.5 flex flex-col gap-0.5">
           {listItems.map((item, j) => (
             <li key={j} className="flex gap-1.5 pl-1 text-foreground">
               <span className="shrink-0 text-muted-foreground">{j + 1}.</span>
-              <span>{renderInline(item)}</span>
+              <span>{renderInline(item)}{listIsLast && j === listItems.length - 1 ? cursor : undefined}</span>
             </li>
           ))}
         </ol>
@@ -150,7 +161,7 @@ export function InlineMarkdown({ text }: { text: string }) {
     }
 
     // Paragraph
-    elements.push(<p key={`p-${i}`} className="text-foreground">{renderInline(line)}</p>);
+    elements.push(<p key={`p-${i}`} className="text-foreground">{renderInline(line)}{cursorForThis}</p>);
     i++;
   }
 
