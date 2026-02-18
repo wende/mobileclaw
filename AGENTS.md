@@ -1,90 +1,129 @@
-# AGENTS.md — AI Agent Instructions for MobileClaw
+# MobileClaw — Project Instructions
 
-## Architecture
+## Overview
 
-MobileClaw is a **single-page** Next.js app. All UI lives in `app/page.tsx` (~2100 lines). This is intentional — do not refactor into separate component files.
+MobileClaw is a mobile-first chat UI for the [OpenClaw](https://github.com/user/openclaw) agent platform. Built with Next.js 16, Tailwind CSS v4, and zero component libraries. The UI has been modularized into focused components.
 
-### Message Flow
+## Tech Stack
+
+- **Next.js 16** (App Router, Turbopack)
+- **Tailwind CSS v4** with OKLch color tokens
+- **TypeScript** (strict mode disabled for speed)
+- **Geist font** via `geist` package (sans + mono)
+- **pnpm** — package manager (do NOT use npm or create package-lock.json)
+- **Vitest** for unit testing
+- No component library — all UI is hand-rolled with inline SVG icons
+
+## File Layout
 
 ```
-User types → sendMessage() → WebSocket req:chat.send
-                             ↓
-Server streams → event:agent (content/tool/reasoning deltas)
-              → event:chat (delta/final/aborted/error)
-                             ↓
-handleWSMessage() → setMessages() state updates → React re-render
+app/
+  page.tsx            — main page, state management, backend switching
+  layout.tsx          — root layout, fonts, metadata
+  globals.css         — Tailwind config, OKLch color tokens, dark mode
+  LocatorProvider.tsx — dev-only tree locator (v0 tooling)
+  api/lmstudio/       — proxy for LM Studio API calls
+
+components/
+  ChatInput.tsx       — message input with command autocomplete
+  CommandSheet.tsx    — slash command picker
+  MessageRow.tsx      — individual message rendering
+  SetupDialog.tsx     — backend selection (OpenClaw/LM Studio/Demo)
+  StreamingText.tsx   — animated text streaming
+  ThinkingIndicator.tsx — reasoning/thinking display
+  ToolCallPill.tsx    — tool call status badges
+  ImageThumbnails.tsx — image attachment previews
+
+lib/
+  lmStudio.ts         — LM Studio OpenAI-compatible client with SSE streaming
+  useWebSocket.ts     — WebSocket hook for OpenClaw with reconnect backoff
+  demoMode.ts         — demo mode handler, mock history, keyword responses
+  toolDisplay.ts      — maps tool names/args to human-friendly labels
+  messageUtils.ts     — message content helpers
+  notifications.ts    — push notification support
+  utils.ts            — general utilities
+
+types/
+  chat.ts             — shared TypeScript types (Message, ContentPart, etc.)
 ```
 
-In demo mode, `sendMessage()` routes to `demoHandlerRef.current.sendMessage()` which simulates the same flow via `setTimeout` chains.
+## Development
 
-### State Management
-
-All state is in the `Home` component (React `useState`/`useRef`):
-
-| State | Purpose |
-|-------|---------|
-| `messages` | Array of `Message` objects — the chat history |
-| `isStreaming` | Whether an assistant response is being streamed |
-| `streamingId` | ID of the message currently streaming (for cursor) |
-| `isDemoMode` | Whether demo mode is active |
-| `connectionState` | WebSocket connection status |
-| `currentModel` | Display name of the current AI model |
-| `showSetup` | Whether the setup dialog is visible |
-| `scrollPhase` | "input" or "pill" — controls morph bar animation |
-
-### Streaming Mechanics
-
-1. **StreamingText component**: reveals text character-by-character via `requestAnimationFrame` loop
-2. **Auto-scroll**: rAF loop during streaming closes 40% of the gap to bottom per frame
-3. **Morph bar**: `--sp` CSS custom property (0=bottom, 1=scrolled) drives smooth input↔pill transition
-
-### Content Parts
-
-Messages use a `ContentPart[]` array with these types:
-- `text` — markdown text
-- `tool_call` / `toolCall` — tool invocation with name, args, status, result
-- `image` / `image_url` — image attachments
-- `thinking` — reasoning content (extracted to `message.reasoning`)
-
-**Important:** `MessageRow` renders assistant content parts **in array order**, not grouped by type. This means tool calls appear inline where they occurred in the conversation flow (e.g. text → tool call → more text). The streaming cursor (`StreamingText`) only applies to the last text part in the array.
-
-## Common Patterns
-
-### Adding a new tool display
-
-Edit `lib/toolDisplay.ts` — add a case to the `switch` in `getToolDisplay()`:
-
-```typescript
-case "my_tool": {
-  const arg = parsed?.someArg;
-  return { label: typeof arg === "string" ? arg : "my_tool", icon: "tool" };
-}
+```bash
+pnpm install
+pnpm run dev         # http://localhost:3000 (Turbopack)
+pnpm run build       # production build
+pnpm test            # run Vitest tests (63 tests)
 ```
 
-### Adding a new message type
+## Backend Modes
 
-In `MessageRow` component in `page.tsx`, add handling before the user/assistant rendering:
+MobileClaw supports three backend modes, selectable in the setup dialog:
 
-```typescript
-if (message.role === "my_role") {
-  return <div>...</div>;
-}
-```
+### 1. OpenClaw (WebSocket)
+- Connects to OpenClaw gateway via WebSocket
+- Full agent capabilities, tool execution, reasoning streams
+- Requires URL and optional auth token
 
-### Adding a demo response
+### 2. LM Studio (HTTP/SSE)
+- Connects to local LM Studio server (OpenAI-compatible API)
+- Supports `<think>...</think>` tag parsing for reasoning models
+- Auto-detects models that skip opening `<think>` tag
+- `onStreamStart` fires after HTTP 200 (confirms server is processing)
 
-In `lib/demoMode.ts`, add to the `RESPONSES` object and update `matchResponse()`:
+### 3. Demo Mode
+- Fully client-side simulation, no server required
+- Visit `localhost:3000?demo` to auto-enter
+- Or leave URL empty in setup dialog and click "Start Demo"
+- Keywords trigger different responses: "weather", "code", "think", "error", "research", "agent", "help"
 
-```typescript
-myKeyword: {
-  text: "Response with **markdown**",
-  toolCalls: [{ name: "tool", args: {}, result: "...", delayMs: 1000 }],
-  thinking: "Optional reasoning text",
-},
-```
+## Testing LM Studio Locally
 
-## Testing Approach
+1. Start LM Studio and load a model
+2. Enable the local server (default: `http://localhost:1234`)
+3. Run `pnpm run dev`
+4. In setup dialog, select "LM Studio", enter `http://localhost:1234`
+5. Select your model from the dropdown
+6. Send a message — "Thinking..." appears when server accepts request
 
-- No test framework is configured — verify by building (`npm run build`) and manual testing
-- Demo mode (`?demo`) is the primary way to test UI features without a backend
-- Key things to verify: markdown rendering, tool call lifecycle, streaming cursor, scroll behavior, mobile viewport
+## Key Conventions
+
+- **Modular components**: UI split into focused components in `components/`
+- **Shared types**: all types in `types/chat.ts`
+- **No component library**: use raw HTML elements + Tailwind classes
+- **Inline SVG icons**: no icon library — copy SVG directly into JSX
+- **OKLch colors**: all color tokens in `globals.css` use `oklch()` — never use hex or named colors
+- **Mobile-first**: `h-dvh` viewport, touch handlers, iOS Safari fixes
+- **CSS variable animations**: scroll morph bar uses `--sp` CSS custom property for 60fps animations
+
+## Recent Changes (Feb 2025)
+
+### Merged PRs
+- **PR #3**: Expandable ChatInput textarea (auto-grows with content)
+- **PR #4**: Comprehensive test suite (63 Vitest tests covering components, utils, handlers)
+- **PR #5**: Push notifications when agent completes (with iOS PWA safety)
+- **PR #6**: Migrated from next/font/google to `geist` package
+
+### Other Improvements
+- LM Studio `onStreamStart` now fires after HTTP 200 (accurate "Thinking..." timing)
+- WebSocket handler refactored into sub-handlers for cleaner code
+- iOS keyboard layout fixes for Safari PWA
+- Font CSS variables properly reference geist package vars
+
+## Push Notifications
+
+- Requests permission on first message send
+- Notifies when agent finishes responding (if tab not focused)
+- Safe try/catch wrapper for iOS PWA edge cases
+- See `lib/notifications.ts`
+
+## WebSocket Protocol (OpenClaw)
+
+MobileClaw connects to OpenClaw's gateway WebSocket. Protocol frames:
+
+1. **Server sends** `event:connect.challenge` with nonce
+2. **Client responds** with `req:connect` including auth token, capabilities
+3. **Server responds** with `res:hello-ok` including server info, session snapshot
+4. **Client requests** `req:chat.history` to load message history
+5. **Messages flow** via `event:chat` (delta/final/aborted/error) and `event:agent` (content/tool/reasoning/lifecycle streams)
+6. **Client sends** `req:chat.send` with user messages
