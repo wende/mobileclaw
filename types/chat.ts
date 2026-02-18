@@ -6,6 +6,7 @@ export interface ContentPart {
   text?: string;
   thinking?: string;
   name?: string;
+  toolCallId?: string;
   arguments?: string;
   status?: "running" | "success" | "error";
   result?: string;

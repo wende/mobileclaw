@@ -18,6 +18,7 @@ import type {
 } from "@/types/chat";
 import { getTextFromContent, getMessageSide, formatMessageTime, updateAt, updateMessageById } from "@/lib/messageUtils";
 import { requestNotificationPermission, notifyMessageComplete } from "@/lib/notifications";
+import { loadOrCreateDeviceIdentity, signDevicePayload, buildDeviceAuthPayload } from "@/lib/deviceIdentity";
 import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 import { CommandSheet } from "@/components/CommandSheet";
@@ -166,6 +167,7 @@ export default function Home() {
   const sendWSMessageRef = useRef<((message: WebSocketMessage) => boolean) | null>(null);
   const markEstablishedRef = useRef<(() => void) | null>(null);
   const gatewayTokenRef = useRef<string | null>(null);
+  const connectNonceRef = useRef<string | null>(null);
 
   // <think> tag parsing state for OpenClaw content stream
   const thinkTagStateRef = useRef<{
@@ -228,8 +230,43 @@ export default function Home() {
     });
   }, []);
 
-  /** Handle connect.challenge — respond with auth handshake. */
-  const handleConnectChallenge = useCallback(() => {
+  /** Handle connect.challenge — respond with auth handshake using device identity. */
+  const handleConnectChallenge = useCallback(async (nonce?: string) => {
+    connectNonceRef.current = nonce ?? null;
+
+    const scopes = ["operator.read", "operator.write", "operator.admin", "operator.approvals", "operator.pairing"];
+    const role = "operator";
+    const clientId = "openclaw-control-ui";
+    const clientMode = "webchat";
+    const authToken = gatewayTokenRef.current ?? undefined;
+
+    // Build device identity and signature
+    let device: { id: string; publicKey: string; signature: string; signedAt: number; nonce?: string } | undefined;
+    try {
+      const identity = await loadOrCreateDeviceIdentity();
+      const signedAtMs = Date.now();
+      const payload = buildDeviceAuthPayload({
+        deviceId: identity.deviceId,
+        clientId,
+        clientMode,
+        role,
+        scopes,
+        signedAtMs,
+        token: authToken ?? null,
+        nonce,
+      });
+      const signature = await signDevicePayload(identity.privateKey, payload);
+      device = {
+        id: identity.deviceId,
+        publicKey: identity.publicKey,
+        signature,
+        signedAt: signedAtMs,
+        nonce,
+      };
+    } catch (err) {
+      console.warn("[Connect] Device identity failed, connecting without:", err);
+    }
+
     sendWS({
       type: "req",
       id: `conn-${Date.now()}`,
@@ -237,11 +274,12 @@ export default function Home() {
       params: {
         minProtocol: 3,
         maxProtocol: 3,
-        client: { id: "webchat", version: "1.0.0", platform: "web", mode: "webchat" },
-        role: "operator",
-        scopes: ["operator.admin"],
-        caps: ["chat", "agent", "health", "presence"],
-        auth: { token: gatewayTokenRef.current ?? undefined },
+        client: { id: clientId, version: "1.0.0", platform: navigator.platform ?? "web", mode: clientMode },
+        role,
+        scopes,
+        device,
+        caps: ["tool-events"],
+        auth: authToken ? { token: authToken } : undefined,
       },
     });
   }, [sendWS]);
@@ -376,7 +414,6 @@ export default function Home() {
           !historyUserTexts.has(getTextFromContent(m.content))
       );
       if (optimistic.length === 0) return finalMessages;
-      console.log("[handleHistoryResponse] Keeping optimistic messages:", optimistic.length);
       return [...finalMessages, ...optimistic].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
     });
 
@@ -395,7 +432,6 @@ export default function Home() {
 
   /** Handle chat events (delta/final/aborted/error). */
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
-    console.log("[ChatEvent]", payload.state, payload.runId, payload.message?.role, payload.message?.content);
     switch (payload.state) {
       case "delta":
         if (payload.message) {
@@ -411,20 +447,27 @@ export default function Home() {
               : msg.content;
 
             if (existingIdx >= 0) {
-              console.log("[ChatEvent delta] Updating existing message at idx", existingIdx, "role:", msg.role);
-              return updateAt(prev, existingIdx, (existing) => ({
-                ...existing,
-                content: newContent,
-                reasoning: msg.reasoning || existing.reasoning,
-              }));
+              return updateAt(prev, existingIdx, (existing) => {
+                // Chat delta contains CUMULATIVE text, not incremental delta.
+                // Replace (don't append) since each chat delta has full text so far.
+                const newText = typeof msg.content === "string"
+                  ? msg.content
+                  : getTextFromContent(msg.content);
+                const nonTextParts = Array.isArray(existing.content)
+                  ? existing.content.filter((p: ContentPart) => p.type !== "text")
+                  : [];
+                return {
+                  ...existing,
+                  content: [...nonTextParts, { type: "text" as const, text: newText }],
+                  reasoning: msg.reasoning || existing.reasoning,
+                };
+              });
             }
             // Don't create new user messages from server events — they're added optimistically
             // on the client side with a different ID (u-${timestamp})
             if (msg.role === "user") {
-              console.log("[ChatEvent delta] Skipping user message creation (already added optimistically)");
               return prev;
             }
-            console.log("[ChatEvent delta] Creating NEW message, role:", msg.role, "runId:", payload.runId, "current messages:", prev.length);
             setStreamingId(payload.runId);
             return [...prev, {
               role: msg.role,
@@ -466,7 +509,6 @@ export default function Home() {
 
   /** Handle agent events (lifecycle/content/reasoning/tool streams). */
   const handleAgentEvent = useCallback((payload: AgentEventPayload) => {
-    console.log("[AgentEvent]", payload.stream, payload.runId, payload.data);
     if (payload.stream === "lifecycle") {
       const phase = payload.data.phase as string;
       if (phase === "start") {
@@ -477,120 +519,47 @@ export default function Home() {
       return;
     }
 
-    if (payload.stream === "content") {
-      const rawDelta = (payload.data.delta ?? payload.data.text ?? "") as string;
-      if (!rawDelta) return;
-      beginContentArrival();
-      setIsStreaming(true);
-
-      // Parse <think> tags from the delta
-      const ts = thinkTagStateRef.current;
-      let pending = ts.tagBuffer + rawDelta;
-      ts.tagBuffer = "";
-      let thinkDelta = "";
-      let textDelta = "";
-
-      while (pending.length > 0) {
-        if (ts.insideThinkTag) {
-          const closeIdx = pending.indexOf("</think>");
-          if (closeIdx === -1) {
-            const maxP = Math.min(pending.length, 7);
-            let partial = 0;
-            for (let len = maxP; len >= 1; len--) {
-              if (pending.endsWith("</think>".slice(0, len))) { partial = len; break; }
-            }
-            if (partial > 0) {
-              thinkDelta += pending.slice(0, pending.length - partial);
-              ts.tagBuffer = pending.slice(pending.length - partial);
-            } else {
-              thinkDelta += pending;
-            }
-            pending = "";
-          } else {
-            thinkDelta += pending.slice(0, closeIdx);
-            ts.insideThinkTag = false;
-            pending = pending.slice(closeIdx + "</think>".length);
-          }
-        } else {
-          const openIdx = pending.indexOf("<think>");
-          if (openIdx === -1) {
-            const maxP = Math.min(pending.length, 6);
-            let partial = 0;
-            for (let len = maxP; len >= 1; len--) {
-              if (pending.endsWith("<think>".slice(0, len))) { partial = len; break; }
-            }
-            if (partial > 0) {
-              textDelta += pending.slice(0, pending.length - partial);
-              ts.tagBuffer = pending.slice(pending.length - partial);
-            } else {
-              textDelta += pending;
-            }
-            pending = "";
-          } else {
-            textDelta += pending.slice(0, openIdx);
-            ts.insideThinkTag = true;
-            pending = pending.slice(openIdx + "<think>".length);
-          }
-        }
-      }
-
-      if (thinkDelta) appendReasoning(payload.runId, payload.ts, thinkDelta);
-
-      if (textDelta) {
-        setMessages((prev: Message[]) => {
-          const idx = prev.findIndex((m) => m.id === payload.runId);
-          if (idx >= 0) {
-            return updateAt(prev, idx, (existing) => {
-              const prevText = getTextFromContent(existing.content);
-              const nonTextParts = Array.isArray(existing.content) ? existing.content.filter((p: ContentPart) => p.type !== "text") : [];
-              return { ...existing, content: [...nonTextParts, { type: "text" as const, text: prevText + textDelta }] };
-            });
-          }
-          setStreamingId(payload.runId);
-          return [...prev, { role: "assistant", content: [{ type: "text", text: textDelta }], id: payload.runId, timestamp: payload.ts } as Message];
-        });
-      }
-
-      if (!thinkDelta && !textDelta) {
-        setMessages((prev: Message[]) => ensureStreamingMessage(prev, payload.runId, payload.ts));
-      }
-      return;
-    }
-
-    if (payload.stream === "reasoning") {
-      const delta = (payload.data.delta ?? payload.data.text ?? "") as string;
-      if (delta) {
-        beginContentArrival();
-        appendReasoning(payload.runId, payload.ts, delta);
-      }
-      return;
-    }
+    // NOTE: content and reasoning streams are NOT handled here.
+    // Chat events provide cumulative text and reasoning - agent events would duplicate.
 
     if (payload.stream === "tool") {
       const phase = payload.data.phase as string;
       const toolName = payload.data.name as string;
+      const toolCallId = payload.data.toolCallId as string | undefined;
 
       if (phase === "start" && toolName) {
         beginContentArrival();
         setMessages((prev: Message[]) => {
-          let idx = prev.findIndex((m) => m.id === payload.runId);
-          if (idx < 0) idx = prev.findLastIndex((m) => m.role === "assistant");
-          if (idx < 0) return prev;
           const toolCallPart: ContentPart = {
             type: "tool_call",
             name: toolName,
+            toolCallId,
             arguments: payload.data.args ? JSON.stringify(payload.data.args) : undefined,
             status: "running",
           };
-          return updateAt(prev, idx, (target) => ({
-            ...target,
-            content: [...(Array.isArray(target.content) ? target.content : []), toolCallPart],
-          }));
+
+          // Find existing message for this run
+          const idx = prev.findIndex((m) => m.id === payload.runId);
+          if (idx >= 0) {
+            return updateAt(prev, idx, (target) => ({
+              ...target,
+              content: [...(Array.isArray(target.content) ? target.content : []), toolCallPart],
+            }));
+          }
+
+          // Create new message if tool event arrives before content
+          setStreamingId(payload.runId);
+          return [...prev, {
+            role: "assistant",
+            content: [toolCallPart],
+            id: payload.runId,
+            timestamp: payload.ts,
+          } as Message];
         });
-      } else if ((phase === "end" || phase === "complete") && toolName) {
+      } else if (phase === "result" && toolName) {
         const resultText = typeof payload.data.result === "string"
           ? payload.data.result : JSON.stringify(payload.data.result, null, 2);
-        const isErr = !!payload.data.error;
+        const isErr = !!payload.data.isError;
         setMessages((prev: Message[]) => {
           let idx = prev.findIndex((m) => m.id === payload.runId);
           if (idx < 0) idx = prev.findLastIndex((m) => m.role === "assistant");
@@ -598,8 +567,14 @@ export default function Home() {
           return updateAt(prev, idx, (target) => ({
             ...target,
             content: (target.content as ContentPart[]).map((part) => {
-              if ((part.type === "tool_call" || part.type === "toolCall") && part.name === toolName && !part.result) {
-                return { ...part, status: isErr ? "error" as const : "success" as const, result: resultText, resultError: isErr };
+              if ((part.type === "tool_call" || part.type === "toolCall")) {
+                // Match by toolCallId if available, otherwise fall back to name + no result
+                const isMatch = toolCallId
+                  ? part.toolCallId === toolCallId
+                  : part.name === toolName && !part.result;
+                if (isMatch) {
+                  return { ...part, status: isErr ? "error" as const : "success" as const, result: resultText, resultError: isErr };
+                }
               }
               return part;
             }),
@@ -615,8 +590,11 @@ export default function Home() {
     // WebSocketMessage is {type: string, [key: string]: unknown} — narrow to protocol types
     const msg = data as unknown as WSIncomingMessage;
 
+    // Log ALL incoming WebSocket messages
+
     if (msg.type === "event" && msg.event === "connect.challenge") {
-      return handleConnectChallenge();
+      const payload = msg.payload as ConnectChallengePayload | undefined;
+      return void handleConnectChallenge(payload?.nonce);
     }
 
     if (msg.type === "hello") {
@@ -1245,7 +1223,6 @@ export default function Home() {
     pinnedToBottomRef.current = true;
 
     const userMsg: Message = { role: "user", content: [{ type: "text", text }], id: `u-${Date.now()}`, timestamp: Date.now() };
-    console.log("[sendMessage] Adding user message:", userMsg.id);
     setMessages((prev) => [...prev, userMsg]);
 
     // Demo mode — route through local handler
@@ -1425,7 +1402,9 @@ export default function Home() {
             const showTimestamp = side !== "center" && (isNewTurn || isTimeGap);
             // Don't render the streaming message at all while ThinkingIndicator is dissolving
             const isHiddenDuringExit = thinkingExiting && msg.id === streamingId;
-            if (isHiddenDuringExit) return null;
+            if (isHiddenDuringExit) {
+              return null;
+            }
 
             // Apply fade-in animation when message is first revealed after exit
             const fadeInClass = msg.id === justRevealedId ? "animate-[fadeIn_200ms_ease-out]" : "";
