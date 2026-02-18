@@ -2,7 +2,7 @@
 
 import React from "react";
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useWebSocket, type WebSocketMessage } from "@/lib/useWebSocket";
 import { DEMO_HISTORY, createDemoHandler, type DemoCallbacks } from "@/lib/demoMode";
 import { createLmStudioHandler, type LmStudioConfig, type LmStudioCallbacks } from "@/lib/lmStudio";
@@ -20,50 +20,20 @@ import type {
 import { getTextFromContent, getMessageSide, formatMessageTime, updateAt, updateMessageById } from "@/lib/messageUtils";
 import { requestNotificationPermission, notifyMessageComplete } from "@/lib/notifications";
 import { loadOrCreateDeviceIdentity, signDevicePayload, buildDeviceAuthPayload } from "@/lib/deviceIdentity";
+import { parseBackendModels } from "@/lib/parseBackendModels";
 import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 import { CommandSheet } from "@/components/CommandSheet";
 import { ChatInput } from "@/components/ChatInput";
 import { SetupDialog } from "@/components/SetupDialog";
+import { ChatHeader } from "@/components/ChatHeader";
+import { useThinkingState } from "@/hooks/useThinkingState";
+import { useScrollManager } from "@/hooks/useScrollManager";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
+import { useKeyboardLayout } from "@/hooks/useKeyboardLayout";
+import { useTheme } from "@/hooks/useTheme";
 
 // ── Page ─────────────────────────────────────────────────────────────────────
-
-// ── Helper: Parse Backend Models ─────────────────────────────────────────────
-
-function parseBackendModels(resPayload: Record<string, unknown>): ModelChoice[] {
-  const raw = (resPayload as { raw?: string })?.raw;
-  if (!raw) return [];
-
-  let config: Record<string, unknown>;
-  try {
-    config = JSON.parse(raw);
-  } catch (e) {
-    console.error("[config.get] Failed to parse raw config:", e);
-    return [];
-  }
-
-  const providers = (config.models as any)?.providers;
-  if (!providers) return [];
-
-  // Flatten provider models into a single list
-  const models = Object.entries(providers).flatMap(([providerKey, providerConfig]: [string, any]) => {
-    const providerModels = providerConfig.models;
-    if (!Array.isArray(providerModels)) return [];
-
-    return providerModels
-      .filter((m: any) => m.id)
-      .map((m: any) => ({
-        id: `${providerKey}/${m.id}`,
-        name: m.name || m.id,
-        provider: providerKey,
-        contextWindow: m.contextWindow,
-        reasoning: m.reasoning,
-      }));
-  });
-
-  console.log("[config.get] Parsed models:", models);
-  return models;
-}
 
 export default function Home() {
   console.log('[HMR-CHECK] Home component rendering with GRACE code v2');
@@ -71,109 +41,33 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, _setIsStreaming] = useState(false);
   const isStreamingRef = useRef(false);
-  // Grace period: when streaming ends while pinned, keep force-scrolling for
-  // a short window so the final content snap (StreamingText revealing remaining
-  // text) doesn't get stranded above the fold.
-  const scrollGraceRef = useRef(false);
-  const scrollGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [streamingId, setStreamingId] = useState<string | null>(null);
+
   // Sync ref immediately so scroll/wheel handlers see the correct value
   // without waiting for React's async render cycle.
+  const {
+    scrollRef, bottomRef, morphRef, scrollPhase, pinnedToBottomRef,
+    scrollGraceRef, handleScroll, scrollToBottom, updateGraceForStreamingChange,
+  } = useScrollManager(messages, isStreamingRef);
+
   const setIsStreaming = useCallback((value: boolean) => {
     const wasStreaming = isStreamingRef.current;
     isStreamingRef.current = value;
-    // Activate grace period synchronously on the streaming→idle transition
-    // while pinned, so handleScroll (which runs synchronously on scrollTop
-    // changes) won't unpin before the ResizeObserver can catch up.
-    if (wasStreaming && !value && pinnedToBottomRef.current) {
-      scrollGraceRef.current = true;
-      if (scrollGraceTimerRef.current) clearTimeout(scrollGraceTimerRef.current);
-      scrollGraceTimerRef.current = setTimeout(() => {
-        scrollGraceRef.current = false;
-        scrollGraceTimerRef.current = null;
-      }, 500);
-    } else if (value) {
-      // Streaming started — clear any stale grace
-      scrollGraceRef.current = false;
-      if (scrollGraceTimerRef.current) {
-        clearTimeout(scrollGraceTimerRef.current);
-        scrollGraceTimerRef.current = null;
-      }
-    }
+    updateGraceForStreamingChange(wasStreaming, value);
     _setIsStreaming(value);
-  }, []);
-  const [streamingId, setStreamingId] = useState<string | null>(null);
-  // LM Studio "Thinking..." state: set true when message sent, false when first content arrives.
-  // Uses double-RAF in sendMessage to ensure browser paints before fetch starts.
-  const [awaitingResponse, setAwaitingResponse] = useState(false);
-  // Track when ThinkingIndicator is exiting (dissolving animation)
-  const [thinkingExiting, setThinkingExiting] = useState(false);
-  // Show indicator while awaiting OR while exit animation is in progress
-  const showThinkingIndicator = awaitingResponse || thinkingExiting;
-  // Track when thinking started for duration display
-  const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null);
+  }, [updateGraceForStreamingChange]);
 
-  // Transition from awaiting to streaming: start exit animation instead of abrupt hide
-  const awaitingResponseRef = useRef(false);
-  awaitingResponseRef.current = awaitingResponse;
-  // Track when we just finished the exit animation (for fade-in effect)
-  const [justRevealedId, setJustRevealedId] = useState<string | null>(null);
+  // ── Thinking state ──────────────────────────────────────────────────────────
+  const {
+    awaitingResponse, setAwaitingResponse,
+    thinkingExiting, showThinkingIndicator,
+    justRevealedId,
+    thinkingStartTime, setThinkingStartTime,
+    beginContentArrival, onThinkingExitComplete,
+    resetThinkingState,
+  } = useThinkingState(streamingId, messages, setMessages);
 
-  // Reset all thinking indicator state (used when conversation is cleared)
-  const resetThinkingState = useCallback(() => {
-    setAwaitingResponse(false);
-    setThinkingExiting(false);
-    setJustRevealedId(null);
-    setThinkingStartTime(null);
-  }, []);
-
-  // Ref to access thinkingStartTime in callbacks without dependency
-  const thinkingStartTimeRef = useRef<number | null>(null);
-  thinkingStartTimeRef.current = thinkingStartTime;
-  // Pending duration to apply when assistant message is created
-  const pendingThinkingDurationRef = useRef<number | null>(null);
-
-  const beginContentArrival = useCallback(() => {
-    if (awaitingResponseRef.current) {
-      // Calculate thinking duration and store in ref for message creation
-      const startTime = thinkingStartTimeRef.current;
-      const duration = startTime ? Math.round((Date.now() - startTime) / 1000) : null;
-      if (duration !== null && duration > 0) {
-        pendingThinkingDurationRef.current = duration;
-      }
-
-      setAwaitingResponse(false);
-      setThinkingExiting(true);
-      setThinkingStartTime(null);
-    }
-  }, []);
-  const onThinkingExitComplete = useCallback(() => {
-    setThinkingExiting(false);
-    // Mark the streaming message as "just revealed" for fade-in animation
-    setJustRevealedId(streamingId);
-    // Clear the flag after animation completes
-    setTimeout(() => setJustRevealedId(null), 250);
-  }, [streamingId]);
-
-  // Reset thinking state when messages are cleared (e.g., /new command)
-  useEffect(() => {
-    if (messages.length === 0) {
-      resetThinkingState();
-      pendingThinkingDurationRef.current = null;
-    }
-  }, [messages.length, resetThinkingState]);
-
-  // Apply pending thinking duration to newly created assistant messages
-  useLayoutEffect(() => {
-    const duration = pendingThinkingDurationRef.current;
-    if (!duration) return;
-
-    // Find the last assistant message without a duration (the one being streamed)
-    const targetIdx = messages.findLastIndex((m) => m.role === "assistant" && !m.thinkingDuration);
-    if (targetIdx >= 0) {
-      pendingThinkingDurationRef.current = null;
-      setMessages((prev) => updateAt(prev, targetIdx, (msg) => ({ ...msg, thinkingDuration: duration })));
-    }
-  }, [messages]);
+  // ── UI state ────────────────────────────────────────────────────────────────
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
@@ -183,47 +77,18 @@ export default function Home() {
   const [availableModels, setAvailableModels] = useState<ModelChoice[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const modelsRequestedRef = useRef(false);
-  const [scrollPhase, setScrollPhase] = useState<"input" | "pill">("input");
   const appRef = useRef<HTMLDivElement>(null);
-  const morphRef = useRef<HTMLDivElement>(null);
   const floatingBarRef = useRef<HTMLDivElement>(null);
-  const scrollRafId = useRef<number | null>(null);
-  const scrollPhaseRef = useRef<"input" | "pill">("input");
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const pinnedToBottomRef = useRef(true);
-  // Pull-to-refresh (ref-driven to avoid re-renders during gesture)
-  const [refreshing, setRefreshing] = useState(false);
-  const pullStartYRef = useRef<number | null>(null);
-  const isPullingRef = useRef(false);
-  const didVibrateRef = useRef(false);
-  const pullContentRef = useRef<HTMLDivElement>(null);
-  const setPullTransformRef = useRef<(dist: number, animate: boolean) => void>(() => { });
-  const refreshStartRef = useRef(0);
-  const pullSpinnerRef = useRef<HTMLDivElement>(null);
   const currentAssistantMsgRef = useRef<Message | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const sessionKeyRef = useRef<string>("main");
   const [isDemoMode, setIsDemoMode] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
-  // Theme state (light/dark mode)
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  useEffect(() => {
-    // Read initial theme from document (set by layout script before hydration)
-    const isDark = document.documentElement.classList.contains("dark");
-    setTheme(isDark ? "dark" : "light");
-  }, []);
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => {
-      const next = prev === "light" ? "dark" : "light";
-      document.documentElement.classList.toggle("dark", next === "dark");
-      try { localStorage.setItem("theme", next); } catch { }
-      return next;
-    });
-  }, []);
+  // ── Theme ───────────────────────────────────────────────────────────────────
+  const { theme, toggleTheme } = useTheme();
 
-  // Backend mode: openclaw (WebSocket), lmstudio (HTTP+SSE), or demo
+  // ── Backend mode ────────────────────────────────────────────────────────────
   const [backendMode, setBackendMode] = useState<BackendMode>("openclaw");
   const lmStudioConfigRef = useRef<LmStudioConfig | null>(null);
   const lmStudioHandlerRef = useRef<ReturnType<typeof createLmStudioHandler> | null>(null);
@@ -252,12 +117,21 @@ export default function Home() {
     notifyMessageComplete(preview);
   }, []);
 
-  // ── WebSocket sub-handlers ─────────────────────────────────────────────────
+  // ── Keyboard layout (iOS Safari) ───────────────────────────────────────────
+  useKeyboardLayout(appRef, floatingBarRef, bottomRef);
 
+  // ── Pull-to-refresh ─────────────────────────────────────────────────────────
   /** Send a typed message over the WebSocket (avoids double-cast). */
   const sendWS = useCallback((msg: { type: string;[key: string]: unknown }) => {
     sendWSMessageRef.current?.(msg as WebSocketMessage);
   }, []);
+
+  const {
+    pullContentRef, pullSpinnerRef, isPullingRef,
+    onHistoryReceived,
+  } = usePullToRefresh({ scrollRef, backendMode, sendWS, sessionKeyRef });
+
+  // ── WebSocket sub-handlers ─────────────────────────────────────────────────
 
   /** Request chat history from the server. */
   const requestHistory = useCallback(() => {
@@ -272,7 +146,7 @@ export default function Home() {
   /** Fetch configured models from OpenClaw gateway config. */
   const fetchModels = useCallback(() => {
     if (backendMode !== "openclaw") return;
-    if (modelsRequestedRef.current) return; // Avoid duplicate requests
+    if (modelsRequestedRef.current) return;
     modelsRequestedRef.current = true;
     setModelsLoading(true);
     sendWS({
@@ -320,7 +194,6 @@ export default function Home() {
     const clientMode = "webchat";
     const authToken = gatewayTokenRef.current ?? undefined;
 
-    // Build device identity and signature
     let device: { id: string; publicKey: string; signature: string; signedAt: number; nonce?: string } | undefined;
     try {
       const identity = await loadOrCreateDeviceIdentity();
@@ -413,7 +286,6 @@ export default function Home() {
           if (tp?.text && typeof tp.text === "string" && tp.text.startsWith("System: [")) isContext = true;
         }
 
-        // Detect gateway-injected messages (model="gateway-injected" or provider="openclaw" with that model)
         const isGatewayInjected = m.model === "gateway-injected";
         const effectiveStopReason = isGatewayInjected ? "injected" : m.stopReason;
 
@@ -485,7 +357,6 @@ export default function Home() {
     }
 
     // Merge: keep optimistic user messages not yet in server history
-    // Match by content text, not timestamp (server may use different timestamp)
     setMessages((prev: Message[]) => {
       const historyUserTexts = new Set(
         finalMessages
@@ -502,18 +373,9 @@ export default function Home() {
       return [...finalMessages, ...optimistic].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
     });
 
-    // If pull-to-refresh was active, bounce back after minimum duration
-    if (refreshingRef.current) {
-      const elapsed = Date.now() - refreshStartRef.current;
-      const remaining = Math.max(0, 150 - elapsed);
-      setTimeout(() => {
-        requestAnimationFrame(() => {
-          setPullTransformRef.current(0, true);
-          setRefreshing(false);
-        });
-      }, remaining);
-    }
-  }, []);
+    // If pull-to-refresh was active, bounce back
+    onHistoryReceived();
+  }, [onHistoryReceived]);
 
   /** Handle chat events (delta/final/aborted/error). */
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
@@ -533,8 +395,6 @@ export default function Home() {
 
             if (existingIdx >= 0) {
               return updateAt(prev, existingIdx, (existing) => {
-                // Chat delta contains CUMULATIVE text, not incremental delta.
-                // Replace (don't append) since each chat delta has full text so far.
                 const newText = typeof msg.content === "string"
                   ? msg.content
                   : getTextFromContent(msg.content);
@@ -548,8 +408,6 @@ export default function Home() {
                 };
               });
             }
-            // Don't create new user messages from server events — they're added optimistically
-            // on the client side with a different ID (u-${timestamp})
             if (msg.role === "user") {
               return prev;
             }
@@ -590,7 +448,7 @@ export default function Home() {
         activeRunIdRef.current = null;
         break;
     }
-  }, [requestHistory, notifyForRun, beginContentArrival]);
+  }, [requestHistory, notifyForRun, beginContentArrival, setIsStreaming, setAwaitingResponse]);
 
   /** Handle agent events (lifecycle/content/reasoning/tool streams). */
   const handleAgentEvent = useCallback((payload: AgentEventPayload) => {
@@ -603,9 +461,6 @@ export default function Home() {
       }
       return;
     }
-
-    // NOTE: content and reasoning streams are NOT handled here.
-    // Chat events provide cumulative text and reasoning - agent events would duplicate.
 
     if (payload.stream === "tool") {
       const phase = payload.data.phase as string;
@@ -623,7 +478,6 @@ export default function Home() {
             status: "running",
           };
 
-          // Find existing message for this run
           const idx = prev.findIndex((m) => m.id === payload.runId);
           if (idx >= 0) {
             return updateAt(prev, idx, (target) => ({
@@ -632,7 +486,6 @@ export default function Home() {
             }));
           }
 
-          // Create new message if tool event arrives before content
           setStreamingId(payload.runId);
           return [...prev, {
             role: "assistant",
@@ -653,7 +506,6 @@ export default function Home() {
             ...target,
             content: (target.content as ContentPart[]).map((part) => {
               if ((part.type === "tool_call" || part.type === "toolCall")) {
-                // Match by toolCallId if available, otherwise fall back to name + no result
                 const isMatch = toolCallId
                   ? part.toolCallId === toolCallId
                   : part.name === toolName && !part.result;
@@ -667,15 +519,12 @@ export default function Home() {
         });
       }
     }
-  }, [appendReasoning, ensureStreamingMessage, beginContentArrival]);
+  }, [appendReasoning, ensureStreamingMessage, beginContentArrival, setIsStreaming]);
 
   // ── Main WebSocket message dispatcher ─────────────────────────────────────
 
   const handleWSMessage = useCallback((data: WebSocketMessage) => {
-    // WebSocketMessage is {type: string, [key: string]: unknown} — narrow to protocol types
     const msg = data as unknown as WSIncomingMessage;
-
-    // Log ALL incoming WebSocket messages
 
     if (msg.type === "event" && msg.event === "connect.challenge") {
       const payload = msg.payload as ConnectChallengePayload | undefined;
@@ -740,7 +589,9 @@ export default function Home() {
     markEstablishedRef.current = markEstablished;
   }, [markEstablished]);
 
-  // Demo mode: detect ?demo URL param on mount
+  // ── Demo mode ─────────────────────────────────────────────────────────────
+
+  // Detect ?demo URL param on mount
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -753,7 +604,7 @@ export default function Home() {
     }
   }, []);
 
-  // Demo mode: create handler with callbacks
+  // Create handler with callbacks
   useEffect(() => {
     if (!isDemoMode) {
       demoHandlerRef.current = null;
@@ -804,9 +655,10 @@ export default function Home() {
       },
     };
     demoHandlerRef.current = createDemoHandler(callbacks);
-  }, [isDemoMode]);
+  }, [isDemoMode, setIsStreaming]);
 
-  // LM Studio mode: create handler with callbacks
+  // ── LM Studio mode ────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (backendMode !== "lmstudio" || !lmStudioConfigRef.current) {
       lmStudioHandlerRef.current = null;
@@ -814,10 +666,7 @@ export default function Home() {
     }
     const config = lmStudioConfigRef.current;
     const callbacks: LmStudioCallbacks = {
-      onStreamStart: (_runId) => {
-        // isStreaming is already true (set in sendMessage)
-        // Don't set streamingId yet — ThinkingIndicator shows while waiting for first content
-      },
+      onStreamStart: (_runId) => {},
       onThinking: (runId, text, segment) => {
         if (text) beginContentArrival();
         setStreamingId(runId);
@@ -898,7 +747,6 @@ export default function Home() {
         setAwaitingResponse(false);
         setIsStreaming(false);
         setStreamingId(null);
-        // Persist LM Studio conversation to localStorage
         setMessages((prev) => {
           try { window.localStorage.setItem("lmstudio-messages", JSON.stringify(prev)); } catch { }
           return prev;
@@ -909,283 +757,26 @@ export default function Home() {
         setConnectionError(error);
       },
     };
-    // Use currentModel so the handler is recreated when the model changes
     const activeConfig = { ...config, model: currentModel || config.model };
     lmStudioConfigRef.current = activeConfig;
     const handler = createLmStudioHandler(activeConfig, callbacks);
     lmStudioHandlerRef.current = handler;
 
-    // Cleanup: stop any in-progress streams when handler is recreated
     return () => {
       handler.stop();
     };
-  }, [backendMode, currentModel, beginContentArrival]);
+  }, [backendMode, currentModel, beginContentArrival, setIsStreaming, setAwaitingResponse]);
 
-  // Track scroll position — continuous CSS var for morph animation, React state for pointer-events phase.
-  const handleScroll = useCallback(() => {
-    if (scrollRafId.current != null) return;
-    scrollRafId.current = requestAnimationFrame(() => {
-      scrollRafId.current = null;
-      const el = scrollRef.current;
-      const morph = morphRef.current;
-      if (!el || !morph) return;
-      if (isPullingRef.current) return;
-      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-
-      // During streaming, don't update pinning from scroll position —
-      // only the wheel/touch handlers can unpin, and scrollToBottom re-pins.
-      if (!isStreamingRef.current && !scrollGraceRef.current) {
-        const wasPinned = pinnedToBottomRef.current;
-        pinnedToBottomRef.current = distanceFromBottom < 80;
-        if (wasPinned && !pinnedToBottomRef.current) {
-          console.log(`[UNPIN] distanceFromBottom=${distanceFromBottom}, scrollHeight=${el.scrollHeight}, scrollTop=${Math.round(el.scrollTop)}`);
-        }
-      }
-
-      // When streaming and pinned, lock morph to input mode (--sp = 0)
-      // so programmatic scrollTop changes don't cause morph flicker.
-      if (isStreamingRef.current && pinnedToBottomRef.current) {
-        morph.style.setProperty("--sp", "0");
-        if (scrollPhaseRef.current !== "input") {
-          scrollPhaseRef.current = "input";
-          setScrollPhase("input");
-        }
-        return;
-      }
-
-      const range = 60;
-      const progress = Math.min(Math.max(distanceFromBottom / range, 0), 1);
-      morph.style.setProperty("--sp", progress.toFixed(3));
-      const newPhase: "input" | "pill" = progress > 0.4 ? "pill" : "input";
-      if (newPhase !== scrollPhaseRef.current) {
-        scrollPhaseRef.current = newPhase;
-        setScrollPhase(newPhase);
-      }
-    });
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
-    pinnedToBottomRef.current = true;
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
-
-  // Pull-to-refresh
-  const PULL_THRESHOLD = 60;
-  const refreshingRef = useRef(false);
-  const pullDistanceRef = useRef(0);
-  refreshingRef.current = refreshing;
-
-  const setPullTransform = useCallback((dist: number, animate: boolean) => {
-    const wrapper = pullContentRef.current;
-    const spinner = pullSpinnerRef.current;
-    if (!wrapper) return;
-    const transition = animate ? "transform 0.45s cubic-bezier(0.22, 0.68, 0.35, 1)" : "none";
-    wrapper.style.transition = transition;
-    wrapper.style.transform = dist > 0 ? `translateY(${-dist}px)` : "";
-    // Spinner fades in as user pulls; animation only runs when visible
-    if (spinner) {
-      spinner.style.transition = animate ? "opacity 0.3s ease" : "none";
-      spinner.style.opacity = dist > 0 ? String(Math.min(dist / (PULL_THRESHOLD * 0.5), 1)) : "0";
-      const svg = spinner.querySelector("svg");
-      if (svg) svg.style.animation = dist > 0 ? "spin 1s linear infinite" : "none";
-    }
-  }, []);
-  setPullTransformRef.current = setPullTransform;
-
-  const doRefresh = useCallback(() => {
-    setRefreshing(true);
-    refreshStartRef.current = Date.now();
-    // Hold at a small offset to show spinner — bounce back happens when history arrives
-    setPullTransform(40, true);
-    // LM Studio and demo modes have no server-side history — just bounce back
-    if (backendMode === "lmstudio" || backendMode === "demo") {
-      setTimeout(() => {
-        requestAnimationFrame(() => {
-          setPullTransform(0, true);
-          setRefreshing(false);
-        });
-      }, 300);
-      return;
-    }
-    // Re-fetch history (OpenClaw)
-    sendWS({
-      type: "req",
-      id: `history-${Date.now()}`,
-      method: "chat.history",
-      params: { sessionKey: sessionKeyRef.current },
-    });
-  }, [setPullTransform, backendMode]);
-
-  // Pull-up-to-refresh touch handlers — direct DOM transforms, no React re-renders
+  // ── Backend initialization (localStorage restore) ─────────────────────────
 
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-
-    const isAtBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight < 5;
-
-    const onTouchStart = (e: TouchEvent) => {
-      if (refreshingRef.current) return;
-      if (isAtBottom()) {
-        pullStartYRef.current = e.touches[0].clientY;
-        isPullingRef.current = false;
-        didVibrateRef.current = false;
-      }
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (pullStartYRef.current === null || refreshingRef.current) return;
-      if (!isAtBottom() && !isPullingRef.current) {
-        pullStartYRef.current = null;
-        pullDistanceRef.current = 0;
-        setPullTransform(0, false);
-        return;
-      }
-      const deltaY = pullStartYRef.current - e.touches[0].clientY;
-      if (deltaY > 0) {
-        isPullingRef.current = true;
-        // Heavy rubber band — 40% of raw movement, extra resistance past threshold
-        const raw = deltaY * 0.4;
-        const dist = raw < PULL_THRESHOLD
-          ? raw
-          : PULL_THRESHOLD + (raw - PULL_THRESHOLD) * 0.15;
-        pullDistanceRef.current = dist;
-        if (dist >= PULL_THRESHOLD && !didVibrateRef.current) {
-          didVibrateRef.current = true;
-          navigator.vibrate?.(10);
-        }
-        setPullTransform(dist, false);
-        e.preventDefault();
-      } else {
-        pullDistanceRef.current = 0;
-        setPullTransform(0, false);
-      }
-    };
-
-    const onTouchEnd = () => {
-      if (pullStartYRef.current === null) return;
-      pullStartYRef.current = null;
-      const wasPulling = isPullingRef.current;
-      const dist = pullDistanceRef.current;
-      isPullingRef.current = false;
-      pullDistanceRef.current = 0;
-
-      if (wasPulling && dist >= PULL_THRESHOLD) {
-        // Hold and refresh — bounce back happens when history response arrives
-        doRefresh();
-      } else {
-        // Bounce back smoothly
-        setPullTransform(0, true);
-      }
-    };
-
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: false });
-    el.addEventListener("touchend", onTouchEnd, { passive: true });
-    return () => {
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("touchend", onTouchEnd);
-    };
-  }, [doRefresh, setPullTransform]);
-
-  // Unpin auto-scroll when user actively scrolls up (wheel or touch)
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const onTouchEnd = () => {
-      // After touch ends, re-pin only if user ended up near the bottom
-      if (isStreamingRef.current) {
-        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (dist < 80) pinnedToBottomRef.current = true;
-      }
-    };
-    const onWheel = (e: WheelEvent) => {
-      if (e.deltaY < 0 && isStreamingRef.current) {
-        pinnedToBottomRef.current = false;
-      }
-    };
-    // On mobile, detect scroll-up by watching scroll direction during streaming.
-    // We also check distanceFromBottom because layout shifts (e.g. markdown
-    // table rendering) can transiently decrease scrollTop without any user
-    // interaction — those shouldn't unpin.
-    let lastScrollTop = el.scrollTop;
-    const onScroll = () => {
-      if (isStreamingRef.current && el.scrollTop < lastScrollTop - 3) {
-        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (dist > 150) {
-          pinnedToBottomRef.current = false;
-        }
-      }
-      lastScrollTop = el.scrollTop;
-    };
-    el.addEventListener("touchend", onTouchEnd, { passive: true });
-    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
-    el.addEventListener("wheel", onWheel, { passive: true });
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      el.removeEventListener("touchend", onTouchEnd);
-      el.removeEventListener("touchcancel", onTouchEnd);
-      el.removeEventListener("wheel", onWheel);
-      el.removeEventListener("scroll", onScroll);
-    };
-  }, []);
-
-  // iOS Safari height fix — visualViewport.height is the only value that
-  // correctly shrinks when the virtual keyboard is open.  We also track the
-  // keyboard offset so the fixed-position input bar stays above the keyboard.
-  const [keyboardOffset, setKeyboardOffset] = useState(0);
-
-  useEffect(() => {
-    const vv = window.visualViewport;
-
-    // Lock the container to the initial full-screen height — never change it.
-    // iOS reports smaller values when the keyboard opens, but resizing the
-    // container is what causes the layout to break.
-    if (appRef.current) {
-      appRef.current.style.height = `${window.innerHeight}px`;
-    }
-
-    const onViewportResize = () => {
-      if (!vv) return;
-      const offset = Math.round(window.innerHeight - vv.height);
-      // Move floating bar immediately via DOM — no React render delay
-      if (floatingBarRef.current) {
-        floatingBarRef.current.style.bottom = offset > 0 ? `${offset}px` : "0";
-      }
-      setKeyboardOffset((prev) => prev === offset ? prev : offset);
-    };
-
-    vv?.addEventListener("resize", onViewportResize);
-    return () => {
-      vv?.removeEventListener("resize", onViewportResize);
-    };
-  }, []);
-
-  // When the keyboard opens, scroll messages to bottom (once)
-  const prevKeyboardOffsetRef = useRef(0);
-  useEffect(() => {
-    const wasOpen = prevKeyboardOffsetRef.current > 0;
-    const isOpen = keyboardOffset > 0;
-    prevKeyboardOffsetRef.current = keyboardOffset;
-    if (isOpen && !wasOpen) {
-      bottomRef.current?.scrollIntoView({ behavior: "instant" });
-    }
-  }, [keyboardOffset]);
-
-  // Check localStorage on mount for previously saved URL and token
-  useEffect(() => {
-    // Skip auto-connect in demo mode - check URL params directly to avoid race with state
     if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo")) {
       return;
     }
     if (isDemoMode) return;
     const savedMode = window.localStorage.getItem("mobileclaw-mode") as BackendMode | null;
 
-    if (savedMode === "demo") {
-      // Will be handled by the demo mode effect
-      return;
-    }
+    if (savedMode === "demo") return;
 
     if (savedMode === "lmstudio") {
       const savedUrl = window.localStorage.getItem("lmstudio-url");
@@ -1197,7 +788,6 @@ export default function Home() {
         lmStudioConfigRef.current = config;
         setCurrentModel(savedModel);
         setOpenclawUrl(savedUrl);
-        // Restore previous LM Studio conversation from localStorage
         try {
           const saved = window.localStorage.getItem("lmstudio-messages");
           if (saved) {
@@ -1209,7 +799,6 @@ export default function Home() {
         setShowSetup(true);
       }
     } else {
-      // OpenClaw mode — auto-connect if we have saved URL, otherwise show setup
       const savedUrl = window.localStorage.getItem("openclaw-url");
       const savedToken = window.localStorage.getItem("openclaw-token");
       if (savedUrl) {
@@ -1226,6 +815,8 @@ export default function Home() {
       }
     }
   }, [connect, isDemoMode]);
+
+  // ── Connection handler ────────────────────────────────────────────────────
 
   const handleConnect = useCallback((config: ConnectionConfig) => {
     setConnectionError(null);
@@ -1255,7 +846,6 @@ export default function Home() {
       lmStudioConfigRef.current = lmsConfig;
       setCurrentModel(config.model || null);
       setOpenclawUrl(config.url);
-      // Disconnect any existing WebSocket
       disconnect();
       return;
     }
@@ -1277,105 +867,27 @@ export default function Home() {
     connect(wsUrl);
   }, [connect, disconnect, resetThinkingState]);
 
-  // const handleDisconnect = useCallback(() => {
-  //   disconnect();
-  //   lmStudioHandlerRef.current?.stop();
-  //   lmStudioHandlerRef.current = null;
-  //   lmStudioConfigRef.current = null;
-  //   window.localStorage.removeItem("openclaw-url");
-  //   window.localStorage.removeItem("openclaw-token");
-  //   window.localStorage.removeItem("mobileclaw-mode");
-  //   window.localStorage.removeItem("lmstudio-url");
-  //   window.localStorage.removeItem("lmstudio-apikey");
-  //   window.localStorage.removeItem("lmstudio-model");
-  //   window.localStorage.removeItem("lmstudio-messages");
-  //   setOpenclawUrl(null);
-  //   setMessages([]);
-  //   setIsStreaming(false);
-  //   setStreamingId(null);
-  //   setConnectionError(null);
-  //   setBackendMode("openclaw");
-  //   resetThinkingState();
-  //   setAvailableModels([]);
-  //   modelsRequestedRef.current = false;
-  // }, [disconnect, resetThinkingState]);
-
-  // Auto-scroll: whenever messages change (streaming delta, history load, user send),
-  // snap to bottom if pinned. useLayoutEffect runs synchronously before paint, so
-  // the scroll adjustment is invisible — no flicker, no fighting with user scroll.
-  // Most streaming deltas don't change scrollHeight (only line-wraps do), so this
-  // is usually a no-op: scrollTop already equals the max.
-  const hasScrolledInitialRef = useRef(false);
-  useLayoutEffect(() => {
-    if (!pinnedToBottomRef.current || messages.length === 0) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    if (!hasScrolledInitialRef.current) {
-      // First load — instant snap
-      hasScrolledInitialRef.current = true;
-      el.scrollTop = el.scrollHeight;
-    } else {
-      // Subsequent changes — snap instantly (no smooth scroll during streaming,
-      // and for non-streaming changes the snap is imperceptible since it
-      // runs before paint).
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [messages]);
-
-  // ResizeObserver: catch content-height changes that don't come from a `messages`
-  // state update — e.g. when StreamingText's typewriter reveals enough text for
-  // MarkdownContent to switch from raw text to a rendered table/code-block, the
-  // content height jumps but `messages` hasn't changed so the useLayoutEffect above
-  // doesn't fire. This observer fills that gap.
-  //
-  // The grace period (scrollGraceRef, set synchronously in setIsStreaming) covers
-  // the streaming→idle transition: StreamingText snaps remaining text, which can
-  // cause a large height jump. Without it, handleScroll would unpin immediately.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    // Observe the inner content wrapper (first child of the scroll container)
-    const content = el.firstElementChild;
-    if (!content) return;
-
-    const ro = new ResizeObserver(() => {
-      if ((pinnedToBottomRef.current || scrollGraceRef.current) && el.scrollHeight > el.clientHeight) {
-        el.scrollTop = el.scrollHeight;
-        // Re-pin so handleScroll doesn't undo us
-        pinnedToBottomRef.current = true;
-      }
-    });
-    ro.observe(content);
-    return () => ro.disconnect();
-  }, []);
+  // ── Send message ──────────────────────────────────────────────────────────
 
   const sendMessage = useCallback((text: string) => {
-    // Request notification permission on first user interaction (no-op if already granted/denied)
     requestNotificationPermission();
-
-    // Re-pin to bottom so auto-scroll kicks in for the new user message
     pinnedToBottomRef.current = true;
 
     const userMsg: Message = { role: "user", content: [{ type: "text", text }], id: `u-${Date.now()}`, timestamp: Date.now() };
     setMessages((prev) => [...prev, userMsg]);
 
-    // Demo mode — route through local handler
+    // Demo mode
     if (isDemoMode || backendMode === "demo") {
       demoHandlerRef.current?.sendMessage(text);
       return;
     }
 
-    // LM Studio mode — route through HTTP+SSE handler
+    // LM Studio mode
     if (backendMode === "lmstudio") {
-      // Show "Thinking..." immediately while waiting for server response
       setAwaitingResponse(true);
       setThinkingStartTime(Date.now());
-      // Send the full conversation history (including the new user message) to LM Studio
       setMessages((prev) => {
-        // Persist conversation (including new user message) before sending
         try { window.localStorage.setItem("lmstudio-messages", JSON.stringify(prev)); } catch { }
-        // Use double-RAF to ensure browser paints "Thinking..." before fetch starts
-        // First RAF schedules for next frame, second RAF runs after that frame paints
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             lmStudioHandlerRef.current?.sendMessage(prev);
@@ -1389,15 +901,13 @@ export default function Home() {
     // OpenClaw mode — WebSocket
     if (!isConnected) return;
 
-    // Show "Thinking..." immediately
     setAwaitingResponse(true);
     setThinkingStartTime(Date.now());
 
-    // Generate idempotency key for this run
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     activeRunIdRef.current = runId;
 
-    const requestMsg = {
+    sendWS({
       type: "req",
       id: runId,
       method: "chat.send",
@@ -1407,11 +917,10 @@ export default function Home() {
         deliver: true,
         idempotencyKey: runId,
       },
-    };
-    sendWS(requestMsg);
+    });
 
     setIsStreaming(true);
-  }, [isConnected, isDemoMode, backendMode, sendWS]);
+  }, [isConnected, isDemoMode, backendMode, sendWS, pinnedToBottomRef, setIsStreaming, setAwaitingResponse, setThinkingStartTime]);
 
   const handleCommandSelect = useCallback((command: string) => {
     setPendingCommand(command);
@@ -1421,10 +930,10 @@ export default function Home() {
     setPendingCommand(null);
   }, []);
 
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div ref={appRef} className="relative flex flex-col overflow-hidden bg-background" style={{ height: "100dvh" }}>
-      {/* Setup dialog */}
       <SetupDialog
         onConnect={(config) => {
           setShowSetup(false);
@@ -1436,7 +945,6 @@ export default function Home() {
         isDemoMode={isDemoMode}
       />
 
-      {/* Command sheet rendered at root level so backdrop covers entire screen */}
       <CommandSheet
         open={commandsOpen}
         onClose={() => setCommandsOpen(false)}
@@ -1448,71 +956,15 @@ export default function Home() {
         backendMode={backendMode}
       />
 
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-background/80 px-4 py-3 backdrop-blur-xl md:px-6">
-        <button
-          type="button"
-          onClick={() => setShowSetup(true)}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card transition-colors hover:bg-accent active:bg-accent"
-          aria-label="Open settings"
-        >
-          <img src="/logo.png" alt="MobileClaw" className="h-7 mix-blend-multiply dark:mix-blend-screen dark:invert" />
-        </button>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <h1 className="text-sm font-semibold text-foreground">MobileClaw</h1>
-          {currentModel && (
-            <p className="truncate text-[11px] text-muted-foreground">{currentModel}</p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card transition-colors hover:bg-accent active:bg-accent"
-          aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
-        >
-          {theme === "light" ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-            </svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="4" />
-              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-            </svg>
-          )}
-        </button>
-        <div className="flex shrink-0 flex-col items-end gap-0.5">
-          <div className="flex items-center gap-1.5">
-            {isDemoMode || backendMode === "demo" ? (
-              <>
-                <span className="h-2 w-2 rounded-full bg-blue-500" />
-                <span className="text-[11px] text-muted-foreground">Demo</span>
-              </>
-            ) : backendMode === "lmstudio" ? (
-              <>
-                <span className="h-2 w-2 rounded-full bg-green-500" />
-                <span className="text-[11px] text-muted-foreground">LM Studio</span>
-              </>
-            ) : (
-              <>
-                <span className={`h-2 w-2 rounded-full ${connectionState === "connected"
-                  ? "bg-green-500"
-                  : connectionState === "connecting"
-                    ? "bg-yellow-500 animate-pulse"
-                    : "bg-red-500"
-                  }`} />
-                <span className="text-[11px] text-muted-foreground">
-                  {connectionState === "connected"
-                    ? "Connected"
-                    : connectionState === "connecting"
-                      ? "Connecting..."
-                      : "Disconnected"}
-                </span>
-              </>
-            )}
-          </div>
-          <span className="text-[10px] text-muted-foreground/60 font-mono">{process.env.NEXT_PUBLIC_GIT_SHA}</span>
-        </div>
-      </header>
+      <ChatHeader
+        currentModel={currentModel}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        connectionState={connectionState}
+        backendMode={backendMode}
+        isDemoMode={isDemoMode}
+        onOpenSetup={() => setShowSetup(true)}
+      />
 
       <div ref={pullContentRef} className="flex flex-1 flex-col min-h-0">
         <main
@@ -1530,13 +982,9 @@ export default function Home() {
               const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
               const isTimeGap = timGap > 10 * 60 * 1000;
               const showTimestamp = side !== "center" && (isNewTurn || isTimeGap);
-              // Don't render the streaming message at all while ThinkingIndicator is dissolving
               const isHiddenDuringExit = thinkingExiting && msg.id === streamingId;
-              if (isHiddenDuringExit) {
-                return null;
-              }
+              if (isHiddenDuringExit) return null;
 
-              // Apply fade-in animation when message is first revealed after exit
               const fadeInClass = msg.id === justRevealedId ? "animate-[fadeIn_200ms_ease-out]" : "";
 
               return (
@@ -1550,7 +998,7 @@ export default function Home() {
                     <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"} ${fadeInClass}`}>
                       {formatMessageTime(msg.timestamp)}
                       {msg.role === "assistant" && msg.thinkingDuration && msg.thinkingDuration > 0 && (
-                        <span className="ml-1">· {msg.thinkingDuration}s</span>
+                        <span className="ml-1">&middot; {msg.thinkingDuration}s</span>
                       )}
                     </p>
                   )}
@@ -1564,8 +1012,7 @@ export default function Home() {
             <div ref={bottomRef} />
           </div>
         </main>
-        {/* Pull-to-refresh spinner — inside pullContentRef so it translates up with the content.
-          h-0 + overflow-visible: no layout space, renders upward into the revealed gap. */}
+        {/* Pull-to-refresh spinner */}
         <div
           ref={pullSpinnerRef}
           className="flex h-0 items-center justify-center gap-2 overflow-visible"
@@ -1578,7 +1025,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Floating morphing bar -- driven by continuous scrollProgress (0=bottom, 1=scrolled) */}
+      {/* Floating morphing bar */}
       <div
         ref={floatingBarRef}
         className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh]"
