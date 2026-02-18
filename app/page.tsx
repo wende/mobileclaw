@@ -1072,7 +1072,10 @@ export default function Home() {
 
   // Check localStorage on mount for previously saved URL and token
   useEffect(() => {
-    // Skip auto-connect in demo mode (check URL params directly to avoid race with state)
+    // Skip auto-connect in demo mode - check URL params directly to avoid race with state
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo")) {
+      return;
+    }
     if (isDemoMode) return;
     const savedMode = window.localStorage.getItem("mobileclaw-mode") as BackendMode | null;
 
@@ -1316,15 +1319,7 @@ export default function Home() {
           className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card transition-colors hover:bg-accent active:bg-accent"
           aria-label="Open settings"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 8c-1.5-1-2.5-3-2-5 1 .5 2.5 1 3.5 2.5M19 8c1.5-1 2.5-3 2-5-1 .5-2.5 1-3.5 2.5" />
-            <path d="M4.5 14.5C3 13 2 11 2 9c0-1 .5-2 1.5-2.5C5 6 6.5 7 7 8.5M19.5 14.5C21 13 22 11 22 9c0-1-.5-2-1.5-2.5C19 6 17.5 7 17 8.5" />
-            <path d="M7 8.5C8 7 10 6 12 6s4 1 5 2.5" />
-            <path d="M7 8.5c-.5 2 0 4 1 5.5l1.5 2c1 1 2.5 1.5 2.5 1.5s1.5-.5 2.5-1.5l1.5-2c1-1.5 1.5-3.5 1-5.5" />
-            <circle cx="10" cy="11" r="0.75" fill="currentColor" />
-            <circle cx="14" cy="11" r="0.75" fill="currentColor" />
-            <path d="M9 20l-1 2M15 20l1 2M12 20v2" />
-          </svg>
+          <img src="/logo.png" alt="MobileClaw" className="h-7 mix-blend-multiply dark:mix-blend-screen dark:invert" />
         </button>
         <div className="flex min-w-0 flex-1 flex-col">
           <h1 className="text-sm font-semibold text-foreground">MobileClaw</h1>

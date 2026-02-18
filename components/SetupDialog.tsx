@@ -183,28 +183,28 @@ export function SetupDialog({
           opacity: isOpen ? 1 : isClosing ? 0 : 0,
         }}
       >
-        {/* Icon -- pulses briefly on close */}
+        {/* Icon -- pulses briefly on close, secret tap to enter demo */}
         <div className="mb-4 flex justify-center">
-          <div
-            className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-secondary transition-all duration-300"
+          <button
+            type="button"
+            onClick={() => {
+              setPhase("closing");
+              setTimeout(() => {
+                setPhase("closed");
+                onConnect({ mode: "demo", url: "" });
+              }, 500);
+            }}
+            className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-secondary transition-all duration-300 hover:bg-accent active:scale-95"
             style={{
               transform: isClosing ? "scale(1.2)" : "scale(1)",
               boxShadow: isClosing ? "0 0 20px oklch(0.55 0 0 / 0.15)" : "none",
             }}
           >
-            {mode === "lmstudio" ? (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-foreground">
-                <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M7 8h10" /><path d="M7 12h10" /><path d="M7 16h6" />
-              </svg>
-            ) : (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-foreground">
-                <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
-              </svg>
-            )}
-          </div>
+            <img src="/logo.png" alt="" className="h-9 mix-blend-multiply dark:mix-blend-screen dark:invert" />
+          </button>
         </div>
 
-        <h2 className="mb-1 text-center text-lg font-semibold text-foreground">Connect to MobileClaw</h2>
+        <h2 className="mb-1 text-center text-lg font-semibold text-foreground">Connect to {mode === "lmstudio" ? "LM Studio" : "OpenClaw"}</h2>
         <p className="mb-4 text-center text-sm text-muted-foreground">
           Choose a backend and configure your connection.
         </p>
