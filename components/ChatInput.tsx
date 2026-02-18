@@ -102,9 +102,11 @@ export function ChatInput({
   const totalSuggestions = showModelSuggestions ? modelSuggestions.length : commandSuggestions.length;
 
   // Reset selection when suggestions change
+  // Model suggestions start unselected (-1) so Enter submits "/model" as-is
+  // Command suggestions start at 0 for quick Tab completion
   useEffect(() => {
-    setSelectedIdx(0);
-  }, [totalSuggestions, value]);
+    setSelectedIdx(showModelSuggestions ? -1 : 0);
+  }, [totalSuggestions, value, showModelSuggestions]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -120,10 +122,8 @@ export function ChatInput({
   };
 
   const acceptModelSuggestion = (model: ModelSuggestion) => {
-    const command = `/model ${model.id}`;
-    onSend(command);
-    setValue("");
-    if (ref.current) ref.current.style.height = "auto";
+    setValue(`/model ${model.id} `);
+    setTimeout(() => ref.current?.focus(), 0);
   };
 
   const submit = () => {
@@ -145,18 +145,37 @@ export function ChatInput({
     if (showSuggestions) {
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSelectedIdx((prev) => (prev > 0 ? prev - 1 : totalSuggestions - 1));
+        // Start from first item if nothing selected, otherwise go up (wrap to end)
+        setSelectedIdx((prev) => (prev <= 0 ? totalSuggestions - 1 : prev - 1));
         return;
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIdx((prev) => (prev < totalSuggestions - 1 ? prev + 1 : 0));
+        // Start from first item if nothing selected, otherwise go down (wrap to start)
+        setSelectedIdx((prev) => (prev < 0 || prev >= totalSuggestions - 1 ? 0 : prev + 1));
         return;
       }
-      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+      if (e.key === "Tab") {
         e.preventDefault();
-        if (showModelSuggestions && modelSuggestions[selectedIdx]) {
-          acceptModelSuggestion(modelSuggestions[selectedIdx]);
+        if (selectedIdx >= 0) {
+          if (showModelSuggestions && modelSuggestions[selectedIdx]) {
+            acceptModelSuggestion(modelSuggestions[selectedIdx]);
+          } else if (showCommandSuggestions && commandSuggestions[selectedIdx]) {
+            acceptCommandSuggestion(commandSuggestions[selectedIdx]);
+          }
+        }
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        // For model suggestions: only accept if explicitly selected, otherwise submit as-is
+        // For command suggestions: always accept the selected one (starts at 0)
+        if (showModelSuggestions) {
+          if (selectedIdx >= 0 && modelSuggestions[selectedIdx]) {
+            acceptModelSuggestion(modelSuggestions[selectedIdx]);
+          } else {
+            submit();
+          }
         } else if (showCommandSuggestions && commandSuggestions[selectedIdx]) {
           acceptCommandSuggestion(commandSuggestions[selectedIdx]);
         }

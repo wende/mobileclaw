@@ -48,8 +48,9 @@ function stripThinkTags(raw: string): { thinking: string; text: string } {
 
 const BRAIN_ICON = (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline-block shrink-0 opacity-50 mr-1.5 align-[-1px]">
-    <path d="M12 2a5 5 0 0 1 4.7 3.2A4 4 0 0 1 20 9c0 1.5-.8 2.8-2 3.5v0A4 4 0 0 1 16 20H8a4 4 0 0 1-2-7.5A4 4 0 0 1 4 9a4 4 0 0 1 3.3-3.9A5 5 0 0 1 12 2z" />
-    <path d="M12 2v20" />
+    <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+    <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+    <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
   </svg>
 );
 
@@ -204,7 +205,11 @@ export function MessageRow({ message, isStreaming }: { message: Message; isStrea
               }
               if (part.type === "text" && part.text) {
                 const { thinking: extractedThinking, text: cleanText } = stripThinkTags(part.text);
-                const isLastText = !(message.content as ContentPart[]).slice(i + 1).some((p) => p.type === "text" && p.text);
+                const remainingParts = (message.content as ContentPart[]).slice(i + 1);
+                const isLastText = !remainingParts.some((p) => p.type === "text" && p.text);
+                // Hide cursor if tool call or thinking appears after this text
+                const hasLaterNonText = remainingParts.some((p) => p.type === "tool_call" || p.type === "toolCall" || p.type === "thinking");
+                const showCursor = isStreaming && isLastText && !hasLaterNonText;
                 return (
                   <React.Fragment key={`text-${i}`}>
                     {extractedThinking && !hasThinkingParts && !message.reasoning && (
@@ -212,7 +217,7 @@ export function MessageRow({ message, isStreaming }: { message: Message; isStrea
                     )}
                     {cleanText && (
                       <div className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
-                        {isStreaming && isLastText ? (
+                        {showCursor ? (
                           <StreamingText text={cleanText} isStreaming={isStreaming} />
                         ) : (
                           <MarkdownContent text={cleanText} />
