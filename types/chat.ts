@@ -36,7 +36,7 @@ export interface Message {
 export interface WSRequest {
   type: "req";
   id: string;
-  method: "connect" | "chat.send" | "chat.history" | "chat.subscribe" | "hello";
+  method: "connect" | "chat.send" | "chat.history" | "chat.subscribe" | "hello" | "models.list";
   params?: Record<string, unknown>;
 }
 
@@ -110,4 +110,13 @@ export interface ConnectionConfig {
   url: string;
   token?: string;
   model?: string;
+}
+
+// Model choice from models.list response
+export interface ModelChoice {
+  id: string;
+  name: string;
+  provider: string;
+  contextWindow?: number;
+  reasoning?: boolean;
 }

@@ -2,20 +2,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DEMO_HISTORY, createDemoHandler, type DemoCallbacks } from "@/lib/demoMode";
 
 describe("DEMO_HISTORY", () => {
-  it("contains the expected number of messages", () => {
-    expect(DEMO_HISTORY.length).toBeGreaterThanOrEqual(5);
+  it("contains system + user + assistant messages", () => {
+    expect(DEMO_HISTORY.length).toBe(3);
   });
 
-  it("starts with a system message", () => {
+  it("starts with a system message (model changed)", () => {
     expect(DEMO_HISTORY[0].role).toBe("system");
   });
 
-  it("alternates user and assistant messages", () => {
-    // Skip system message, check the rest alternate
-    const messages = DEMO_HISTORY.slice(1);
-    for (let i = 0; i < messages.length; i++) {
-      expect(messages[i].role).toBe(i % 2 === 0 ? "user" : "assistant");
-    }
+  it("has system, user, then assistant", () => {
+    expect(DEMO_HISTORY[0].role).toBe("system");
+    expect(DEMO_HISTORY[1].role).toBe("user");
+    expect(DEMO_HISTORY[2].role).toBe("assistant");
   });
 
   it("all messages have ids and timestamps", () => {
@@ -24,6 +22,17 @@ describe("DEMO_HISTORY", () => {
       expect(msg.timestamp).toBeDefined();
       expect(typeof msg.timestamp).toBe("number");
     }
+  });
+
+  it("assistant message showcases all display features", () => {
+    const assistantMsg = DEMO_HISTORY[2];
+    const content = assistantMsg.content as Array<{ type: string }>;
+
+    // Should have thinking, tool_call, and text parts
+    const types = content.map(p => p.type);
+    expect(types).toContain("thinking");
+    expect(types).toContain("tool_call");
+    expect(types).toContain("text");
   });
 });
 

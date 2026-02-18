@@ -3,108 +3,74 @@
 import type { ContentPart, Message } from "@/types/chat";
 
 // ── Demo conversation history ────────────────────────────────────────────────
+// Single message exchange that showcases ALL display features
 
-const BASE_TS = Date.now() - 30 * 60 * 1000; // 30 minutes ago
+const BASE_TS = Date.now() - 5 * 60 * 1000; // 5 minutes ago
 
 export const DEMO_HISTORY: Message[] = [
   {
     role: "system",
-    content: [{ type: "text", text: "Welcome to MobileClaw demo mode. Try sending a message!" }],
+    content: [{ type: "text", text: "Model changed to **claude-sonnet-4-5**" }],
     timestamp: BASE_TS,
     id: "demo-sys-1",
   },
   {
     role: "user",
-    content: [{ type: "text", text: "What can you do?" }],
-    timestamp: BASE_TS + 60_000,
+    content: [{ type: "text", text: "Show me what MobileClaw can do!" }],
+    timestamp: BASE_TS + 1_000,
     id: "demo-u-1",
   },
   {
     role: "assistant",
     content: [
+      // Thinking content part
       {
-        type: "text",
-        text: "I'm an AI assistant running on **OpenClaw**. Here's what I can help with:\n\n## Capabilities\n\n- **General Q&A** — ask me anything\n- **Code generation** — write and explain code\n- **Tool use** — I can run commands, read files, search the web\n- **Reasoning** — I can think through complex problems step-by-step\n\n### Supported tools\n\n| Tool | Description |\n|------|-------------|\n| `exec` | Run shell commands |\n| `read` | Read file contents |\n| `web_search` | Search the internet |\n| `sessions_spawn` | Launch sub-agents |\n\n> This is a demo — try asking about `weather`, `code`, or say `think` to see different response types!",
+        type: "thinking",
+        text: "The user wants to see all UI features. Let me demonstrate:\n\n1. This thinking block shows the reasoning/chain-of-thought display\n2. I'll run some tool calls — both successful and failed ones\n3. Then finish with rich markdown: headers, code blocks, tables, lists, links\n\nThis covers every visual element in the chat interface.",
       },
-    ],
-    timestamp: BASE_TS + 65_000,
-    id: "demo-a-1",
-  },
-  {
-    role: "user",
-    content: [{ type: "text", text: "Can you check the weather in Tokyo?" }],
-    timestamp: BASE_TS + 120_000,
-    id: "demo-u-2",
-  },
-  {
-    role: "assistant",
-    content: [
+      // Successful tool call
       {
         type: "tool_call",
-        name: "weather",
-        arguments: JSON.stringify({ location: "Tokyo, Japan", units: "metric" }),
+        name: "web_search",
+        arguments: JSON.stringify({ query: "MobileClaw chat UI features" }),
         status: "success",
         result: JSON.stringify({
-          location: "Tokyo, Japan",
-          temperature: "22°C",
-          condition: "Partly Cloudy",
-          humidity: "65%",
-          wind: "12 km/h NE",
-          forecast: [
-            { day: "Tomorrow", high: "24°C", low: "18°C", condition: "Sunny" },
-            { day: "Wednesday", high: "21°C", low: "16°C", condition: "Rain" },
+          results: [
+            { title: "MobileClaw — Mobile-First Chat UI", url: "https://github.com/user/mobileclaw", snippet: "Real-time streaming, tool execution, and reasoning display." },
           ],
         }, null, 2),
       },
-      {
-        type: "text",
-        text: "Here's the current weather in **Tokyo, Japan**:\n\n- **Temperature:** 22°C (Partly Cloudy)\n- **Humidity:** 65%\n- **Wind:** 12 km/h NE\n\n**Forecast:**\n1. Tomorrow — Sunny, 24°C / 18°C\n2. Wednesday — Rain, 21°C / 16°C",
-      },
-    ],
-    timestamp: BASE_TS + 125_000,
-    id: "demo-a-2",
-  },
-  {
-    role: "user",
-    content: [{ type: "text", text: "Write me a fibonacci function in Python" }],
-    timestamp: BASE_TS + 180_000,
-    id: "demo-u-3",
-  },
-  {
-    role: "assistant",
-    content: [
-      {
-        type: "text",
-        text: "Here's an efficient Fibonacci implementation using memoization:\n\n```python\nfrom functools import lru_cache\n\n@lru_cache(maxsize=None)\ndef fibonacci(n: int) -> int:\n    \"\"\"Return the nth Fibonacci number.\"\"\"\n    if n < 2:\n        return n\n    return fibonacci(n - 1) + fibonacci(n - 2)\n\n# Usage\nfor i in range(10):\n    print(f\"F({i}) = {fibonacci(i)}\")\n```\n\nThis runs in **O(n)** time thanks to `lru_cache`. Without memoization it would be exponential O(2^n).\n\nYou can also do it iteratively:\n\n```python\ndef fibonacci_iter(n: int) -> int:\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a + b\n    return a\n```\n\nBoth produce the same results: `0, 1, 1, 2, 3, 5, 8, 13, 21, 34, ...`",
-      },
-    ],
-    timestamp: BASE_TS + 185_000,
-    id: "demo-a-3",
-    reasoning: "The user wants a Fibonacci function. I should provide both recursive (with memoization for efficiency) and iterative approaches. The recursive version with `lru_cache` is elegant and Pythonic, while the iterative version is more memory-efficient. I'll explain the time complexity difference.",
-  },
-  {
-    role: "user",
-    content: [{ type: "text", text: "Check what's in my home directory" }],
-    timestamp: BASE_TS + 240_000,
-    id: "demo-u-4",
-  },
-  {
-    role: "assistant",
-    content: [
+      // Failed tool call (to show error state)
       {
         type: "tool_call",
         name: "exec",
-        arguments: JSON.stringify({ command: "ls -la ~/" }),
-        status: "success",
-        result: "total 48\ndrwxr-x--- 12 user staff 384 Feb  7 10:30 .\ndrwxr-xr-x  5 root admin 160 Jan 15 09:00 ..\n-rw-r--r--  1 user staff  312 Feb  5 14:22 .bashrc\ndrwx------  3 user staff   96 Jan 20 11:00 .ssh\ndrwxr-xr-x  8 user staff  256 Feb  7 09:15 Documents\ndrwxr-xr-x  5 user staff  160 Feb  6 16:30 Downloads\ndrwxr-xr-x 14 user staff  448 Feb  7 10:30 projects",
+        arguments: JSON.stringify({ command: "cat /etc/shadow" }),
+        status: "error",
+        result: "Permission denied — /etc/shadow is readable only by root",
+        resultError: true,
       },
+      // Running tool call (to show pending state)
+      {
+        type: "tool_call",
+        name: "sessions_spawn",
+        arguments: JSON.stringify({ model: "claude-sonnet-4-5", task: "Analyze codebase structure" }),
+        status: "running",
+      },
+      // Simplified text
       {
         type: "text",
-        text: "Your home directory contains the usual suspects — `Documents`, `Downloads`, `projects`, plus config files like `.bashrc` and `.ssh`.",
+        text: `## Demo Response
+
+\`\`\`typescript
+console.log("Hello from MobileClaw!");
+\`\`\`
+
+You're absolutely right!`,
       },
     ],
-    timestamp: BASE_TS + 245_000,
-    id: "demo-a-4",
+    timestamp: BASE_TS + 5_000,
+    id: "demo-a-1",
+    thinkingDuration: 3.2,
   },
 ];
 

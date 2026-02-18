@@ -15,6 +15,7 @@ import type {
   AgentEventPayload,
   BackendMode,
   ConnectionConfig,
+  ModelChoice,
 } from "@/types/chat";
 import { getTextFromContent, getMessageSide, formatMessageTime, updateAt, updateMessageById } from "@/lib/messageUtils";
 import { requestNotificationPermission, notifyMessageComplete } from "@/lib/notifications";
@@ -27,15 +28,77 @@ import { SetupDialog } from "@/components/SetupDialog";
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
+// ── Helper: Parse Backend Models ─────────────────────────────────────────────
+
+function parseBackendModels(resPayload: Record<string, unknown>): ModelChoice[] {
+  const raw = (resPayload as { raw?: string })?.raw;
+  if (!raw) return [];
+
+  let config: Record<string, unknown>;
+  try {
+    config = JSON.parse(raw);
+  } catch (e) {
+    console.error("[config.get] Failed to parse raw config:", e);
+    return [];
+  }
+
+  const providers = (config.models as any)?.providers;
+  if (!providers) return [];
+
+  // Flatten provider models into a single list
+  const models = Object.entries(providers).flatMap(([providerKey, providerConfig]: [string, any]) => {
+    const providerModels = providerConfig.models;
+    if (!Array.isArray(providerModels)) return [];
+
+    return providerModels
+      .filter((m: any) => m.id)
+      .map((m: any) => ({
+        id: `${providerKey}/${m.id}`,
+        name: m.name || m.id,
+        provider: providerKey,
+        contextWindow: m.contextWindow,
+        reasoning: m.reasoning,
+      }));
+  });
+
+  console.log("[config.get] Parsed models:", models);
+  return models;
+}
+
 export default function Home() {
+  console.log('[HMR-CHECK] Home component rendering with GRACE code v2');
   const [openclawUrl, setOpenclawUrl] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, _setIsStreaming] = useState(false);
   const isStreamingRef = useRef(false);
+  // Grace period: when streaming ends while pinned, keep force-scrolling for
+  // a short window so the final content snap (StreamingText revealing remaining
+  // text) doesn't get stranded above the fold.
+  const scrollGraceRef = useRef(false);
+  const scrollGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Sync ref immediately so scroll/wheel handlers see the correct value
   // without waiting for React's async render cycle.
   const setIsStreaming = useCallback((value: boolean) => {
+    const wasStreaming = isStreamingRef.current;
     isStreamingRef.current = value;
+    // Activate grace period synchronously on the streaming→idle transition
+    // while pinned, so handleScroll (which runs synchronously on scrollTop
+    // changes) won't unpin before the ResizeObserver can catch up.
+    if (wasStreaming && !value && pinnedToBottomRef.current) {
+      scrollGraceRef.current = true;
+      if (scrollGraceTimerRef.current) clearTimeout(scrollGraceTimerRef.current);
+      scrollGraceTimerRef.current = setTimeout(() => {
+        scrollGraceRef.current = false;
+        scrollGraceTimerRef.current = null;
+      }, 500);
+    } else if (value) {
+      // Streaming started — clear any stale grace
+      scrollGraceRef.current = false;
+      if (scrollGraceTimerRef.current) {
+        clearTimeout(scrollGraceTimerRef.current);
+        scrollGraceTimerRef.current = null;
+      }
+    }
     _setIsStreaming(value);
   }, []);
   const [streamingId, setStreamingId] = useState<string | null>(null);
@@ -117,6 +180,9 @@ export default function Home() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [serverInfo, setServerInfo] = useState<Record<string, unknown> | null>(null);
   const [currentModel, setCurrentModel] = useState<string | null>(null);
+  const [availableModels, setAvailableModels] = useState<ModelChoice[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const modelsRequestedRef = useRef(false);
   const [scrollPhase, setScrollPhase] = useState<"input" | "pill">("input");
   const appRef = useRef<HTMLDivElement>(null);
   const morphRef = useRef<HTMLDivElement>(null);
@@ -132,7 +198,7 @@ export default function Home() {
   const isPullingRef = useRef(false);
   const didVibrateRef = useRef(false);
   const pullContentRef = useRef<HTMLDivElement>(null);
-  const setPullTransformRef = useRef<(dist: number, animate: boolean) => void>(() => {});
+  const setPullTransformRef = useRef<(dist: number, animate: boolean) => void>(() => { });
   const refreshStartRef = useRef(0);
   const pullSpinnerRef = useRef<HTMLDivElement>(null);
   const currentAssistantMsgRef = useRef<Message | null>(null);
@@ -152,7 +218,7 @@ export default function Home() {
     setTheme((prev) => {
       const next = prev === "light" ? "dark" : "light";
       document.documentElement.classList.toggle("dark", next === "dark");
-      try { localStorage.setItem("theme", next); } catch {}
+      try { localStorage.setItem("theme", next); } catch { }
       return next;
     });
   }, []);
@@ -189,7 +255,7 @@ export default function Home() {
   // ── WebSocket sub-handlers ─────────────────────────────────────────────────
 
   /** Send a typed message over the WebSocket (avoids double-cast). */
-  const sendWS = useCallback((msg: { type: string; [key: string]: unknown }) => {
+  const sendWS = useCallback((msg: { type: string;[key: string]: unknown }) => {
     sendWSMessageRef.current?.(msg as WebSocketMessage);
   }, []);
 
@@ -202,6 +268,20 @@ export default function Home() {
       params: { sessionKey: sessionKeyRef.current },
     });
   }, [sendWS]);
+
+  /** Fetch configured models from OpenClaw gateway config. */
+  const fetchModels = useCallback(() => {
+    if (backendMode !== "openclaw") return;
+    if (modelsRequestedRef.current) return; // Avoid duplicate requests
+    modelsRequestedRef.current = true;
+    setModelsLoading(true);
+    sendWS({
+      type: "req",
+      id: `config-models-${Date.now()}`,
+      method: "config.get",
+      params: {},
+    });
+  }, [sendWS, backendMode]);
 
   /** Ensure a streaming assistant message exists for `runId`, creating one if needed. */
   const ensureStreamingMessage = useCallback((
@@ -301,6 +381,7 @@ export default function Home() {
   /** Handle chat.history response — parse, merge tool results, update state. */
   const handleHistoryResponse = useCallback((resPayload: Record<string, unknown>) => {
     const rawMsgs = resPayload.messages as Array<Record<string, unknown>>;
+
     const historyMessages = rawMsgs
       .filter((m) => {
         const content = m.content as ContentPart[] | string | null;
@@ -332,6 +413,10 @@ export default function Home() {
           if (tp?.text && typeof tp.text === "string" && tp.text.startsWith("System: [")) isContext = true;
         }
 
+        // Detect gateway-injected messages (model="gateway-injected" or provider="openclaw" with that model)
+        const isGatewayInjected = m.model === "gateway-injected";
+        const effectiveStopReason = isGatewayInjected ? "injected" : m.stopReason;
+
         return {
           role: m.role,
           content: filteredContent,
@@ -340,7 +425,7 @@ export default function Home() {
           reasoning,
           toolName,
           isError: m.stopReason === "error",
-          stopReason: m.stopReason,
+          stopReason: effectiveStopReason,
           isContext,
         } as Message;
       });
@@ -608,6 +693,14 @@ export default function Home() {
       if (msg.id?.startsWith("run-")) return;
       if (msg.ok && msg.id?.startsWith("sessions-list-")) return;
       if (msg.ok && msg.id?.startsWith("history-") && resPayload?.messages) return handleHistoryResponse(resPayload);
+      if (msg.id?.startsWith("config-models-")) {
+        setModelsLoading(false);
+        if (msg.ok && resPayload) {
+          const models = parseBackendModels(resPayload);
+          setAvailableModels(models);
+        }
+        return;
+      }
       if (!msg.ok && msg.error) {
         const errorMsg = typeof msg.error === "string" ? msg.error : msg.error?.message || "Unknown error";
         setConnectionError(errorMsg);
@@ -807,7 +900,7 @@ export default function Home() {
         setStreamingId(null);
         // Persist LM Studio conversation to localStorage
         setMessages((prev) => {
-          try { window.localStorage.setItem("lmstudio-messages", JSON.stringify(prev)); } catch {}
+          try { window.localStorage.setItem("lmstudio-messages", JSON.stringify(prev)); } catch { }
           return prev;
         });
       },
@@ -841,8 +934,12 @@ export default function Home() {
 
       // During streaming, don't update pinning from scroll position —
       // only the wheel/touch handlers can unpin, and scrollToBottom re-pins.
-      if (!isStreamingRef.current) {
+      if (!isStreamingRef.current && !scrollGraceRef.current) {
+        const wasPinned = pinnedToBottomRef.current;
         pinnedToBottomRef.current = distanceFromBottom < 80;
+        if (wasPinned && !pinnedToBottomRef.current) {
+          console.log(`[UNPIN] distanceFromBottom=${distanceFromBottom}, scrollHeight=${el.scrollHeight}, scrollTop=${Math.round(el.scrollTop)}`);
+        }
       }
 
       // When streaming and pinned, lock morph to input mode (--sp = 0)
@@ -1008,11 +1105,17 @@ export default function Home() {
         pinnedToBottomRef.current = false;
       }
     };
-    // On mobile, detect scroll-up by watching scroll direction during streaming
+    // On mobile, detect scroll-up by watching scroll direction during streaming.
+    // We also check distanceFromBottom because layout shifts (e.g. markdown
+    // table rendering) can transiently decrease scrollTop without any user
+    // interaction — those shouldn't unpin.
     let lastScrollTop = el.scrollTop;
     const onScroll = () => {
       if (isStreamingRef.current && el.scrollTop < lastScrollTop - 3) {
-        pinnedToBottomRef.current = false;
+        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (dist > 150) {
+          pinnedToBottomRef.current = false;
+        }
       }
       lastScrollTop = el.scrollTop;
     };
@@ -1101,7 +1204,7 @@ export default function Home() {
             const parsed = JSON.parse(saved) as Message[];
             if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
           }
-        } catch {}
+        } catch { }
       } else {
         setShowSetup(true);
       }
@@ -1174,26 +1277,28 @@ export default function Home() {
     connect(wsUrl);
   }, [connect, disconnect, resetThinkingState]);
 
-  const handleDisconnect = useCallback(() => {
-    disconnect();
-    lmStudioHandlerRef.current?.stop();
-    lmStudioHandlerRef.current = null;
-    lmStudioConfigRef.current = null;
-    window.localStorage.removeItem("openclaw-url");
-    window.localStorage.removeItem("openclaw-token");
-    window.localStorage.removeItem("mobileclaw-mode");
-    window.localStorage.removeItem("lmstudio-url");
-    window.localStorage.removeItem("lmstudio-apikey");
-    window.localStorage.removeItem("lmstudio-model");
-    window.localStorage.removeItem("lmstudio-messages");
-    setOpenclawUrl(null);
-    setMessages([]);
-    setIsStreaming(false);
-    setStreamingId(null);
-    setConnectionError(null);
-    setBackendMode("openclaw");
-    resetThinkingState();
-  }, [disconnect, resetThinkingState]);
+  // const handleDisconnect = useCallback(() => {
+  //   disconnect();
+  //   lmStudioHandlerRef.current?.stop();
+  //   lmStudioHandlerRef.current = null;
+  //   lmStudioConfigRef.current = null;
+  //   window.localStorage.removeItem("openclaw-url");
+  //   window.localStorage.removeItem("openclaw-token");
+  //   window.localStorage.removeItem("mobileclaw-mode");
+  //   window.localStorage.removeItem("lmstudio-url");
+  //   window.localStorage.removeItem("lmstudio-apikey");
+  //   window.localStorage.removeItem("lmstudio-model");
+  //   window.localStorage.removeItem("lmstudio-messages");
+  //   setOpenclawUrl(null);
+  //   setMessages([]);
+  //   setIsStreaming(false);
+  //   setStreamingId(null);
+  //   setConnectionError(null);
+  //   setBackendMode("openclaw");
+  //   resetThinkingState();
+  //   setAvailableModels([]);
+  //   modelsRequestedRef.current = false;
+  // }, [disconnect, resetThinkingState]);
 
   // Auto-scroll: whenever messages change (streaming delta, history load, user send),
   // snap to bottom if pinned. useLayoutEffect runs synchronously before paint, so
@@ -1217,6 +1322,32 @@ export default function Home() {
     }
   }, [messages]);
 
+  // ResizeObserver: catch content-height changes that don't come from a `messages`
+  // state update — e.g. when StreamingText's typewriter reveals enough text for
+  // MarkdownContent to switch from raw text to a rendered table/code-block, the
+  // content height jumps but `messages` hasn't changed so the useLayoutEffect above
+  // doesn't fire. This observer fills that gap.
+  //
+  // The grace period (scrollGraceRef, set synchronously in setIsStreaming) covers
+  // the streaming→idle transition: StreamingText snaps remaining text, which can
+  // cause a large height jump. Without it, handleScroll would unpin immediately.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Observe the inner content wrapper (first child of the scroll container)
+    const content = el.firstElementChild;
+    if (!content) return;
+
+    const ro = new ResizeObserver(() => {
+      if ((pinnedToBottomRef.current || scrollGraceRef.current) && el.scrollHeight > el.clientHeight) {
+        el.scrollTop = el.scrollHeight;
+        // Re-pin so handleScroll doesn't undo us
+        pinnedToBottomRef.current = true;
+      }
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, []);
 
   const sendMessage = useCallback((text: string) => {
     // Request notification permission on first user interaction (no-op if already granted/denied)
@@ -1242,7 +1373,7 @@ export default function Home() {
       // Send the full conversation history (including the new user message) to LM Studio
       setMessages((prev) => {
         // Persist conversation (including new user message) before sending
-        try { window.localStorage.setItem("lmstudio-messages", JSON.stringify(prev)); } catch {}
+        try { window.localStorage.setItem("lmstudio-messages", JSON.stringify(prev)); } catch { }
         // Use double-RAF to ensure browser paints "Thinking..." before fetch starts
         // First RAF schedules for next frame, second RAF runs after that frame paints
         requestAnimationFrame(() => {
@@ -1310,6 +1441,11 @@ export default function Home() {
         open={commandsOpen}
         onClose={() => setCommandsOpen(false)}
         onSelect={handleCommandSelect}
+        onSend={sendMessage}
+        availableModels={availableModels}
+        modelsLoading={modelsLoading}
+        onFetchModels={fetchModels}
+        backendMode={backendMode}
       />
 
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-background/80 px-4 py-3 backdrop-blur-xl md:px-6">
@@ -1358,13 +1494,12 @@ export default function Home() {
               </>
             ) : (
               <>
-                <span className={`h-2 w-2 rounded-full ${
-                  connectionState === "connected"
-                    ? "bg-green-500"
-                    : connectionState === "connecting"
-                      ? "bg-yellow-500 animate-pulse"
-                      : "bg-red-500"
-                }`} />
+                <span className={`h-2 w-2 rounded-full ${connectionState === "connected"
+                  ? "bg-green-500"
+                  : connectionState === "connecting"
+                    ? "bg-yellow-500 animate-pulse"
+                    : "bg-red-500"
+                  }`} />
                 <span className="text-[11px] text-muted-foreground">
                   {connectionState === "connected"
                     ? "Connected"
@@ -1380,67 +1515,67 @@ export default function Home() {
       </header>
 
       <div ref={pullContentRef} className="flex flex-1 flex-col min-h-0">
-      <main
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden"
-        style={{ overscrollBehavior: "none" }}
-      >
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 pb-28 md:px-6 md:py-4 md:pb-28">
-          {messages.map((msg, idx) => {
-            const side = getMessageSide(msg.role);
-            const prevSide = idx > 0 ? getMessageSide(messages[idx - 1].role) : null;
-            const prevTimestamp = idx > 0 ? messages[idx - 1].timestamp : null;
-            const isNewTurn = side !== "center" && side !== prevSide;
-            const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
-            const isTimeGap = timGap > 10 * 60 * 1000;
-            const showTimestamp = side !== "center" && (isNewTurn || isTimeGap);
-            // Don't render the streaming message at all while ThinkingIndicator is dissolving
-            const isHiddenDuringExit = thinkingExiting && msg.id === streamingId;
-            if (isHiddenDuringExit) {
-              return null;
-            }
+        <main
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto overflow-x-hidden"
+          style={{ overscrollBehavior: "none" }}
+        >
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 pb-28 md:px-6 md:py-4 md:pb-28">
+            {messages.map((msg, idx) => {
+              const side = getMessageSide(msg.role);
+              const prevSide = idx > 0 ? getMessageSide(messages[idx - 1].role) : null;
+              const prevTimestamp = idx > 0 ? messages[idx - 1].timestamp : null;
+              const isNewTurn = side !== "center" && side !== prevSide;
+              const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
+              const isTimeGap = timGap > 10 * 60 * 1000;
+              const showTimestamp = side !== "center" && (isNewTurn || isTimeGap);
+              // Don't render the streaming message at all while ThinkingIndicator is dissolving
+              const isHiddenDuringExit = thinkingExiting && msg.id === streamingId;
+              if (isHiddenDuringExit) {
+                return null;
+              }
 
-            // Apply fade-in animation when message is first revealed after exit
-            const fadeInClass = msg.id === justRevealedId ? "animate-[fadeIn_200ms_ease-out]" : "";
+              // Apply fade-in animation when message is first revealed after exit
+              const fadeInClass = msg.id === justRevealedId ? "animate-[fadeIn_200ms_ease-out]" : "";
 
-            return (
-              <React.Fragment key={msg.id || idx}>
-                {isTimeGap && !isNewTurn && msg.timestamp && (
-                  <div className={`flex justify-center py-1 ${fadeInClass}`}>
-                    <span className="text-[10px] text-muted-foreground/60">{formatMessageTime(msg.timestamp)}</span>
+              return (
+                <React.Fragment key={msg.id || idx}>
+                  {isTimeGap && !isNewTurn && msg.timestamp && (
+                    <div className={`flex justify-center py-1 ${fadeInClass}`}>
+                      <span className="text-[10px] text-muted-foreground/60">{formatMessageTime(msg.timestamp)}</span>
+                    </div>
+                  )}
+                  {showTimestamp && isNewTurn && msg.timestamp && (
+                    <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"} ${fadeInClass}`}>
+                      {formatMessageTime(msg.timestamp)}
+                      {msg.role === "assistant" && msg.thinkingDuration && msg.thinkingDuration > 0 && (
+                        <span className="ml-1">· {msg.thinkingDuration}s</span>
+                      )}
+                    </p>
+                  )}
+                  <div className={fadeInClass}>
+                    <MessageRow message={msg} isStreaming={isStreaming && msg.id === streamingId} />
                   </div>
-                )}
-                {showTimestamp && isNewTurn && msg.timestamp && (
-                  <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"} ${fadeInClass}`}>
-                    {formatMessageTime(msg.timestamp)}
-                    {msg.role === "assistant" && msg.thinkingDuration && msg.thinkingDuration > 0 && (
-                      <span className="ml-1">· {msg.thinkingDuration}s</span>
-                    )}
-                  </p>
-                )}
-                <div className={fadeInClass}>
-                  <MessageRow message={msg} isStreaming={isStreaming && msg.id === streamingId} />
-                </div>
-              </React.Fragment>
-            );
-          })}
-          {showThinkingIndicator && <ThinkingIndicator isExiting={thinkingExiting} onExitComplete={onThinkingExitComplete} startTime={thinkingStartTime ?? undefined} />}
-          <div ref={bottomRef} />
-        </div>
-      </main>
-      {/* Pull-to-refresh spinner — inside pullContentRef so it translates up with the content.
+                </React.Fragment>
+              );
+            })}
+            {showThinkingIndicator && <ThinkingIndicator isExiting={thinkingExiting} onExitComplete={onThinkingExitComplete} startTime={thinkingStartTime ?? undefined} />}
+            <div ref={bottomRef} />
+          </div>
+        </main>
+        {/* Pull-to-refresh spinner — inside pullContentRef so it translates up with the content.
           h-0 + overflow-visible: no layout space, renders upward into the revealed gap. */}
-      <div
-        ref={pullSpinnerRef}
-        className="flex h-0 items-center justify-center gap-2 overflow-visible"
-        style={{ opacity: 0, transform: "translateY(calc(-3dvh - 23px))" }}
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground" style={{ animation: "none" }}>
-          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-        </svg>
-        <span className="text-sm leading-none">🦞</span>
-      </div>
+        <div
+          ref={pullSpinnerRef}
+          className="flex h-0 items-center justify-center gap-2 overflow-visible"
+          style={{ opacity: 0, transform: "translateY(calc(-3dvh - 23px))" }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground" style={{ animation: "none" }}>
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+          <span className="text-sm leading-none">🦞</span>
+        </div>
       </div>
 
       {/* Floating morphing bar -- driven by continuous scrollProgress (0=bottom, 1=scrolled) */}
@@ -1456,6 +1591,10 @@ export default function Home() {
             onCommandValueUsed={clearPendingCommand}
             scrollPhase={scrollPhase}
             onScrollToBottom={scrollToBottom}
+            availableModels={availableModels}
+            modelsLoading={modelsLoading}
+            onFetchModels={fetchModels}
+            backendMode={backendMode}
           />
         </div>
       </div>

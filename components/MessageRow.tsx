@@ -121,7 +121,6 @@ export function MessageRow({ message, isStreaming }: { message: Message; isStrea
   const text = getTextFromContent(message.content);
   const images = getImages(message.content);
 
-  // Debug logging for streaming messages
   if (message.role === "toolResult" || message.role === "tool_result" || message.role === "tool") {
     return null;
   }
