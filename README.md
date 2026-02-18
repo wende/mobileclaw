@@ -18,13 +18,10 @@ A mobile-first chat UI for [OpenClaw](https://github.com/user/openclaw) as well 
 ## Quick Start
 
 ```bash
-git clone https://github.com/user/mobileclaw.git
-cd mobileclaw
-npm install
-npm run dev
+git clone https://github.com/wende/mobileclaw && cd mobileclaw && pnpm install && pnpm prod
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [localhost:3000?demo](http://localhost:3000?demo) to try it out.
 
 ## Demo Mode
 
