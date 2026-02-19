@@ -70,13 +70,38 @@ describe("getToolDisplay", () => {
 
   describe("unknown tools", () => {
     it("returns tool name and generic icon", () => {
-      const result = getToolDisplay("web_search", JSON.stringify({ query: "test" }));
-      expect(result).toEqual({ label: "web_search", icon: "tool" });
+      const result = getToolDisplay("unknown_tool", JSON.stringify({ query: "test" }));
+      expect(result).toEqual({ label: "unknown_tool", icon: "tool" });
     });
 
     it("handles empty name", () => {
       const result = getToolDisplay("");
       expect(result).toEqual({ label: "", icon: "tool" });
+    });
+  });
+
+  describe("web_search and web_fetch tools", () => {
+    it("web_search extracts query", () => {
+      const result = getToolDisplay("web_search", JSON.stringify({ query: "test" }));
+      expect(result).toEqual({ label: "test", icon: "globe" });
+    });
+
+    it("web_search falls back to tool name", () => {
+      const result = getToolDisplay("web_search");
+      expect(result).toEqual({ label: "web_search", icon: "globe" });
+    });
+
+    it("web_fetch extracts url", () => {
+      const result = getToolDisplay(
+        "web_fetch",
+        JSON.stringify({ url: "https://example.com" })
+      );
+      expect(result).toEqual({ label: "https://example.com", icon: "globe" });
+    });
+
+    it("web_fetch falls back to tool name", () => {
+      const result = getToolDisplay("web_fetch");
+      expect(result).toEqual({ label: "web_fetch", icon: "globe" });
     });
   });
 });
