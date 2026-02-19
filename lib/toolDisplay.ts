@@ -1,6 +1,6 @@
 // Tool display logic — maps tool names/args to human-friendly labels and icons
 
-export type ToolIcon = "terminal" | "file" | "tool" | "robot";
+export type ToolIcon = "terminal" | "file" | "tool" | "robot" | "globe";
 
 export interface ToolDisplayInfo {
   label: string;
@@ -50,6 +50,22 @@ export function getToolDisplay(name: string, args?: string): ToolDisplayInfo {
         return { label: model, icon: "robot" };
       }
       return { label: "spawn agent", icon: "robot" };
+    }
+
+    case "web_search": {
+      const query = parsed?.query;
+      if (typeof query === "string") {
+        return { label: query, icon: "globe" };
+      }
+      return { label: name, icon: "globe" };
+    }
+
+    case "web_fetch": {
+      const url = parsed?.url;
+      if (typeof url === "string") {
+        return { label: url, icon: "globe" };
+      }
+      return { label: name, icon: "globe" };
     }
 
     // Add more tool-specific display rules here as needed
