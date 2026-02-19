@@ -1,10 +1,11 @@
 import type { BackendMode } from "@/types/chat";
+import type { ConnectionState } from "@/lib/useWebSocket";
 
 interface ChatHeaderProps {
   currentModel: string | null;
   theme: "light" | "dark";
   toggleTheme: () => void;
-  connectionState: string;
+  connectionState: ConnectionState;
   backendMode: BackendMode;
   isDemoMode: boolean;
   onOpenSetup: () => void;
@@ -68,16 +69,18 @@ export function ChatHeader({
             <>
               <span className={`h-2 w-2 rounded-full ${connectionState === "connected"
                 ? "bg-green-500"
-                : connectionState === "connecting"
+                : connectionState === "connecting" || connectionState === "reconnecting"
                   ? "bg-yellow-500 animate-pulse"
                   : "bg-red-500"
                 }`} />
               <span className="text-[11px] text-muted-foreground">
                 {connectionState === "connected"
                   ? "Connected"
-                  : connectionState === "connecting"
-                    ? "Connecting..."
-                    : "Disconnected"}
+                  : connectionState === "reconnecting"
+                    ? "Reconnecting..."
+                    : connectionState === "connecting"
+                      ? "Connecting..."
+                      : "Disconnected"}
               </span>
             </>
           )}

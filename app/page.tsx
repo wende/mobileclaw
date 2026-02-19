@@ -401,9 +401,17 @@ export default function Home() {
                 const nonTextParts = Array.isArray(existing.content)
                   ? existing.content.filter((p: ContentPart) => p.type !== "text")
                   : [];
+                // Preserve existing text when the delta carries no text
+                // (e.g. a tool-only delta after a content boundary)
+                const existingText = Array.isArray(existing.content)
+                  ? getTextFromContent(existing.content)
+                  : "";
+                const textToUse = newText || existingText;
                 return {
                   ...existing,
-                  content: [...nonTextParts, { type: "text" as const, text: newText }],
+                  content: textToUse
+                    ? [...nonTextParts, { type: "text" as const, text: textToUse }]
+                    : nonTextParts,
                   reasoning: msg.reasoning || existing.reasoning,
                 };
               });
@@ -578,6 +586,15 @@ export default function Home() {
     onClose: () => {
       setIsStreaming(false);
       setStreamingId(null);
+      setAwaitingResponse(false);
+    },
+    onReconnecting: (attempt, delay) => {
+      // Clear any hard error — the hook is handling recovery
+      setConnectionError(null);
+      console.log(`[Page] Reconnecting (attempt ${attempt}, ${delay}ms delay)`);
+    },
+    onReconnected: () => {
+      console.log("[Page] Reconnected — re-handshake will follow via connect.challenge");
     },
   });
 
