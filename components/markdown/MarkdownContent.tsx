@@ -179,17 +179,18 @@ export function renderInline(text: string): React.ReactNode[] {
   // Process: **bold**, *italic*, `inline code`, [link](url), bare URLs
   // Bold/italic recursively render their inner content so nested links work
   const parts: React.ReactNode[] = [];
-  const regex = /(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))|(https?:\/\/[^\s<>]*[^\s<>.,;:!?'"\])>])/g;
+  const regex = /(!\[([^\]]*)\]\(([^)]+)\))|(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))|(https?:\/\/[^\s<>]*[^\s<>.,;:!?'"\])>])/g;
   let last = 0;
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(text)) !== null) {
     if (match.index > last) parts.push(text.slice(last, match.index));
-    if (match[1]) parts.push(<strong key={match.index} className="font-semibold">{renderInline(match[2])}</strong>);
-    else if (match[3]) parts.push(<em key={match.index}>{renderInline(match[4])}</em>);
-    else if (match[5]) parts.push(<code key={match.index} className="rounded bg-secondary px-1 py-0.5 font-mono text-[13px] break-all">{match[6]}</code>);
-    else if (match[7]) parts.push(<a key={match.index} href={match[9]} className="underline underline-offset-2 hover:text-foreground" target="_blank" rel="noopener noreferrer">{match[8]}</a>);
-    else if (match[10]) parts.push(<a key={match.index} href={match[10]} className="underline underline-offset-2 hover:text-foreground" target="_blank" rel="noopener noreferrer">{match[10]}</a>);
+    if (match[1]) parts.push(<img key={match.index} src={match[3]} alt={match[2]} className="my-2 max-w-full max-h-[300px] rounded-lg object-contain" />);
+    else if (match[4]) parts.push(<strong key={match.index} className="font-semibold">{renderInline(match[5])}</strong>);
+    else if (match[6]) parts.push(<em key={match.index}>{renderInline(match[7])}</em>);
+    else if (match[8]) parts.push(<code key={match.index} className="rounded bg-secondary px-1 py-0.5 font-mono text-[13px] break-all">{match[9]}</code>);
+    else if (match[10]) parts.push(<a key={match.index} href={match[12]} className="underline underline-offset-2 hover:text-foreground" target="_blank" rel="noopener noreferrer">{match[11]}</a>);
+    else if (match[13]) parts.push(<a key={match.index} href={match[13]} className="underline underline-offset-2 hover:text-foreground" target="_blank" rel="noopener noreferrer">{match[13]}</a>);
     last = match.index + match[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));

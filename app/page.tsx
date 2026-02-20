@@ -109,6 +109,10 @@ export default function Home() {
   // History polling for mid-run reconnect: poll until the run completes
   const historyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Subagent history: track pending requests (reqId → sessionKey) and already-fetched keys
+  const pendingSubhistoryRef = useRef<Map<string, string>>(new Map());
+  const fetchedSubhistoryRef = useRef<Set<string>>(new Set());
+
   // Mid-stream silence detection: show "Thinking..." after 3s without events
   const lastEventTsRef = useRef<number>(0);
   const runStartTsRef = useRef<number>(0);
@@ -447,10 +451,35 @@ export default function Home() {
       setStreamingId(null);
     }
 
+    // Request subagent history for any sessions_spawn tool calls with childSessionKey
+    for (const raw of rawMsgs) {
+      if (raw.role !== "assistant" || !Array.isArray(raw.content)) continue;
+      for (const part of raw.content as Array<Record<string, unknown>>) {
+        if ((part.type !== "tool_call" && part.type !== "toolCall") || part.name !== "sessions_spawn") continue;
+        const resultStr = part.result as string | undefined;
+        if (!resultStr) continue;
+        try {
+          const r = JSON.parse(resultStr);
+          const childKey = r?.childSessionKey as string | undefined;
+          if (childKey && !fetchedSubhistoryRef.current.has(childKey)) {
+            fetchedSubhistoryRef.current.add(childKey);
+            const reqId = `subhistory-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            pendingSubhistoryRef.current.set(reqId, childKey);
+            sendWS({
+              type: "req",
+              id: reqId,
+              method: "chat.history",
+              params: { sessionKey: childKey },
+            });
+          }
+        } catch { /* ignore malformed result */ }
+      }
+    }
+
     // If pull-to-refresh was active, bounce back
     onHistoryReceived();
     setHistoryLoaded(true);
-  }, [onHistoryReceived, requestHistory, markEventReceived]);
+  }, [onHistoryReceived, requestHistory, markEventReceived, sendWS, subagentStore]);
 
   /** Handle chat events (delta/final/aborted/error). */
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
@@ -539,6 +568,7 @@ export default function Home() {
         activeRunIdRef.current = null;
         thinkTagStateRef.current = { insideThinkTag: false, tagBuffer: "" };
         subagentStore.clearAll();
+        fetchedSubhistoryRef.current.clear();
         requestHistory();
         break;
       }
@@ -551,6 +581,7 @@ export default function Home() {
         setStreamingId(null);
         activeRunIdRef.current = null;
         subagentStore.clearAll();
+        fetchedSubhistoryRef.current.clear();
         break;
 
       case "error": {
@@ -570,6 +601,7 @@ export default function Home() {
         setMessages((prev) => [...prev, errorMsg]);
         activeRunIdRef.current = null;
         subagentStore.clearAll();
+        fetchedSubhistoryRef.current.clear();
         break;
       }
     }
@@ -608,7 +640,9 @@ export default function Home() {
     if (payload.stream === "tool") {
       const phase = payload.data.phase as string;
       const toolName = payload.data.name as string;
-      const toolCallId = payload.data.toolCallId as string | undefined;
+      const rawToolCallId = (payload.data.toolCallId || payload.data.tool_call_id) as string | undefined;
+      // Always ensure sessions_spawn has a toolCallId so the SpawnPill can render
+      const toolCallId = rawToolCallId || (toolName === "sessions_spawn" ? `spawn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : undefined);
 
       if (phase === "start" && toolName) {
         if (toolName === "sessions_spawn" && toolCallId) {
@@ -755,6 +789,14 @@ export default function Home() {
         return;
       }
       if (msg.ok && msg.id?.startsWith("sessions-list-")) return;
+      if (msg.ok && msg.id?.startsWith("subhistory-") && resPayload?.messages) {
+        const sessionKey = pendingSubhistoryRef.current.get(msg.id);
+        pendingSubhistoryRef.current.delete(msg.id);
+        if (sessionKey) {
+          subagentStore.loadFromHistory(sessionKey, resPayload.messages as Array<Record<string, unknown>>);
+        }
+        return;
+      }
       if (msg.ok && msg.id?.startsWith("history-") && resPayload?.messages) return handleHistoryResponse(resPayload);
       if (msg.id?.startsWith("config-models-")) {
         setModelsLoading(false);
@@ -775,7 +817,7 @@ export default function Home() {
       if (msg.event === "chat") return handleChatEvent(msg.payload as ChatEventPayload);
       if (msg.event === "agent") return handleAgentEvent(msg.payload as AgentEventPayload);
     }
-  }, [handleConnectChallenge, handleHelloOk, handleHistoryResponse, handleChatEvent, handleAgentEvent]);
+  }, [handleConnectChallenge, handleHelloOk, handleHistoryResponse, handleChatEvent, handleAgentEvent, subagentStore]);
 
   const { connectionState, connect, disconnect, sendMessage: sendWSMessage, isConnected, markEstablished } = useWebSocket({
     onMessage: handleWSMessage,
@@ -1067,7 +1109,6 @@ export default function Home() {
 
     if (config.mode === "demo") {
       window.localStorage.setItem("mobileclaw-mode", "demo");
-      window.localStorage.removeItem("openclaw-url");
       setBackendMode("demo");
       setIsDemoMode(true);
       setMessages(DEMO_HISTORY);

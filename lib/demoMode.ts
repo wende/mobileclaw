@@ -273,14 +273,18 @@ const RESPONSES: Record<string, DemoResponse> = {
     ],
     text: "Fixed the auth middleware. The issue was that it used the raw `Authorization` header instead of extracting the Bearer token:\n\n- **Before:** `req.headers.authorization` — included the `Bearer ` prefix, so `verify()` always failed\n- **After:** Checks for `Bearer ` prefix, then strips it with `.slice(7)`\n\nThis also improves the error message when the header is missing or malformed.",
   },
+  image: {
+    thinking: "The user wants to see how images render in markdown. I'll include a few different image examples to show inline markdown image syntax.",
+    text: "Here are some example images rendered with markdown:\n\n### A Mountain Landscape\n\n![Mountain landscape](https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80)\n\nImages scale down to fit the chat bubble — they'll never overflow.\n\n### Side by Side\n\nYou can also reference images inline like this: ![tiny icon](https://www.google.com/favicon.ico) — they'll sit right in the text flow.\n\n![Ocean sunset](https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80)\n\n> Markdown syntax: `![alt text](url)`",
+  },
   help: {
-    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **think** / **reason** | Extended reasoning + markdown |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **help** | This list |\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
+    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **help** | This list |\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
   },
 };
 
 const DEFAULT_RESPONSE: DemoResponse = {
   thinking: "The user sent a message that doesn't match any specific demo trigger. I'll let them know they're in demo mode and suggest what they can try.",
-  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `help` — full command list",
+  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `help` — full command list",
 };
 
 // ── Match keywords ───────────────────────────────────────────────────────────
@@ -289,6 +293,8 @@ function matchResponse(input: string): DemoResponse {
   const lower = input.toLowerCase();
   if (lower.includes("weather") || lower.includes("forecast") || lower.includes("temperature"))
     return RESPONSES.weather;
+  if (lower.includes("image") || lower.includes("picture") || lower.includes("photo") || lower.includes("img"))
+    return RESPONSES.image;
   if (lower.includes("edit") || lower.includes("fix") || lower.includes("patch") || lower.includes("diff"))
     return RESPONSES.edit;
   if (lower.includes("code") || lower.includes("function") || lower.includes("program") || lower.includes("script"))

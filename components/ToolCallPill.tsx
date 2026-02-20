@@ -106,7 +106,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
   const isEditTool = name === "edit" || name === "file_edit" || name === "editFile";
   const isReadTool = name === "read" || name === "readFile" || name === "read_file";
   const [open, setOpen] = useState(false);
-  const isSpawnWithFeed = name === "sessions_spawn" && subagentStore && toolCallId;
+  const isSpawn = name === "sessions_spawn";
 
   // Animate open on mount for edit tools
   useEffect(() => {
@@ -115,14 +115,9 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
     return () => cancelAnimationFrame(raf);
   }, [isEditTool]);
 
-  const getEntries = useCallback(() => {
-    if (!toolCallId || !subagentStore) return null;
-    return subagentStore.getEntriesForToolCall(toolCallId);
-  }, [toolCallId, subagentStore]);
-
   // ── Spawn pill: full-width animated card ───────────────────────────────────
-  if (isSpawnWithFeed) {
-    return <SpawnPill args={args} status={status} result={result} resultError={resultError} getEntries={getEntries} subagentStore={subagentStore} />;
+  if (isSpawn) {
+    return <SpawnPill args={args} status={status} result={result} resultError={resultError} toolCallId={toolCallId} subagentStore={subagentStore} />;
   }
 
   // ── Default pill: animated slide ───────────────────────────────────────────
@@ -214,19 +209,43 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
 // ── SpawnPill — full-width animated subagent card ────────────────────────────
 
 function SpawnPill({
-  args, status, result, resultError, getEntries, subagentStore,
+  args, status, result, resultError, toolCallId, subagentStore,
 }: {
   args?: string;
   status?: "running" | "success" | "error";
   result?: string;
   resultError?: boolean;
-  getEntries: () => ReturnType<SubagentStore["getEntriesForToolCall"]>;
-  subagentStore: SubagentStore;
+  toolCallId?: string;
+  subagentStore?: SubagentStore;
 }) {
   const [open, setOpen] = useState(false);
   const parsed = parseArgs(args);
   const task = typeof parsed?.task === "string" ? parsed.task : null;
   const model = typeof parsed?.model === "string" ? parsed.model : null;
+
+  // Extract childSessionKey from the result JSON for direct session lookup
+  const childSessionKey = (() => {
+    if (!result) return null;
+    try {
+      const r = JSON.parse(result);
+      return typeof r?.childSessionKey === "string" ? r.childSessionKey : null;
+    } catch { return null; }
+  })();
+
+  // Look up subagent entries: try toolCallId link first, then direct session key
+  const getEntries = useCallback(() => {
+    if (!subagentStore) return null;
+    if (toolCallId) {
+      const via = subagentStore.getEntriesForToolCall(toolCallId);
+      if (via) return via;
+    }
+    if (childSessionKey) {
+      return subagentStore.getEntriesForSession(childSessionKey);
+    }
+    return null;
+  }, [toolCallId, childSessionKey, subagentStore]);
+
+  const hasFeed = !!subagentStore;
 
   // Animate open on mount: render 0fr first, then transition to 1fr after paint
   useEffect(() => {
@@ -252,11 +271,8 @@ function SpawnPill({
         )}
       </button>
       <SlideContent open={open}>
-        <SubagentActivityFeed getEntries={getEntries} storeVersion={subagentStore.versionRef} />
-        {result && (
-          <div className="border-t border-border px-3 py-2 overflow-hidden text-xs text-muted-foreground">
-            <pre className="whitespace-pre-wrap break-words overflow-hidden">{result}</pre>
-          </div>
+        {hasFeed && (
+          <SubagentActivityFeed getEntries={getEntries} storeVersion={subagentStore.versionRef} />
         )}
       </SlideContent>
     </div>

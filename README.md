@@ -1,78 +1,113 @@
+<div align="center">
+
 # MobileClaw
-### A mobile-first chat UI for [OpenClaw](https://github.com/openclaw/openclaw) as well as LM Studio models (with tooling) — Built with Next.js, Tailwind CSS v4, and zero UI dependencies.
 
+<img src="public/logo.png" alt="MobileClaw" width="120" />
 
-<img width="412" height="888" alt="Screenshot 2026-02-17 at 19 22 02" src="https://github.com/user-attachments/assets/2ad0a316-26c8-420f-87c4-9320d8024286" />
-<img width="412" height="892" alt="Screenshot 2026-02-17 at 19 22 40" src="https://github.com/user-attachments/assets/3578223d-8b2f-4d8e-b379-cb997dac4452" />
+A mobile-first chat UI for [OpenClaw](https://github.com/openclaw/openclaw) and LM Studio
 
+**[Try the Live Demo](https://mobileclaw.vercel.app?demo)**
+
+<br />
+
+<img src="docs/screenshots/hero-dark.png" alt="MobileClaw dark mode" width="280" />&nbsp;&nbsp;
+
+</div>
+
+<br />
 
 ## Features
 
-- **Real-time streaming** — word-by-word text streaming with animated cursor
-- **Rich markdown** — headings, lists, tables, code blocks with syntax labels and copy button
-- **Tool calls** — live tool execution with running/success/error lifecycle
-- **Thinking/reasoning** — expandable reasoning blocks on assistant messages
+### Streaming & Markdown
+
+Real-time word-by-word streaming with rich markdown rendering — headings, lists, tables, code blocks with syntax labels and one-tap copy.
+
+<div align="center">
+<img src="docs/screenshots/feature-code.png" alt="Code blocks with syntax highlighting" width="320" />
+</div>
+
+### Tool Calls
+
+Live tool execution with running/success/error states. See arguments, results, and inline diffs — all with smooth slide-in animations.
+
+<div align="center">
+<img src="docs/screenshots/feature-weather.png" alt="Tool call with weather results" width="320" />
+</div>
+
+### Inline Diffs
+
+Edit tool calls render as color-coded inline diffs — red for removed lines, green for additions. No need to leave the chat to review changes.
+
+<div align="center">
+<img src="docs/screenshots/feature-edit-diff.png" alt="Inline diff view for edit tool" width="320" />
+</div>
+
+### Thinking / Reasoning
+
+Expandable reasoning blocks show the model's chain-of-thought. Tap to expand or collapse — the thinking duration badge shows how long the model reasoned.
+
+<div align="center">
+<img src="docs/screenshots/feature-thinking.png" alt="Expandable thinking blocks" width="320" />
+</div>
+
+### Sub-Agent Activity
+
+When the agent spawns sub-agents, a live activity feed shows their reasoning, tool calls, and results streaming in real time.
+
+<div align="center">
+<img src="docs/screenshots/feature-subagent.png" alt="Sub-agent activity feed" width="320" />
+</div>
+
+### LM Studio Support
+
+Run local models with full chat UI support. Auto-fetches available models, parses `<think>` tags for reasoning display, and streams responses via the OpenAI-compatible API. No cloud required.
+
+<div align="center">
+<img src="docs/screenshots/feature-lmstudio.png" alt="LM Studio connection setup" width="320" />
+</div>
+
+### And More
+
 - **Command palette** — slide-up sheet with all OpenClaw slash commands, search and autocomplete
+- **Dark mode** — automatic theme switching via CSS custom properties
+- **Mobile-first** — optimized for iOS Safari with viewport fixes and smooth scroll animations
 - **Demo mode** — fully functional without a backend server
-- **Mobile-first** — optimized for iOS Safari with pull-to-refresh, viewport fixes, and smooth scroll animations
-- **Dark mode** — automatic theme via CSS custom properties
+- **Push notifications** — get notified when the agent finishes responding
+
+<br />
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/wende/mobileclaw && cd mobileclaw && pnpm install && pnpm prod
+git clone https://github.com/wende/mobileclaw && cd mobileclaw && pnpm install && pnpm dev
 ```
 
-Open [localhost:3000?demo](http://localhost:3000?demo) to try it out.
+Open [localhost:3000?demo](http://localhost:3000?demo) to try it instantly.
 
-## Demo Mode
+## Connecting to a Backend
 
-Try the UI without a backend:
-
-- Visit **`localhost:3000?demo`** — auto-enters demo mode with sample conversation
-- Or open the app, **leave the URL field empty**, and click **"Start Demo"**
-
-In demo mode, send messages with these keywords to see different features:
-
-| Keyword | What it shows |
-|---------|--------------|
-| `weather` | Tool call with JSON result |
-| `code` / `function` | Syntax-highlighted code blocks |
-| `think` / `reason` | Expandable reasoning block |
-| `error` | Failed tool call |
-| `help` | List of demo commands |
-
-## Connecting to OpenClaw
+### OpenClaw (WebSocket)
 
 1. Start your OpenClaw instance
-2. Open MobileClaw and enter the server URL (e.g. `ws://127.0.0.1:18789`)
+2. Enter the server URL (e.g. `ws://127.0.0.1:18789`)
 3. Optionally enter a gateway auth token
 4. Click **Connect**
 
-The connection persists across page reloads via localStorage.
+### LM Studio (HTTP)
+
+1. Start LM Studio and enable the local server (default: `http://localhost:1234`)
+2. Select "LM Studio" in the setup dialog and enter the URL
+3. Pick your model from the dropdown
+
+Connection settings persist across page reloads via localStorage.
 
 ## Tech Stack
 
-- **Next.js 16** — App Router, single-page architecture
-- **Tailwind CSS v4** — utility-first styling with OKLch color tokens
+- **Next.js 16** — App Router, Turbopack
+- **Tailwind CSS v4** — OKLch color tokens, `@utility` custom utilities
 - **TypeScript** — type-safe WebSocket protocol handling
-- **Zero UI dependencies** — no component library, hand-rolled components with inline SVG icons
+- **Zero UI dependencies** — hand-rolled components with inline SVG icons
 
-## Architecture
+## License
 
-The entire UI lives in a single file (`app/page.tsx`) — this is intentional for rapid iteration. Supporting modules:
-
-| File | Purpose |
-|------|---------|
-| `app/page.tsx` | All components, state, and rendering |
-| `lib/useWebSocket.ts` | WebSocket hook with auto-reconnect |
-| `lib/toolDisplay.ts` | Tool name → human-friendly label mapping |
-| `lib/demoMode.ts` | Demo mode handler with mock data |
-| `app/globals.css` | Tailwind config and OKLch color tokens |
-
-## Contributing
-
-1. Read `CLAUDE.md` for project conventions
-2. Read `AGENTS.md` for architecture details
-3. Test changes in demo mode (`?demo`) before testing with a live server
-4. Run `npm run build` to verify no build errors
+MIT

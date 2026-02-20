@@ -12,6 +12,10 @@ export interface SubagentStore {
   registerSpawn: (toolCallId: string) => void;
   /** Get entries and status for a given toolCallId (returns null if no linked session). */
   getEntriesForToolCall: (toolCallId: string) => { entries: SubagentEntry[]; status: SubagentSession["status"] } | null;
+  /** Get entries and status directly by session key (for when toolCallId is unavailable, e.g. history). */
+  getEntriesForSession: (sessionKey: string) => { entries: SubagentEntry[]; status: SubagentSession["status"] } | null;
+  /** Populate a subagent session from chat.history response messages. */
+  loadFromHistory: (sessionKey: string, rawMessages: Array<Record<string, unknown>>) => void;
   /** Version counter — bumped on every mutation. Poll this to detect changes. */
   versionRef: React.RefObject<number>;
   /** Clear all subagent data (call on main run end). */
@@ -77,7 +81,7 @@ export function useSubagentStore(): SubagentStore {
     autoLink(sessionKey);
     const session = ensureSession(sessionKey);
 
-    if (stream === "content") {
+    if (stream === "content" || stream === "assistant") {
       const delta = (data.delta || data.text || data.content || "") as string;
       if (!delta) return;
       const last = session.entries[session.entries.length - 1];
@@ -140,6 +144,50 @@ export function useSubagentStore(): SubagentStore {
     return { entries: session.entries, status: session.status };
   }, []);
 
+  const getEntriesForSession = useCallback((sessionKey: string) => {
+    const session = storeRef.current.get(sessionKey);
+    if (!session) return null;
+    return { entries: session.entries, status: session.status };
+  }, []);
+
+  const loadFromHistory = useCallback((sessionKey: string, rawMessages: Array<Record<string, unknown>>) => {
+    const session = ensureSession(sessionKey);
+    // Only populate if the session is empty (avoid duplicating on re-fetch)
+    if (session.entries.length > 0) return;
+
+    let hasStopReason = false;
+    for (const m of rawMessages) {
+      if (m.role !== "assistant") continue;
+      const ts = (m.timestamp as number) || 0;
+      const content = m.content as Array<Record<string, unknown>> | string | null;
+      if (m.stopReason) hasStopReason = true;
+
+      if (typeof content === "string") {
+        if (content) session.entries.push({ type: "text", text: content, ts });
+        continue;
+      }
+      if (!Array.isArray(content)) continue;
+
+      for (const part of content) {
+        if (part.type === "thinking" && part.thinking) {
+          session.entries.push({ type: "reasoning", text: part.thinking as string, ts });
+        } else if (part.type === "thinking" && part.text) {
+          session.entries.push({ type: "reasoning", text: part.text as string, ts });
+        } else if (part.type === "text" && part.text) {
+          session.entries.push({ type: "text", text: part.text as string, ts });
+        } else if (part.type === "tool_call" || part.type === "toolCall") {
+          const toolName = (part.name as string) || "tool";
+          const isErr = !!part.resultError;
+          const status = part.result != null ? (isErr ? "error" : "success") : "running";
+          session.entries.push({ type: "tool", text: toolName, toolStatus: status as SubagentEntry["toolStatus"], ts });
+        }
+      }
+    }
+
+    session.status = hasStopReason ? "done" : "active";
+    bump();
+  }, []);
+
   const clearAll = useCallback(() => {
     storeRef.current.clear();
     linkMapRef.current.clear();
@@ -147,5 +195,5 @@ export function useSubagentStore(): SubagentStore {
     bump();
   }, []);
 
-  return { ingestAgentEvent, ingestChatEvent, registerSpawn, getEntriesForToolCall, versionRef, clearAll };
+  return { ingestAgentEvent, ingestChatEvent, registerSpawn, getEntriesForToolCall, getEntriesForSession, loadFromHistory, versionRef, clearAll };
 }
