@@ -1275,7 +1275,7 @@ export default function Home() {
         ref={floatingBarRef}
         className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh] animate-[fadeIn_400ms_ease-out]"
       >
-        <div ref={morphRef} className="pointer-events-auto w-full" style={{ maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--sp, 0))), 42rem)" } as React.CSSProperties}>
+        <div ref={morphRef} className="pointer-events-auto w-full" style={{ maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--sp, 0))), calc(200px + (42rem - 200px) * (1 - var(--sp, 0))))" } as React.CSSProperties}>
           <ChatInput
             onSend={sendMessage}
             onOpenCommands={() => setCommandsOpen(true)}
