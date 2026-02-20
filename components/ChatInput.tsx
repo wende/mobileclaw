@@ -34,10 +34,20 @@ export function ChatInput({
   onFetchModels?: () => void;
   backendMode?: "openclaw" | "lmstudio" | "demo";
 }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("chatInputDraft") ?? "";
+    }
+    return "";
+  });
   const ref = useRef<HTMLTextAreaElement>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  // Persist draft to localStorage
+  useEffect(() => {
+    localStorage.setItem("chatInputDraft", value);
+  }, [value]);
 
   // When a command is selected, fill it in
   useEffect(() => {

@@ -13,6 +13,19 @@ export interface ContentPart {
   resultError?: boolean;
   source?: Record<string, unknown>;
   image_url?: { url?: string };
+  subagentSessionKey?: string;
+}
+
+export interface SubagentEntry {
+  type: "text" | "tool" | "reasoning";
+  text: string;
+  toolStatus?: "running" | "success" | "error";
+  ts: number;
+}
+
+export interface SubagentSession {
+  entries: SubagentEntry[];
+  status: "active" | "done" | "error";
 }
 
 export interface Message {
@@ -27,6 +40,7 @@ export interface Message {
   stopReason?: string;
   isContext?: boolean;
   thinkingDuration?: number; // Seconds spent "thinking" before first content
+  runDuration?: number; // Total seconds the run took (lifecycle start → end)
 }
 
 // OpenClaw WebSocket protocol types
@@ -82,7 +96,7 @@ export interface ChatEventPayload {
 }
 
 // Agent event payload — actual format uses stream + data
-export type AgentStreamType = "lifecycle" | "content" | "tool" | "reasoning";
+export type AgentStreamType = "lifecycle" | "content" | "tool" | "reasoning" | "assistant" | "error" | (string & {});
 
 export interface AgentEventPayload {
   runId: string;

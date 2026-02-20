@@ -1,10 +1,30 @@
 "use client";
 
+import { useCallback } from "react";
 import { getToolDisplay } from "@/lib/toolDisplay";
+import { SubagentActivityFeed } from "@/components/SubagentActivityFeed";
+import type { SubagentStore } from "@/hooks/useSubagentStore";
 
-export function ToolCallPill({ name, args, status, result, resultError }: { name: string; args?: string; status?: "running" | "success" | "error"; result?: string; resultError?: boolean }) {
+interface ToolCallPillProps {
+  name: string;
+  args?: string;
+  status?: "running" | "success" | "error";
+  result?: string;
+  resultError?: boolean;
+  toolCallId?: string;
+  subagentStore?: SubagentStore;
+}
+
+export function ToolCallPill({ name, args, status, result, resultError, toolCallId, subagentStore }: ToolCallPillProps) {
   const formatJson = (s: string) => { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; } };
   const display = getToolDisplay(name, args);
+
+  const isSpawnWithFeed = name === "sessions_spawn" && subagentStore && toolCallId;
+
+  const getEntries = useCallback(() => {
+    if (!toolCallId || !subagentStore) return null;
+    return subagentStore.getEntriesForToolCall(toolCallId);
+  }, [toolCallId, subagentStore]);
 
   const iconCls = "inline-block mr-1.5 align-[-1px] shrink-0";
   const statusIcon = status === "running" ? (
@@ -42,12 +62,18 @@ export function ToolCallPill({ name, args, status, result, resultError }: { name
   );
 
   return (
-    <details className={`w-fit max-w-full rounded-lg border ${resultError ? "border-destructive/30 bg-destructive/5" : "border-border bg-secondary"}`}>
+    <details
+      className={`w-fit max-w-full rounded-lg border ${resultError ? "border-destructive/30 bg-destructive/5" : "border-border bg-secondary"}`}
+      open={isSpawnWithFeed && status === "running" ? true : undefined}
+    >
       <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-full">
         {statusIcon || toolIcon}
         <span className="truncate">{display.label}</span>
-        {status === "running" && <span className="ml-1.5 text-muted-foreground/60">running...</span>}
+        {status === "running" && !isSpawnWithFeed && <span className="ml-1.5 text-muted-foreground/60">running...</span>}
       </summary>
+      {isSpawnWithFeed && (
+        <SubagentActivityFeed getEntries={getEntries} storeVersion={subagentStore.versionRef} />
+      )}
       {(args || result) && (
         <div className="overflow-hidden text-xs text-muted-foreground">
           {args && (

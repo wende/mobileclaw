@@ -3,13 +3,20 @@
 import React, { useState } from "react";
 
 // Block cursor wrapper for the last character - reversed colors like a terminal
-export function BlockCursor({ children }: { children: React.ReactNode }) {
-  return <span className="bg-foreground text-background inline-block min-w-[0.5em]">{children}</span>;
+// When stale (no movement for 3s), fades back to normal colors
+export function BlockCursor({ children, stale }: { children: React.ReactNode; stale?: boolean }) {
+  return (
+    <span className={`inline-block min-w-[0.5em] transition-colors duration-1000 ${
+      stale ? "bg-transparent text-foreground" : "bg-foreground text-background"
+    }`}>{children}</span>
+  );
 }
 
-// Legacy cursor for empty streaming state
-export function StreamingCursor() {
-  return <span className="inline-block w-2 h-4 bg-foreground animate-pulse" />;
+// Cursor for empty streaming state - fades out when stale
+export function StreamingCursor({ stale }: { stale?: boolean }) {
+  return <span className={`inline-block w-2 h-4 transition-colors duration-1000 ${
+    stale ? "bg-transparent" : "bg-foreground animate-pulse"
+  }`} />;
 }
 
 export function CodeBlock({ lang, code }: { lang?: string; code: string }) {
@@ -169,9 +176,9 @@ export function InlineMarkdown({ text, cursor }: { text: string; cursor?: React.
 }
 
 export function renderInline(text: string): React.ReactNode[] {
-  // Process: **bold**, *italic*, `inline code`, [link](url)
+  // Process: **bold**, *italic*, `inline code`, [link](url), bare URLs
   const parts: React.ReactNode[] = [];
-  const regex = /(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))/g;
+  const regex = /(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))|(https?:\/\/[^\s<>]*[^\s<>.,;:!?'"\])>])/g;
   let last = 0;
   let match: RegExpExecArray | null;
 
@@ -181,6 +188,7 @@ export function renderInline(text: string): React.ReactNode[] {
     else if (match[3]) parts.push(<em key={match.index}>{match[4]}</em>);
     else if (match[5]) parts.push(<code key={match.index} className="rounded bg-secondary px-1 py-0.5 font-mono text-[13px] break-all">{match[6]}</code>);
     else if (match[7]) parts.push(<a key={match.index} href={match[9]} className="underline underline-offset-2 hover:text-foreground" target="_blank" rel="noopener noreferrer">{match[8]}</a>);
+    else if (match[10]) parts.push(<a key={match.index} href={match[10]} className="underline underline-offset-2 hover:text-foreground" target="_blank" rel="noopener noreferrer">{match[10]}</a>);
     last = match.index + match[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));

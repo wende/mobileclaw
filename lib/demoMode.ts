@@ -53,6 +53,7 @@ export const DEMO_HISTORY: Message[] = [
       {
         type: "tool_call",
         name: "sessions_spawn",
+        toolCallId: "demo-history-spawn",
         arguments: JSON.stringify({ model: "claude-sonnet-4-5", task: "Analyze codebase structure" }),
         status: "running",
       },
@@ -76,6 +77,10 @@ You're absolutely right!`,
 
 // ── Demo response sets ───────────────────────────────────────────────────────
 
+interface SubagentActivity {
+  events: { stream: string; data: Record<string, unknown>; delayMs: number }[];
+}
+
 interface DemoResponse {
   thinking?: string;
   toolCalls?: {
@@ -84,6 +89,8 @@ interface DemoResponse {
     result: string;
     isError?: boolean;
     delayMs?: number;
+    toolCallId?: string;
+    subagentActivity?: SubagentActivity;
   }[];
   text: string;
 }
@@ -172,7 +179,7 @@ const RESPONSES: Record<string, DemoResponse> = {
     text: "Here's what I found:\n\n## OpenClaw — AI Agent Platform\n\nOpenClaw is a **self-hosted** AI agent platform with these key features:\n\n- **Multi-model** — supports OpenAI, Anthropic, Google with automatic fallback\n- **Real-time streaming** — WebSocket-based protocol for live responses\n- **Tool execution** — extensible skill system called *AgentSkills*\n- **Cross-platform** — Telegram, Discord, Slack, and this web UI (MobileClaw)\n- **Sub-agents** — can spawn child agents for parallel work\n\n### Links\n- [Documentation](https://openclaw.dev)\n- [GitHub](https://github.com/openclaw/openclaw) — 2.4k stars\n\n> MobileClaw is the mobile-first web client for OpenClaw's gateway protocol.",
   },
   agent: {
-    thinking: "This is a complex task that requires multiple steps. I should:\n1. First check the project structure\n2. Read the relevant config file\n3. Make the necessary changes\n\nLet me work through this systematically.",
+    thinking: "This is a complex task that requires multiple steps. I should:\n1. First check the project structure\n2. Read the relevant config file\n3. Spawn a sub-agent to review security\n\nLet me work through this systematically.",
     toolCalls: [
       {
         name: "exec",
@@ -189,20 +196,69 @@ const RESPONSES: Record<string, DemoResponse> = {
       {
         name: "sessions_spawn",
         args: { model: "claude-sonnet-4-5", task: "Review auth.config.ts for security issues" },
+        toolCallId: "demo-spawn-agent",
         result: "Sub-agent completed. Found 2 issues:\n1. JWT secret is hardcoded (should use env var)\n2. Token expiry set to 30 days (recommend 24h for web sessions)",
-        delayMs: 2500,
+        delayMs: 5500,
+        subagentActivity: {
+          events: [
+            { stream: "lifecycle", data: { phase: "start" }, delayMs: 400 },
+            { stream: "reasoning", data: { delta: "Let me review auth.config.ts for security issues. " }, delayMs: 800 },
+            { stream: "reasoning", data: { delta: "I'll check for hardcoded secrets, weak token policies, and missing validation." }, delayMs: 1200 },
+            { stream: "tool", data: { phase: "start", name: "read", args: { file_path: "src/config/auth.config.ts" } }, delayMs: 1600 },
+            { stream: "tool", data: { phase: "result", name: "read", result: "export const authConfig = { ... }" }, delayMs: 2400 },
+            { stream: "content", data: { delta: "Found hardcoded JWT secret — " }, delayMs: 2800 },
+            { stream: "content", data: { delta: "should use process.env.JWT_SECRET. " }, delayMs: 3200 },
+            { stream: "content", data: { delta: "Token expiry is 30 days, too long for web sessions." }, delayMs: 3800 },
+            { stream: "tool", data: { phase: "start", name: "exec", args: { command: "grep -n 'secret' auth.config.ts" } }, delayMs: 4200 },
+            { stream: "tool", data: { phase: "result", name: "exec", result: "line 7: secret: 'my-jwt-secret'" }, delayMs: 4800 },
+            { stream: "lifecycle", data: { phase: "end" }, delayMs: 5200 },
+          ],
+        },
       },
     ],
     text: "I've analyzed the project configuration. Here's a summary:\n\n### Project Structure\n\n```\nsrc/config/\n├── app.config.ts      ← main app settings\n├── auth.config.ts     ← ⚠️ 2 security issues\n└── database.config.ts\n```\n\n### Issues Found\n\nThe sub-agent reviewed `auth.config.ts` and found:\n\n1. **JWT secret is hardcoded** — should use `process.env.JWT_SECRET`\n2. **Token expiry too long** — 30 days is risky for web sessions, recommend 24 hours\n\n### Recommendation\n\nBoth are quick fixes. Want me to apply them?",
   },
+  subagent: {
+    thinking: "The user wants to see the sub-agent feature. I'll spawn a sub-agent to do a focused research task so they can see the live activity feed.",
+    toolCalls: [
+      {
+        name: "sessions_spawn",
+        args: { model: "claude-sonnet-4-5", task: "Research WebSocket protocol best practices" },
+        toolCallId: "demo-spawn-subagent",
+        result: "Sub-agent completed successfully.\n\nKey findings:\n- Use binary frames for large payloads\n- Implement heartbeat/ping-pong (30s interval)\n- Always handle reconnection with exponential backoff\n- Use message sequence numbers for ordering",
+        delayMs: 8000,
+        subagentActivity: {
+          events: [
+            { stream: "lifecycle", data: { phase: "start" }, delayMs: 300 },
+            { stream: "reasoning", data: { delta: "I need to research WebSocket best practices. " }, delayMs: 600 },
+            { stream: "reasoning", data: { delta: "Let me search for current recommendations and " }, delayMs: 900 },
+            { stream: "reasoning", data: { delta: "check the RFC and popular library patterns." }, delayMs: 1200 },
+            { stream: "tool", data: { phase: "start", name: "web_search", args: { query: "WebSocket protocol best practices 2026" } }, delayMs: 1600 },
+            { stream: "tool", data: { phase: "result", name: "web_search", result: "Found 5 results" }, delayMs: 2800 },
+            { stream: "content", data: { delta: "Based on my research, here are the key findings:\n\n" }, delayMs: 3200 },
+            { stream: "tool", data: { phase: "start", name: "web_fetch", args: { url: "https://websockets.spec.dev/best-practices" } }, delayMs: 3600 },
+            { stream: "tool", data: { phase: "result", name: "web_fetch", result: "Article loaded successfully" }, delayMs: 4800 },
+            { stream: "content", data: { delta: "1. Use binary frames for payloads over 1KB. " }, delayMs: 5200 },
+            { stream: "content", data: { delta: "2. Implement heartbeat ping-pong at 30s intervals. " }, delayMs: 5600 },
+            { stream: "tool", data: { phase: "start", name: "read", args: { file_path: "docs/websocket-rfc.md" } }, delayMs: 5900 },
+            { stream: "tool", data: { phase: "result", name: "read", result: "RFC 6455 section loaded" }, delayMs: 6500 },
+            { stream: "content", data: { delta: "3. Always handle reconnection with exponential backoff. " }, delayMs: 6800 },
+            { stream: "content", data: { delta: "4. Use message sequence numbers for ordering." }, delayMs: 7200 },
+            { stream: "lifecycle", data: { phase: "end" }, delayMs: 7600 },
+          ],
+        },
+      },
+    ],
+    text: "The sub-agent completed its research. Here's a summary:\n\n## WebSocket Best Practices\n\n| Practice | Why |\n|----------|-----|\n| Binary frames for large payloads | 30% less overhead vs text |\n| Heartbeat ping-pong (30s) | Detect dead connections |\n| Exponential backoff reconnect | Avoid thundering herd |\n| Message sequence numbers | Handle out-of-order delivery |\n\n> These are the same patterns used by MobileClaw's own WebSocket implementation in `lib/useWebSocket.ts`.",
+  },
   help: {
-    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **think** / **reason** | Extended reasoning + markdown |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **help** | This list |\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
+    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **think** / **reason** | Extended reasoning + markdown |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **help** | This list |\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
   },
 };
 
 const DEFAULT_RESPONSE: DemoResponse = {
   thinking: "The user sent a message that doesn't match any specific demo trigger. I'll let them know they're in demo mode and suggest what they can try.",
-  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `help` — full command list",
+  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `help` — full command list",
 };
 
 // ── Match keywords ───────────────────────────────────────────────────────────
@@ -219,6 +275,8 @@ function matchResponse(input: string): DemoResponse {
     return RESPONSES.error;
   if (lower.includes("research") || lower.includes("search") || lower.includes("look up") || lower.includes("find out"))
     return RESPONSES.research;
+  if (lower.includes("subagent") || lower.includes("sub-agent") || lower.includes("spawn"))
+    return RESPONSES.subagent;
   if (lower.includes("agent") || lower.includes("project") || lower.includes("analyze") || lower.includes("review"))
     return RESPONSES.agent;
   if (lower.includes("help") || lower.includes("command") || lower.includes("demo"))
@@ -232,9 +290,11 @@ export interface DemoCallbacks {
   onStreamStart: (runId: string) => void;
   onThinking: (runId: string, text: string) => void;
   onTextDelta: (runId: string, delta: string, fullText: string) => void;
-  onToolStart: (runId: string, name: string, args: string) => void;
+  onToolStart: (runId: string, name: string, args: string, toolCallId?: string) => void;
   onToolEnd: (runId: string, name: string, result: string, isError: boolean) => void;
   onStreamEnd: (runId: string) => void;
+  onRegisterSpawn?: (toolCallId: string) => void;
+  onSubagentEvent?: (sessionKey: string, stream: string, data: Record<string, unknown>, ts: number) => void;
 }
 
 export function createDemoHandler(callbacks: DemoCallbacks) {
@@ -272,7 +332,27 @@ export function createDemoHandler(callbacks: DemoCallbacks) {
     if (response.toolCalls) {
       for (const tc of response.toolCalls) {
         const argsStr = JSON.stringify(tc.args);
-        timers.push(setTimeout(() => callbacks.onToolStart(runId, tc.name, argsStr), delay));
+        const toolCallId = tc.toolCallId || `demo-tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+        // Register spawn before tool start so the link is ready
+        if (tc.name === "sessions_spawn" && tc.toolCallId) {
+          timers.push(setTimeout(() => callbacks.onRegisterSpawn?.(toolCallId), delay));
+        }
+
+        timers.push(setTimeout(() => callbacks.onToolStart(runId, tc.name, argsStr, tc.toolCallId ? toolCallId : undefined), delay));
+
+        // Simulate subagent activity if defined
+        if (tc.subagentActivity && callbacks.onSubagentEvent) {
+          const sessionKey = `demo-subagent-${toolCallId}`;
+          const toolStartDelay = delay;
+          for (const evt of tc.subagentActivity.events) {
+            const evtDelay = toolStartDelay + evt.delayMs;
+            timers.push(setTimeout(() => {
+              callbacks.onSubagentEvent!(sessionKey, evt.stream, evt.data, Date.now());
+            }, evtDelay));
+          }
+        }
+
         delay += tc.delayMs ?? 1000;
         timers.push(setTimeout(() => callbacks.onToolEnd(runId, tc.name, tc.result, !!tc.isError), delay));
         delay += 300;

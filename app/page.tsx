@@ -21,6 +21,7 @@ import { getTextFromContent, getMessageSide, formatMessageTime, updateAt, update
 import { requestNotificationPermission, notifyMessageComplete } from "@/lib/notifications";
 import { loadOrCreateDeviceIdentity, signDevicePayload, buildDeviceAuthPayload } from "@/lib/deviceIdentity";
 import { parseBackendModels } from "@/lib/parseBackendModels";
+import { logChatEvent, logAgentEvent } from "@/lib/debugLog";
 import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 import { CommandSheet } from "@/components/CommandSheet";
@@ -32,6 +33,7 @@ import { useScrollManager } from "@/hooks/useScrollManager";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { useKeyboardLayout } from "@/hooks/useKeyboardLayout";
 import { useTheme } from "@/hooks/useTheme";
+import { useSubagentStore } from "@/hooks/useSubagentStore";
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
@@ -83,10 +85,14 @@ export default function Home() {
   const sessionIdRef = useRef<string | null>(null);
   const sessionKeyRef = useRef<string>("main");
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
   // ── Theme ───────────────────────────────────────────────────────────────────
   const { theme, toggleTheme } = useTheme();
+
+  // ── Subagent store ────────────────────────────────────────────────────────
+  const subagentStore = useSubagentStore();
 
   // ── Backend mode ────────────────────────────────────────────────────────────
   const [backendMode, setBackendMode] = useState<BackendMode>("openclaw");
@@ -99,6 +105,43 @@ export default function Home() {
   const markEstablishedRef = useRef<(() => void) | null>(null);
   const gatewayTokenRef = useRef<string | null>(null);
   const connectNonceRef = useRef<string | null>(null);
+
+  // History polling for mid-run reconnect: poll until the run completes
+  const historyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Mid-stream silence detection: show "Thinking..." after 3s without events
+  const lastEventTsRef = useRef<number>(0);
+  const runStartTsRef = useRef<number>(0);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [midStreamSilent, setMidStreamSilent] = useState(false);
+
+  const SILENCE_THRESHOLD_MS = 3000;
+
+  /** Call on every meaningful agent/chat event to reset the silence timer. */
+  const markEventReceived = useCallback(() => {
+    lastEventTsRef.current = Date.now();
+    setMidStreamSilent(false);
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = setTimeout(() => {
+      if (activeRunIdRef.current) setMidStreamSilent(true);
+    }, SILENCE_THRESHOLD_MS);
+  }, []);
+
+  /** Call when a run starts to begin tracking. */
+  const markRunStart = useCallback(() => {
+    runStartTsRef.current = Date.now();
+    lastEventTsRef.current = Date.now();
+    setMidStreamSilent(false);
+  }, []);
+
+  /** Call when a run ends. Returns duration in seconds. Clears silence timer. */
+  const markRunEnd = useCallback((): number => {
+    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+    setMidStreamSilent(false);
+    const start = runStartTsRef.current;
+    runStartTsRef.current = 0;
+    return start ? Math.round((Date.now() - start) / 1000) : 0;
+  }, []);
 
   // <think> tag parsing state for OpenClaw content stream
   const thinkTagStateRef = useRef<{
@@ -373,16 +416,57 @@ export default function Home() {
       return [...finalMessages, ...optimistic].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
     });
 
+    // Detect in-progress run: last message is an assistant with no stopReason,
+    // or last user message has no assistant reply yet. Re-enter streaming state
+    // and poll history until the run finishes.
+    const lastRaw = rawMsgs[rawMsgs.length - 1];
+    const lastIsUser = lastRaw?.role === "user";
+    const lastAssistant = [...rawMsgs].reverse().find((m) => m.role === "assistant");
+    const runInProgress =
+      lastIsUser ||
+      (lastAssistant && !lastAssistant.stopReason);
+
+    if (runInProgress) {
+      setAwaitingResponse(true);
+      setIsStreaming(true);
+      markEventReceived();
+      // Poll history every 3s to pick up progress (tool results, new text, etc.)
+      if (!historyPollRef.current) {
+        historyPollRef.current = setInterval(() => {
+          requestHistory();
+        }, 3000);
+      }
+    } else {
+      // Run is done — stop polling if active
+      if (historyPollRef.current) {
+        clearInterval(historyPollRef.current);
+        historyPollRef.current = null;
+      }
+      setAwaitingResponse(false);
+      setIsStreaming(false);
+      setStreamingId(null);
+    }
+
     // If pull-to-refresh was active, bounce back
     onHistoryReceived();
-  }, [onHistoryReceived]);
+    setHistoryLoaded(true);
+  }, [onHistoryReceived, requestHistory, markEventReceived]);
 
   /** Handle chat events (delta/final/aborted/error). */
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
+    logChatEvent(payload);
+    // Route subagent session events to the subagent store
+    if (payload.sessionKey !== sessionKeyRef.current) {
+      if (payload.state === "final" || payload.state === "aborted" || payload.state === "error") {
+        subagentStore.ingestChatEvent(payload.sessionKey, payload.state);
+      }
+      return;
+    }
     switch (payload.state) {
       case "delta":
         if (payload.message) {
           beginContentArrival();
+          markEventReceived();
           setIsStreaming(true);
           activeRunIdRef.current = payload.runId;
           const msg = payload.message;
@@ -398,20 +482,27 @@ export default function Home() {
                 const newText = typeof msg.content === "string"
                   ? msg.content
                   : getTextFromContent(msg.content);
-                const nonTextParts = Array.isArray(existing.content)
-                  ? existing.content.filter((p: ContentPart) => p.type !== "text")
-                  : [];
-                // Preserve existing text when the delta carries no text
-                // (e.g. a tool-only delta after a content boundary)
-                const existingText = Array.isArray(existing.content)
-                  ? getTextFromContent(existing.content)
-                  : "";
-                const textToUse = newText || existingText;
+                const parts = Array.isArray(existing.content) ? [...existing.content] : [];
+
+                if (newText) {
+                  // Only update/add the trailing text part (after the last tool call).
+                  // This preserves earlier text segments interleaved with tool calls:
+                  //   [text("pre-tool"), tool_call(...), text("post-tool")]
+                  const lastToolIdx = parts.findLastIndex(
+                    (p: ContentPart) => p.type === "tool_call" || p.type === "toolCall"
+                  );
+                  const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
+
+                  if (lastTextIdx > lastToolIdx) {
+                    parts[lastTextIdx] = { ...parts[lastTextIdx], text: newText };
+                  } else {
+                    parts.push({ type: "text" as const, text: newText });
+                  }
+                }
+
                 return {
                   ...existing,
-                  content: textToUse
-                    ? [...nonTextParts, { type: "text" as const, text: textToUse }]
-                    : nonTextParts,
+                  content: parts,
                   reasoning: msg.reasoning || existing.reasoning,
                 };
               });
@@ -431,41 +522,85 @@ export default function Home() {
         }
         break;
 
-      case "final":
+      case "final": {
+        const runDuration = markRunEnd();
         notifyForRun(activeRunIdRef.current);
+        if (runDuration > 0 && payload.runId) {
+          setMessages((prev) => {
+            const idx = prev.findIndex((m) => m.id === payload.runId);
+            if (idx < 0) return prev;
+            return updateAt(prev, idx, (m) => ({ ...m, runDuration }));
+          });
+        }
+        if (historyPollRef.current) { clearInterval(historyPollRef.current); historyPollRef.current = null; }
         setAwaitingResponse(false);
         setIsStreaming(false);
         setStreamingId(null);
         activeRunIdRef.current = null;
         thinkTagStateRef.current = { insideThinkTag: false, tagBuffer: "" };
+        subagentStore.clearAll();
         requestHistory();
         break;
+      }
 
       case "aborted":
+        markRunEnd();
+        if (historyPollRef.current) { clearInterval(historyPollRef.current); historyPollRef.current = null; }
         setAwaitingResponse(false);
         setIsStreaming(false);
         setStreamingId(null);
         activeRunIdRef.current = null;
+        subagentStore.clearAll();
         break;
 
-      case "error":
+      case "error": {
+        markRunEnd();
+        if (historyPollRef.current) { clearInterval(historyPollRef.current); historyPollRef.current = null; }
         setAwaitingResponse(false);
-        setConnectionError(payload.errorMessage || "Chat error");
         setIsStreaming(false);
         setStreamingId(null);
+        const errorText = payload.errorMessage || "Chat error";
+        const errorMsg: Message = {
+          role: "system",
+          content: [{ type: "text", text: errorText }],
+          id: `err-${Date.now()}`,
+          timestamp: Date.now(),
+          isError: true,
+        };
+        setMessages((prev) => [...prev, errorMsg]);
         activeRunIdRef.current = null;
+        subagentStore.clearAll();
         break;
+      }
     }
-  }, [requestHistory, notifyForRun, beginContentArrival, setIsStreaming, setAwaitingResponse]);
+  }, [requestHistory, notifyForRun, beginContentArrival, markEventReceived, markRunEnd, setIsStreaming, setAwaitingResponse, subagentStore]);
 
   /** Handle agent events (lifecycle/content/reasoning/tool streams). */
   const handleAgentEvent = useCallback((payload: AgentEventPayload) => {
+    logAgentEvent(payload);
+    // Route subagent session events to the subagent store
+    if (payload.sessionKey !== sessionKeyRef.current) {
+      subagentStore.ingestAgentEvent(payload.sessionKey, payload);
+      return;
+    }
+    markEventReceived();
+
     if (payload.stream === "lifecycle") {
       const phase = payload.data.phase as string;
       if (phase === "start") {
+        markRunStart();
         setIsStreaming(true);
         activeRunIdRef.current = payload.runId;
         thinkTagStateRef.current = { insideThinkTag: false, tagBuffer: "" };
+      } else if (phase === "end" || phase === "error") {
+        const runDuration = markRunEnd();
+        if (runDuration > 0 && payload.runId) {
+          setMessages((prev) => {
+            const idx = prev.findIndex((m) => m.id === payload.runId);
+            if (idx < 0) return prev;
+            return updateAt(prev, idx, (m) => ({ ...m, runDuration }));
+          });
+        }
       }
       return;
     }
@@ -476,6 +611,9 @@ export default function Home() {
       const toolCallId = payload.data.toolCallId as string | undefined;
 
       if (phase === "start" && toolName) {
+        if (toolName === "sessions_spawn" && toolCallId) {
+          subagentStore.registerSpawn(toolCallId);
+        }
         beginContentArrival();
         setMessages((prev: Message[]) => {
           const toolCallPart: ContentPart = {
@@ -527,7 +665,58 @@ export default function Home() {
         });
       }
     }
-  }, [appendReasoning, ensureStreamingMessage, beginContentArrival, setIsStreaming]);
+
+    if (payload.stream === "reasoning") {
+      const delta = (payload.data.delta || payload.data.text || payload.data.content || "") as string;
+      if (!delta) return;
+      beginContentArrival();
+      setMessages((prev: Message[]) => {
+        const updated = ensureStreamingMessage(prev, payload.runId, payload.ts);
+        const idx = updated.findIndex((m) => m.id === payload.runId);
+        if (idx < 0) return updated;
+        return updateAt(updated, idx, (target) => {
+          const parts = Array.isArray(target.content) ? [...target.content] : [];
+          // Append to the trailing thinking part, or create one after the last tool call
+          const lastThinkIdx = parts.findLastIndex((p: ContentPart) => p.type === "thinking");
+          const lastToolIdx = parts.findLastIndex(
+            (p: ContentPart) => p.type === "tool_call" || p.type === "toolCall"
+          );
+          if (lastThinkIdx > lastToolIdx) {
+            // Append to existing thinking part (after last tool)
+            parts[lastThinkIdx] = { ...parts[lastThinkIdx], type: "thinking", text: (parts[lastThinkIdx].text || "") + delta };
+          } else {
+            // New thinking segment after the last tool call
+            parts.push({ type: "thinking" as const, text: delta });
+          }
+          return { ...target, content: parts };
+        });
+      });
+    }
+
+    if (payload.stream === "content") {
+      const delta = (payload.data.delta || payload.data.text || payload.data.content || "") as string;
+      if (!delta) return;
+      beginContentArrival();
+      setMessages((prev: Message[]) => {
+        const updated = ensureStreamingMessage(prev, payload.runId, payload.ts);
+        const idx = updated.findIndex((m) => m.id === payload.runId);
+        if (idx < 0) return updated;
+        return updateAt(updated, idx, (target) => {
+          const parts = Array.isArray(target.content) ? [...target.content] : [];
+          const lastToolIdx = parts.findLastIndex(
+            (p: ContentPart) => p.type === "tool_call" || p.type === "toolCall"
+          );
+          const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
+          if (lastTextIdx > lastToolIdx) {
+            parts[lastTextIdx] = { ...parts[lastTextIdx], text: (parts[lastTextIdx].text || "") + delta };
+          } else {
+            parts.push({ type: "text" as const, text: delta });
+          }
+          return { ...target, content: parts };
+        });
+      });
+    }
+  }, [appendReasoning, ensureStreamingMessage, beginContentArrival, markEventReceived, markRunStart, markRunEnd, setIsStreaming, subagentStore]);
 
   // ── Main WebSocket message dispatcher ─────────────────────────────────────
 
@@ -547,7 +736,24 @@ export default function Home() {
     if (msg.type === "res") {
       const resPayload = msg.payload as Record<string, unknown> | undefined;
       if (msg.ok && resPayload?.type === "hello-ok") return handleHelloOk(resPayload);
-      if (msg.id?.startsWith("run-")) return;
+      if (msg.id?.startsWith("run-")) {
+        if (!msg.ok && msg.error) {
+          const errorText = typeof msg.error === "string" ? msg.error : msg.error?.message || "Request failed";
+          setAwaitingResponse(false);
+          setIsStreaming(false);
+          setStreamingId(null);
+          activeRunIdRef.current = null;
+          const errorMsg: Message = {
+            role: "system",
+            content: [{ type: "text", text: errorText }],
+            id: `err-${Date.now()}`,
+            timestamp: Date.now(),
+            isError: true,
+          };
+          setMessages((prev) => [...prev, errorMsg]);
+        }
+        return;
+      }
       if (msg.ok && msg.id?.startsWith("sessions-list-")) return;
       if (msg.ok && msg.id?.startsWith("history-") && resPayload?.messages) return handleHistoryResponse(resPayload);
       if (msg.id?.startsWith("config-models-")) {
@@ -584,6 +790,7 @@ export default function Home() {
       setShowSetup(true);
     },
     onClose: () => {
+      if (historyPollRef.current) { clearInterval(historyPollRef.current); historyPollRef.current = null; }
       setIsStreaming(false);
       setStreamingId(null);
       setAwaitingResponse(false);
@@ -618,6 +825,7 @@ export default function Home() {
       setMessages(DEMO_HISTORY);
       setCurrentModel("demo/openclaw-preview");
       setShowSetup(false);
+      setHistoryLoaded(true);
     }
   }, []);
 
@@ -646,10 +854,10 @@ export default function Home() {
           return { ...target, content: [...nonTextParts, { type: "text" as const, text: fullText }] };
         }));
       },
-      onToolStart: (runId, name, args) => {
+      onToolStart: (runId, name, args, toolCallId) => {
         setMessages((prev: Message[]) => updateMessageById(prev, runId, (target) => {
           const parts = Array.isArray(target.content) ? target.content : [];
-          return { ...target, content: [...parts, { type: "tool_call" as const, name, arguments: args, status: "running" as const }] };
+          return { ...target, content: [...parts, { type: "tool_call" as const, name, arguments: args, toolCallId, status: "running" as const }] };
         }));
       },
       onToolEnd: (runId, name, result, isError) => {
@@ -670,9 +878,22 @@ export default function Home() {
         setIsStreaming(false);
         setStreamingId(null);
       },
+      onRegisterSpawn: (toolCallId) => {
+        subagentStore.registerSpawn(toolCallId);
+      },
+      onSubagentEvent: (sessionKey, stream, data, ts) => {
+        subagentStore.ingestAgentEvent(sessionKey, {
+          runId: `demo-subagent-run`,
+          sessionKey,
+          stream: stream as AgentEventPayload["stream"],
+          data,
+          seq: 0,
+          ts,
+        });
+      },
     };
     demoHandlerRef.current = createDemoHandler(callbacks);
-  }, [isDemoMode, setIsStreaming]);
+  }, [isDemoMode, setIsStreaming, subagentStore]);
 
   // ── LM Studio mode ────────────────────────────────────────────────────────
 
@@ -812,8 +1033,10 @@ export default function Home() {
             if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
           }
         } catch { }
+        setHistoryLoaded(true);
       } else {
         setShowSetup(true);
+        setHistoryLoaded(true);
       }
     } else {
       const savedUrl = window.localStorage.getItem("openclaw-url");
@@ -829,6 +1052,7 @@ export default function Home() {
         connect(wsUrl);
       } else {
         setShowSetup(true);
+        setHistoryLoaded(true);
       }
     }
   }, [connect, isDemoMode]);
@@ -848,6 +1072,7 @@ export default function Home() {
       setIsDemoMode(true);
       setMessages(DEMO_HISTORY);
       setCurrentModel("demo/openclaw-preview");
+      setHistoryLoaded(true);
       return;
     }
 
@@ -990,7 +1215,7 @@ export default function Home() {
           className="flex-1 overflow-y-auto overflow-x-hidden"
           style={{ overscrollBehavior: "none" }}
         >
-          <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 pb-28 md:px-6 md:py-4 md:pb-28">
+          <div className={`mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 pb-28 md:px-6 md:py-4 md:pb-28 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`}>
             {messages.map((msg, idx) => {
               const side = getMessageSide(msg.role);
               const prevSide = idx > 0 ? getMessageSide(messages[idx - 1].role) : null;
@@ -1014,18 +1239,21 @@ export default function Home() {
                   {showTimestamp && isNewTurn && msg.timestamp && (
                     <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"} ${fadeInClass}`}>
                       {formatMessageTime(msg.timestamp)}
-                      {msg.role === "assistant" && msg.thinkingDuration && msg.thinkingDuration > 0 && (
+                      {msg.role === "assistant" && msg.runDuration && msg.runDuration > 0 && (
+                        <span className="ml-1">&middot; Worked for {msg.runDuration}s</span>
+                      )}
+                      {msg.role === "assistant" && !msg.runDuration && msg.thinkingDuration && msg.thinkingDuration > 0 && (
                         <span className="ml-1">&middot; {msg.thinkingDuration}s</span>
                       )}
                     </p>
                   )}
                   <div className={fadeInClass}>
-                    <MessageRow message={msg} isStreaming={isStreaming && msg.id === streamingId} />
+                    <MessageRow message={msg} isStreaming={isStreaming && msg.id === streamingId} subagentStore={subagentStore} />
                   </div>
                 </React.Fragment>
               );
             })}
-            {showThinkingIndicator && <ThinkingIndicator isExiting={thinkingExiting} onExitComplete={onThinkingExitComplete} startTime={thinkingStartTime ?? undefined} />}
+            {(showThinkingIndicator || midStreamSilent) && <ThinkingIndicator isExiting={thinkingExiting} onExitComplete={onThinkingExitComplete} startTime={midStreamSilent ? (lastEventTsRef.current || undefined) : (thinkingStartTime ?? undefined)} />}
             <div ref={bottomRef} />
           </div>
         </main>
@@ -1045,7 +1273,7 @@ export default function Home() {
       {/* Floating morphing bar */}
       <div
         ref={floatingBarRef}
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh]"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh] animate-[fadeIn_400ms_ease-out]"
       >
         <div ref={morphRef} className="pointer-events-auto w-full" style={{ maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--sp, 0))), 42rem)" } as React.CSSProperties}>
           <ChatInput

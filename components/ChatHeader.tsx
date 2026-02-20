@@ -33,7 +33,7 @@ export function ChatHeader({
       <div className="flex min-w-0 flex-1 flex-col">
         <h1 className="text-sm font-semibold text-foreground">MobileClaw</h1>
         {currentModel && (
-          <p className="truncate text-[11px] text-muted-foreground">{currentModel}</p>
+          <p className="truncate text-[11px] text-muted-foreground animate-[fadeIn_300ms_ease-out]">{currentModel}</p>
         )}
       </div>
       <button
@@ -53,7 +53,7 @@ export function ChatHeader({
           </svg>
         )}
       </button>
-      <div className="flex shrink-0 flex-col items-end gap-0.5">
+      <div className="flex shrink-0 flex-col items-end gap-0.5 animate-[fadeIn_300ms_ease-out]">
         <div className="flex items-center gap-1.5">
           {isDemoMode || backendMode === "demo" ? (
             <>

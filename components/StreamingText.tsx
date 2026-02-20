@@ -20,6 +20,10 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
   const lastFrameTimeRef = useRef(0);
   const fractionalCharsRef = useRef(0); // Accumulate sub-char progress
 
+  // Cursor fades out after 3s of no movement
+  const [cursorStale, setCursorStale] = useState(false);
+  const staleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // When text grows, record the delta and let animation catch up
   useEffect(() => {
     const now = performance.now();
@@ -133,6 +137,20 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
     };
   }, [isStreaming]);
 
+  // Fade cursor after 3s of no movement
+  useEffect(() => {
+    if (!isStreaming) {
+      setCursorStale(false);
+      return;
+    }
+    setCursorStale(false);
+    if (staleTimerRef.current) clearTimeout(staleTimerRef.current);
+    staleTimerRef.current = setTimeout(() => setCursorStale(true), 3000);
+    return () => {
+      if (staleTimerRef.current) clearTimeout(staleTimerRef.current);
+    };
+  }, [displayLen, isStreaming]);
+
   const visibleText = text.slice(0, displayLen);
 
   // When streaming with text, show last char with block cursor (reversed colors)
@@ -143,11 +161,11 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
       const lastChar = visibleText.slice(-1);
       // If last char is whitespace/newline, show a visible space block instead
       const cursorContent = /\s/.test(lastChar) ? " " : lastChar;
-      const cursor = <BlockCursor>{cursorContent}</BlockCursor>;
+      const cursor = <BlockCursor stale={cursorStale}>{cursorContent}</BlockCursor>;
       return <MarkdownContent text={textWithoutLast} cursor={cursor} />;
     }
     // No text yet - show empty cursor
-    return <StreamingCursor />;
+    return <StreamingCursor stale={cursorStale} />;
   }
 
   return <MarkdownContent text={visibleText} />;

@@ -15,3 +15,4 @@ tsconfig.tsbuildinfo
 test-results/
 playwright-report/
 blob-report/
+logs.jsonl

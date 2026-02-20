@@ -7,6 +7,7 @@ import { MarkdownContent } from "@/components/markdown/MarkdownContent";
 import { StreamingText } from "@/components/StreamingText";
 import { ToolCallPill } from "@/components/ToolCallPill";
 import { ImageThumbnails } from "@/components/ImageThumbnails";
+import type { SubagentStore } from "@/hooks/useSubagentStore";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,11 +55,19 @@ const BRAIN_ICON = (
   </svg>
 );
 
+function extractLastSentence(text: string): string {
+  const matches = text.match(/[^.]*\./g);
+  if (!matches) return "";
+  return matches[matches.length - 1].trim();
+}
+
 function ThinkingPill({ text }: { text: string }) {
-  const [sentence, setSentence] = useState("");
-  const [visible, setVisible] = useState(false);
-  const lastSentenceRef = useRef("");
   const isEmpty = !text.trim();
+  // Initialize from props so history-restored thinking blocks render at full height immediately
+  // (avoids a delayed height increase that causes scroll bounce on refresh)
+  const [sentence, setSentence] = useState(() => isEmpty ? "" : extractLastSentence(text));
+  const [visible, setVisible] = useState(() => !isEmpty && !!extractLastSentence(text));
+  const lastSentenceRef = useRef(sentence);
 
   useEffect(() => {
     if (isEmpty) return;
@@ -118,7 +127,7 @@ function ThinkingPill({ text }: { text: string }) {
 
 // ── MessageRow ───────────────────────────────────────────────────────────────
 
-export function MessageRow({ message, isStreaming }: { message: Message; isStreaming: boolean }) {
+export function MessageRow({ message, isStreaming, subagentStore }: { message: Message; isStreaming: boolean; subagentStore?: SubagentStore }) {
   const text = getTextFromContent(message.content);
   const images = getImages(message.content);
 
@@ -150,6 +159,20 @@ export function MessageRow({ message, isStreaming }: { message: Message; isStrea
             {text}
           </div>
         </details>
+      </div>
+    );
+  }
+
+  if (message.isError && (message.role === "system" || message.role === "assistant")) {
+    const errorText = text || "Unknown error";
+    return (
+      <div className="flex justify-center py-2">
+        <div className="max-w-[85%] rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs leading-relaxed text-destructive-foreground whitespace-pre-wrap break-words flex items-start gap-1.5">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 mt-0.5">
+            <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          <span>{errorText}</span>
+        </div>
       </div>
     );
   }
@@ -201,7 +224,7 @@ export function MessageRow({ message, isStreaming }: { message: Message; isStrea
                 return <ThinkingPill key={`thinking-${i}`} text={part.text || ""} />;
               }
               if (part.type === "tool_call" || part.type === "toolCall") {
-                return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status as "running" | "success" | "error" | undefined} result={part.result} resultError={part.resultError} />;
+                return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status as "running" | "success" | "error" | undefined} result={part.result} resultError={part.resultError} toolCallId={part.toolCallId} subagentStore={part.name === "sessions_spawn" ? subagentStore : undefined} />;
               }
               if (part.type === "text" && part.text) {
                 const { thinking: extractedThinking, text: cleanText } = stripThinkTags(part.text);
