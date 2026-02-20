@@ -184,7 +184,7 @@ importers:
         specifier: ^14.6.1
         version: 14.6.1(@testing-library/dom@10.4.1)
       '@treelocator/runtime':
-        specifier: ^0.2.0
+        specifier: 0.2.0
         version: 0.2.0
       '@types/node':
         specifier: ^22

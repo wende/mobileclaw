@@ -41,7 +41,7 @@ export function getToolDisplay(name: string, args?: string): ToolDisplayInfo {
       if (typeof filePath === "string") {
         return { label: truncatePath(filePath), icon: "file" };
       }
-      return { label: name, icon: "file" };
+      return { label: "file", icon: "file" };
     }
 
     case "sessions_spawn": {
@@ -68,7 +68,25 @@ export function getToolDisplay(name: string, args?: string): ToolDisplayInfo {
       return { label: name, icon: "globe" };
     }
 
-    // Add more tool-specific display rules here as needed
+    case "edit":
+    case "file_edit":
+    case "editFile": {
+      const filePath = parsed?.file_path || parsed?.filePath || parsed?.path;
+      if (typeof filePath === "string") {
+        return { label: truncatePath(filePath), icon: "file" };
+      }
+      return { label: "file", icon: "file" };
+    }
+
+    case "write":
+    case "write_file":
+    case "writeFile": {
+      const filePath = parsed?.file_path || parsed?.filePath || parsed?.path;
+      if (typeof filePath === "string") {
+        return { label: `Write ${truncatePath(filePath)}`, icon: "file" };
+      }
+      return { label: "Write file", icon: "file" };
+    }
 
     default:
       return { label: name, icon: "tool" };

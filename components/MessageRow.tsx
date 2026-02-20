@@ -7,6 +7,7 @@ import { MarkdownContent } from "@/components/markdown/MarkdownContent";
 import { StreamingText } from "@/components/StreamingText";
 import { ToolCallPill } from "@/components/ToolCallPill";
 import { ImageThumbnails } from "@/components/ImageThumbnails";
+import { SmoothGrow } from "@/components/SmoothGrow";
 import type { SubagentStore } from "@/hooks/useSubagentStore";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -63,11 +64,23 @@ function extractLastSentence(text: string): string {
 
 function ThinkingPill({ text }: { text: string }) {
   const isEmpty = !text.trim();
+  const lineCount = text.split("\n").length;
+  const isShort = !isEmpty && lineCount < 10;
+
+  const [mounted, setMounted] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
   // Initialize from props so history-restored thinking blocks render at full height immediately
   // (avoids a delayed height increase that causes scroll bounce on refresh)
   const [sentence, setSentence] = useState(() => isEmpty ? "" : extractLastSentence(text));
   const [visible, setVisible] = useState(() => !isEmpty && !!extractLastSentence(text));
   const lastSentenceRef = useRef(sentence);
+
+  // Slide in on mount
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   useEffect(() => {
     if (isEmpty) return;
@@ -87,41 +100,84 @@ function ThinkingPill({ text }: { text: string }) {
     }
   }, [text, isEmpty]);
 
+  // Short thinking: render as plain faded text with slide animation
+  if (isShort) {
+    return (
+      <div
+        className="grid transition-[grid-template-rows] duration-200 ease-out"
+        style={{ gridTemplateRows: mounted ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden min-h-0">
+          <p className="text-xs leading-relaxed text-muted-foreground/50 whitespace-pre-wrap break-words overflow-hidden">
+            {text}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <details className="w-fit max-w-full rounded-lg border border-border bg-secondary group">
-      <summary className="cursor-pointer px-3 py-1.5 text-xs font-medium text-muted-foreground list-none [&::-webkit-details-marker]:hidden">
-        <div className="flex items-center whitespace-nowrap">
-          {BRAIN_ICON}
-          {isEmpty ? (
-            <span className="inline-flex items-center gap-0.5">
-              <span>Thinking</span>
-              <span className="inline-flex w-4">
-                <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
-                <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
-                <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
-              </span>
-            </span>
-          ) : (
-            <span>{thinkingPreview(text)}</span>
+    <div
+      className="grid transition-[grid-template-rows] duration-200 ease-out"
+      style={{ gridTemplateRows: mounted ? "1fr" : "0fr" }}
+    >
+      <div className="overflow-hidden min-h-0">
+        <div className="w-fit max-w-full rounded-lg border border-border bg-secondary">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="w-full cursor-pointer px-3 py-1.5 text-xs font-medium text-muted-foreground"
+          >
+            <div className="flex items-center whitespace-nowrap">
+              {BRAIN_ICON}
+              {isEmpty ? (
+                <span className="inline-flex items-center gap-0.5">
+                  <span>Thinking</span>
+                  <span className="inline-flex w-4">
+                    <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
+                    <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
+                    <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
+                  </span>
+                </span>
+              ) : (
+                <span>{thinkingPreview(text)}</span>
+              )}
+              {!isEmpty && (
+                <svg
+                  width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  className="ml-auto shrink-0 opacity-40 transition-transform duration-200"
+                  style={{ transform: expanded ? "rotate(0deg)" : "rotate(-90deg)" }}
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              )}
+            </div>
+            {!isEmpty && sentence && !expanded && (
+              <div className="mt-1 max-w-[300px] overflow-hidden text-left">
+                <div
+                  className="text-[11px] leading-tight text-muted-foreground/40 truncate font-normal transition-opacity duration-200"
+                  style={{ opacity: visible ? 1 : 0 }}
+                >
+                  {sentence}
+                </div>
+              </div>
+            )}
+          </button>
+          {!isEmpty && (
+            <div
+              className="grid transition-[grid-template-rows] duration-200 ease-out"
+              style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+            >
+              <div className="overflow-hidden min-h-0">
+                <p className="px-3 pb-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words overflow-hidden">
+                  {text}
+                </p>
+              </div>
+            </div>
           )}
         </div>
-        {!isEmpty && sentence && (
-          <div className="mt-1 max-w-[300px] overflow-hidden group-open:hidden">
-            <div
-              className="text-[11px] leading-tight text-muted-foreground/40 truncate font-normal transition-opacity duration-200"
-              style={{ opacity: visible ? 1 : 0 }}
-            >
-              {sentence}
-            </div>
-          </div>
-        )}
-      </summary>
-      {!isEmpty && (
-        <p className="px-3 pb-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words overflow-hidden">
-          {text}
-        </p>
-      )}
-    </details>
+      </div>
+    </div>
   );
 }
 
@@ -202,9 +258,13 @@ export function MessageRow({ message, isStreaming, subagentStore }: { message: M
   const hasThinkingParts = Array.isArray(message.content)
     && (message.content as ContentPart[]).some((p) => p.type === "thinking");
 
+  // Force assistant container to fill max-width when a spawn tool is present
+  const hasSpawnTool = !isUser && Array.isArray(message.content)
+    && (message.content as ContentPart[]).some((p) => (p.type === "tool_call" || p.type === "toolCall") && p.name === "sessions_spawn");
+
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
-      <div className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground" : "flex flex-col gap-1.5"}`}>
+      <div className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground" : ""} ${hasSpawnTool ? "w-[85%] md:w-[75%]" : ""}`}>
         {isUser ? (
           <>
             {text && (
@@ -216,7 +276,7 @@ export function MessageRow({ message, isStreaming, subagentStore }: { message: M
           </>
         ) : (
           /* Single-pass rendering: all parts in content array order for correct chronology */
-          <>
+          <SmoothGrow active={isStreaming} className="flex flex-col gap-1.5">
             {/* message.reasoning (from OpenClaw stream parser) renders first — it precedes tool calls */}
             {message.reasoning && !hasThinkingParts && <ThinkingPill text={message.reasoning} />}
             {Array.isArray(message.content) ? (message.content as ContentPart[]).map((part, i) => {
@@ -273,7 +333,7 @@ export function MessageRow({ message, isStreaming, subagentStore }: { message: M
                 </>
               );
             })() : null}
-          </>
+          </SmoothGrow>
         )}
       </div>
     </div>

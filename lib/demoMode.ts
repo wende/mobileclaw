@@ -251,14 +251,36 @@ const RESPONSES: Record<string, DemoResponse> = {
     ],
     text: "The sub-agent completed its research. Here's a summary:\n\n## WebSocket Best Practices\n\n| Practice | Why |\n|----------|-----|\n| Binary frames for large payloads | 30% less overhead vs text |\n| Heartbeat ping-pong (30s) | Detect dead connections |\n| Exponential backoff reconnect | Avoid thundering herd |\n| Message sequence numbers | Handle out-of-order delivery |\n\n> These are the same patterns used by MobileClaw's own WebSocket implementation in `lib/useWebSocket.ts`.",
   },
+  edit: {
+    thinking: "The user wants me to fix a bug in their authentication middleware. Let me read the file first, then apply the fix with an edit.",
+    toolCalls: [
+      {
+        name: "read",
+        args: { file_path: "src/middleware/auth.ts" },
+        result: "import { verify } from 'jsonwebtoken';\nimport type { Request, Response, NextFunction } from 'express';\n\nexport function authMiddleware(req: Request, res: Response, next: NextFunction) {\n  const token = req.headers.authorization;\n  if (!token) {\n    return res.status(401).json({ error: 'No token provided' });\n  }\n  try {\n    const decoded = verify(token, process.env.JWT_SECRET!);\n    req.user = decoded;\n    next();\n  } catch {\n    return res.status(401).json({ error: 'Invalid token' });\n  }\n}",
+        delayMs: 600,
+      },
+      {
+        name: "edit",
+        args: {
+          file_path: "src/middleware/auth.ts",
+          old_string: "  const token = req.headers.authorization;\n  if (!token) {\n    return res.status(401).json({ error: 'No token provided' });\n  }\n  try {\n    const decoded = verify(token, process.env.JWT_SECRET!);",
+          new_string: "  const header = req.headers.authorization;\n  if (!header?.startsWith('Bearer ')) {\n    return res.status(401).json({ error: 'Missing or malformed token' });\n  }\n  const token = header.slice(7);\n  try {\n    const decoded = verify(token, process.env.JWT_SECRET!);",
+        },
+        result: "File edited successfully.",
+        delayMs: 800,
+      },
+    ],
+    text: "Fixed the auth middleware. The issue was that it used the raw `Authorization` header instead of extracting the Bearer token:\n\n- **Before:** `req.headers.authorization` — included the `Bearer ` prefix, so `verify()` always failed\n- **After:** Checks for `Bearer ` prefix, then strips it with `.slice(7)`\n\nThis also improves the error message when the header is missing or malformed.",
+  },
   help: {
-    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **think** / **reason** | Extended reasoning + markdown |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **help** | This list |\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
+    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **think** / **reason** | Extended reasoning + markdown |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **help** | This list |\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
   },
 };
 
 const DEFAULT_RESPONSE: DemoResponse = {
   thinking: "The user sent a message that doesn't match any specific demo trigger. I'll let them know they're in demo mode and suggest what they can try.",
-  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `help` — full command list",
+  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `help` — full command list",
 };
 
 // ── Match keywords ───────────────────────────────────────────────────────────
@@ -267,6 +289,8 @@ function matchResponse(input: string): DemoResponse {
   const lower = input.toLowerCase();
   if (lower.includes("weather") || lower.includes("forecast") || lower.includes("temperature"))
     return RESPONSES.weather;
+  if (lower.includes("edit") || lower.includes("fix") || lower.includes("patch") || lower.includes("diff"))
+    return RESPONSES.edit;
   if (lower.includes("code") || lower.includes("function") || lower.includes("program") || lower.includes("script"))
     return RESPONSES.code;
   if (lower.includes("think") || lower.includes("reason") || lower.includes("logic") || lower.includes("puzzle"))

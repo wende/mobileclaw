@@ -1253,7 +1253,7 @@ export default function Home() {
                 </React.Fragment>
               );
             })}
-            {(showThinkingIndicator || midStreamSilent) && <ThinkingIndicator isExiting={thinkingExiting} onExitComplete={onThinkingExitComplete} startTime={midStreamSilent ? (lastEventTsRef.current || undefined) : (thinkingStartTime ?? undefined)} />}
+            <ThinkingIndicator visible={(showThinkingIndicator || midStreamSilent) && !thinkingExiting} onExitComplete={onThinkingExitComplete} startTime={midStreamSilent ? (lastEventTsRef.current || undefined) : (thinkingStartTime ?? undefined)} />
             <div ref={bottomRef} />
           </div>
         </main>

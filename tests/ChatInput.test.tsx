@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChatInput } from "@/components/ChatInput";
@@ -11,6 +11,9 @@ const defaultProps = {
 };
 
 describe("ChatInput", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
   it("renders textarea with placeholder", () => {
     render(<ChatInput {...defaultProps} />);
     expect(screen.getByPlaceholderText("Send a message...")).toBeInTheDocument();
@@ -87,7 +90,7 @@ describe("ChatInput", () => {
     const textarea = screen.getByPlaceholderText("Send a message...");
     await user.type(textarea, "/he");
 
-    // Should show /help in suggestions
-    expect(screen.getByText("/help")).toBeInTheDocument();
+    // Should show /help in suggestions (text is inside a nested span)
+    expect(await screen.findByText("/help")).toBeInTheDocument();
   });
 });

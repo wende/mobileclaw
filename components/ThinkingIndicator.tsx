@@ -3,39 +3,33 @@
 import { useEffect, useState, useRef } from "react";
 
 interface ThinkingIndicatorProps {
-  isExiting?: boolean;
+  visible: boolean;
   onExitComplete?: () => void;
   startTime?: number; // Timestamp when thinking started
 }
 
-export function ThinkingIndicator({ isExiting, onExitComplete, startTime }: ThinkingIndicatorProps) {
-  const text = "Thinking...";
-  const [visibleCount, setVisibleCount] = useState(text.length);
+export function ThinkingIndicator({ visible, onExitComplete, startTime }: ThinkingIndicatorProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mountedRef = useRef(true);
+  const prevVisibleRef = useRef(false);
 
-  // Track mounted state for safe state updates
+  // Fire exit callback after fade out
   useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      // Clear any running interval on unmount
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, []);
+    if (visible) {
+      prevVisibleRef.current = true;
+    } else if (prevVisibleRef.current) {
+      prevVisibleRef.current = false;
+      const timer = setTimeout(() => {
+        setElapsedSeconds(0);
+        onExitComplete?.();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [visible, onExitComplete]);
 
   // Update elapsed time every second
   useEffect(() => {
-    if (!startTime || isExiting) {
+    if (!startTime || !visible) {
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -43,11 +37,8 @@ export function ThinkingIndicator({ isExiting, onExitComplete, startTime }: Thin
       return;
     }
 
-    // Initial calculation
     const updateElapsed = () => {
-      if (mountedRef.current) {
-        setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
-      }
+      setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
     };
     updateElapsed();
 
@@ -59,69 +50,22 @@ export function ThinkingIndicator({ isExiting, onExitComplete, startTime }: Thin
         timerRef.current = null;
       }
     };
-  }, [startTime, isExiting]);
-
-  useEffect(() => {
-    // Clear any existing interval first
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-
-    if (!isExiting) {
-      // Reset to full text when not exiting
-      setVisibleCount(text.length);
-      return;
-    }
-
-    // Start dissolve animation
-    let count = text.length;
-    intervalRef.current = setInterval(() => {
-      if (!mountedRef.current) {
-        if (intervalRef.current) clearInterval(intervalRef.current);
-        return;
-      }
-      count--;
-      setVisibleCount(count);
-      if (count <= 0) {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
-        }
-        if (mountedRef.current) {
-          onExitComplete?.();
-        }
-      }
-    }, 35); // ~35ms per char = ~350ms total for 11 chars
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [isExiting, onExitComplete]);
-
-  const visibleText = text.slice(0, visibleCount);
-  const hasDots = visibleCount > 8; // "Thinking." ends at index 8
+  }, [startTime, visible]);
 
   return (
-    <div className="flex flex-col gap-0.5">
+    <div
+      className="flex flex-col gap-0.5 transition-opacity duration-300"
+      style={{ opacity: visible ? 1 : 0.01 }}
+    >
       <div className="text-sm text-muted-foreground flex items-center">
-        {hasDots ? (
-          <>
-            <span>Thinking</span>
-            <span className="inline-flex w-5">
-              {visibleCount > 8 && <span className={isExiting ? "" : "animate-[dotFade_1.4s_ease-in-out_infinite]"}>.</span>}
-              {visibleCount > 9 && <span className={isExiting ? "" : "animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]"}>.</span>}
-              {visibleCount > 10 && <span className={isExiting ? "" : "animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]"}>.</span>}
-            </span>
-          </>
-        ) : (
-          <span>{visibleText}</span>
-        )}
+        <span>Thinking</span>
+        <span className="inline-flex w-5">
+          <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
+          <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
+          <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
+        </span>
       </div>
-      {startTime && elapsedSeconds > 0 && !isExiting && (
+      {startTime && elapsedSeconds > 0 && visible && (
         <div className="text-[10px] text-muted-foreground/50 tabular-nums">{elapsedSeconds}s</div>
       )}
     </div>

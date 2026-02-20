@@ -49,7 +49,7 @@ describe("getToolDisplay", () => {
 
     it("falls back when no file path in args", () => {
       const result = getToolDisplay("read", JSON.stringify({ other: "value" }));
-      expect(result).toEqual({ label: "read", icon: "file" });
+      expect(result).toEqual({ label: "file", icon: "file" });
     });
   });
 

@@ -44,23 +44,20 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
     wasAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
   };
 
-  if (entries.length === 0 && status === "active") {
-    return (
-      <div className="px-3 py-2 text-[11px] text-muted-foreground/40 flex items-center gap-1.5">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin opacity-50">
-          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-        </svg>
-        <span>starting...</span>
-      </div>
-    );
-  }
-
   return (
     <div
       ref={scrollContainerRef}
       onScroll={handleScroll}
-      className="max-h-28 overflow-y-auto border-t border-border px-3 py-1.5 space-y-0.5"
+      className="h-28 overflow-y-auto border-t border-border px-3 py-1.5 space-y-0.5 scrollbar-hide"
     >
+      {entries.length === 0 && status === "active" && (
+        <div className="h-full flex items-center gap-1.5 text-[11px] text-muted-foreground/40">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin opacity-50">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+          <span>starting...</span>
+        </div>
+      )}
       {entries.map((entry, i) => {
         if (entry.type === "tool") {
           return (
@@ -98,7 +95,7 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
           </div>
         );
       })}
-      {status === "active" && (
+      {status === "active" && entries.length > 0 && (
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 pt-0.5">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin opacity-50">
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
