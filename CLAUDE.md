@@ -45,6 +45,10 @@ lib/
 
 types/
   chat.ts             — shared TypeScript types (Message, ContentPart, etc.)
+
+dev-notes/            — per-session dev notes documenting implementation decisions,
+                        animation patterns, and non-obvious technical details.
+                        One markdown file per session, named YYYY-MM-DD_topic.md.
 ```
 
 ## Development
@@ -85,6 +89,13 @@ MobileClaw supports three backend modes, selectable in the setup dialog:
 4. In setup dialog, select "LM Studio", enter `http://localhost:1234`
 5. Select your model from the dropdown
 6. Send a message — "Thinking..." appears when server accepts request
+
+## Logging
+
+- **Debug log**: `lib/debugLog.ts` posts structured entries to `/api/log` (route: `app/api/log/route.ts`) which appends to `logs.jsonl` in the project root
+- **What's logged**: chat events (`logChatEvent`) and agent events (`logAgentEvent`) — structured one-line JSONL with timestamps
+- **What's NOT logged**: raw WS message frames, `res:` responses (e.g. subhistory responses, config responses) — these are only visible in browser DevTools WS frames tab
+- **WS connection lifecycle**: logged to browser console (`[WS] Connection opened`, `[WS] Connection closed`, etc.) via `lib/useWebSocket.ts`
 
 ## Key Conventions
 
@@ -127,3 +138,26 @@ MobileClaw connects to OpenClaw's gateway WebSocket. Protocol frames:
 4. **Client requests** `req:chat.history` to load message history
 5. **Messages flow** via `event:chat` (delta/final/aborted/error) and `event:agent` (content/tool/reasoning/lifecycle streams)
 6. **Client sends** `req:chat.send` with user messages
+
+<cicada>
+  **ALWAYS use cicada-mcp tools for Elixir and Python code searches. NEVER use Grep/Find for these tasks.**
+
+  ### Use cicada tools for:
+  - YOUR PRIMARY TOOL - Start here for ALL code exploration and discovery. `mcp__cicada__query`
+  - DEEP-DIVE TOOL: View a module's complete API and dependencies after discovering it with query. `mcp__cicada__search_module`
+  - DEEP-DIVE TOOL: Find function definitions and call sites after discovering with query. `mcp__cicada__search_function`
+  - UNIFIED HISTORY TOOL: One tool for all git history queries - replaces get_blame, get_commit_history, find_pr_for_line, and get_file_pr_history. `mcp__cicada__git_history`
+  - DRILL-DOWN TOOL: Expand a query result to see complete details. `mcp__cicada__expand_result`
+  - Force refresh the code index to pick up recent file changes. `mcp__cicada__refresh_index`
+  - ADVANCED: Execute jq queries directly against the Cicada index for custom analysis and data exploration. `mcp__cicada__query_jq`
+
+  ### DO NOT use Grep for:
+  - ❌ Searching for module structure
+  - ❌ Searching for function definitions
+  - ❌ Searching for module imports/usage
+
+  ### You can still use Grep for:
+  - ✓ Non-code files (markdown, JSON, config)
+  - ✓ String literal searches
+  - ✓ Pattern matching in single line comments
+</cicada>

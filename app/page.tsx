@@ -2,7 +2,7 @@
 
 import React from "react";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useWebSocket, type WebSocketMessage } from "@/lib/useWebSocket";
 import { DEMO_HISTORY, createDemoHandler, type DemoCallbacks } from "@/lib/demoMode";
 import { createLmStudioHandler, type LmStudioConfig, type LmStudioCallbacks } from "@/lib/lmStudio";
@@ -16,15 +16,17 @@ import type {
   BackendMode,
   ConnectionConfig,
   ModelChoice,
+  ImageAttachment,
 } from "@/types/chat";
 import { getTextFromContent, getMessageSide, formatMessageTime, updateAt, updateMessageById } from "@/lib/messageUtils";
+import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, GATEWAY_INJECTED_MODEL, WS_HELLO_OK, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME } from "@/lib/constants";
 import { requestNotificationPermission, notifyMessageComplete } from "@/lib/notifications";
 import { loadOrCreateDeviceIdentity, signDevicePayload, buildDeviceAuthPayload } from "@/lib/deviceIdentity";
 import { parseBackendModels } from "@/lib/parseBackendModels";
 import { logChatEvent, logAgentEvent } from "@/lib/debugLog";
 import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
-import { CommandSheet } from "@/components/CommandSheet";
+
 import { ChatInput } from "@/components/ChatInput";
 import { SetupDialog } from "@/components/SetupDialog";
 import { ChatHeader } from "@/components/ChatHeader";
@@ -34,11 +36,11 @@ import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { useKeyboardLayout } from "@/hooks/useKeyboardLayout";
 import { useTheme } from "@/hooks/useTheme";
 import { useSubagentStore } from "@/hooks/useSubagentStore";
+import { FloatingSubagentPanel } from "@/components/FloatingSubagentPanel";
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Home() {
-  console.log('[HMR-CHECK] Home component rendering with GRACE code v2');
   const [openclawUrl, setOpenclawUrl] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, _setIsStreaming] = useState(false);
@@ -62,17 +64,13 @@ export default function Home() {
   // ── Thinking state ──────────────────────────────────────────────────────────
   const {
     awaitingResponse, setAwaitingResponse,
-    thinkingExiting, showThinkingIndicator,
-    justRevealedId,
     thinkingStartTime, setThinkingStartTime,
-    beginContentArrival, onThinkingExitComplete,
+    beginContentArrival,
     resetThinkingState,
   } = useThinkingState(streamingId, messages, setMessages);
 
   // ── UI state ────────────────────────────────────────────────────────────────
-  const [commandsOpen, setCommandsOpen] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
-  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [serverInfo, setServerInfo] = useState<Record<string, unknown> | null>(null);
   const [currentModel, setCurrentModel] = useState<string | null>(null);
@@ -93,6 +91,36 @@ export default function Home() {
 
   // ── Subagent store ────────────────────────────────────────────────────────
   const subagentStore = useSubagentStore();
+  const [pinnedSubagent, setPinnedSubagent] = useState<{
+    toolCallId: string | null;
+    childSessionKey: string | null;
+    taskName: string;
+    model: string | null;
+  } | null>(null);
+
+  // Restore pinned subagent from sessionStorage after hydration
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem("pinned-subagent");
+      if (saved) setPinnedSubagent(JSON.parse(saved));
+    } catch {}
+  }, []);
+
+  const handlePinSubagent = useCallback((info: { toolCallId: string | null; childSessionKey: string | null; taskName: string; model: string | null }) => {
+    setPinnedSubagent((prev) => {
+      if (prev?.toolCallId && prev.toolCallId === info.toolCallId) {
+        try { sessionStorage.removeItem("pinned-subagent"); } catch {}
+        return null;
+      }
+      try { sessionStorage.setItem("pinned-subagent", JSON.stringify(info)); } catch {}
+      return info;
+    });
+  }, []);
+
+  const handleUnpinSubagent = useCallback(() => {
+    setPinnedSubagent(null);
+    try { sessionStorage.removeItem("pinned-subagent"); } catch {}
+  }, []);
 
   // ── Backend mode ────────────────────────────────────────────────────────────
   const [backendMode, setBackendMode] = useState<BackendMode>("openclaw");
@@ -113,38 +141,95 @@ export default function Home() {
   const pendingSubhistoryRef = useRef<Map<string, string>>(new Map());
   const fetchedSubhistoryRef = useRef<Set<string>>(new Set());
 
-  // Mid-stream silence detection: show "Thinking..." after 3s without events
-  const lastEventTsRef = useRef<number>(0);
+  // Run duration tracking
   const runStartTsRef = useRef<number>(0);
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [midStreamSilent, setMidStreamSilent] = useState(false);
 
-  const SILENCE_THRESHOLD_MS = 3000;
-
-  /** Call on every meaningful agent/chat event to reset the silence timer. */
-  const markEventReceived = useCallback(() => {
-    lastEventTsRef.current = Date.now();
-    setMidStreamSilent(false);
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    silenceTimerRef.current = setTimeout(() => {
-      if (activeRunIdRef.current) setMidStreamSilent(true);
-    }, SILENCE_THRESHOLD_MS);
-  }, []);
+  // ── Quote selection ──────────────────────────────────────────────────────
+  const [quoteText, setQuoteText] = useState<string | null>(null);
+  const [quotePopup, setQuotePopup] = useState<{ x: number; y: number; text: string } | null>(null);
+  const quotePopupRef = useRef<HTMLButtonElement>(null);
 
   /** Call when a run starts to begin tracking. */
   const markRunStart = useCallback(() => {
     runStartTsRef.current = Date.now();
-    lastEventTsRef.current = Date.now();
-    setMidStreamSilent(false);
   }, []);
 
-  /** Call when a run ends. Returns duration in seconds. Clears silence timer. */
+  /** Call when a run ends. Returns duration in seconds. */
   const markRunEnd = useCallback((): number => {
-    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-    setMidStreamSilent(false);
     const start = runStartTsRef.current;
     runStartTsRef.current = 0;
     return start ? Math.round((Date.now() - start) / 1000) : 0;
+  }, []);
+
+  // ── Quote selection detection ───────────────────────────────────────────
+  const checkSelection = useCallback(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+      setQuotePopup(null);
+      return;
+    }
+    const range = sel.getRangeAt(0);
+    const container = scrollRef.current;
+    if (!container || !container.contains(range.commonAncestorContainer)) {
+      setQuotePopup(null);
+      return;
+    }
+    // Walk up to find if selection is within an assistant message
+    let node: Node | null = range.commonAncestorContainer;
+    while (node && node !== container) {
+      if (node instanceof HTMLElement && node.dataset.messageRole === "assistant") {
+        const rect = range.getBoundingClientRect();
+        setQuotePopup({
+          x: Math.max(40, Math.min(rect.left + rect.width / 2, window.innerWidth - 40)),
+          y: rect.top,
+          text: sel.toString().trim(),
+        });
+        return;
+      }
+      node = node.parentNode;
+    }
+    setQuotePopup(null);
+  }, []);
+
+  // Desktop: check on pointer up within the scroll area
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const handler = () => setTimeout(checkSelection, 10);
+    el.addEventListener("pointerup", handler);
+    return () => el.removeEventListener("pointerup", handler);
+  }, [checkSelection]);
+
+  // Mobile: check on selectionchange (long-press)
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>;
+    const handler = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) setQuotePopup(null);
+        else checkSelection();
+      }, 200);
+    };
+    document.addEventListener("selectionchange", handler);
+    return () => { document.removeEventListener("selectionchange", handler); clearTimeout(timeout); };
+  }, [checkSelection]);
+
+  // Dismiss popup on pointer down outside
+  useEffect(() => {
+    if (!quotePopup) return;
+    const handler = (e: PointerEvent) => {
+      if (quotePopupRef.current?.contains(e.target as Node)) return;
+      setQuotePopup(null);
+    };
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
+  }, [quotePopup]);
+
+  const handleAcceptQuote = useCallback((text: string) => {
+    setQuoteText(text);
+    setQuotePopup(null);
+    window.getSelection()?.removeAllRanges();
   }, []);
 
   // <think> tag parsing state for OpenClaw content stream
@@ -161,6 +246,8 @@ export default function Home() {
       (m) => m.id === runId && m.role === "assistant"
     );
     const preview = msg ? getTextFromContent(msg.content) : "";
+    // Skip notification for silent injected messages
+    if (preview.includes(HEARTBEAT_MARKER) || preview.includes(NO_REPLY_MARKER)) return;
     notifyMessageComplete(preview);
   }, []);
 
@@ -287,6 +374,9 @@ export default function Home() {
   /** Handle hello-ok response — extract session info and fetch history. */
   const handleHelloOk = useCallback((resPayload: Record<string, unknown>) => {
     markEstablishedRef.current?.();
+    modelsRequestedRef.current = false;
+    setModelsLoading(false);
+    setAvailableModels([]);
     const server = resPayload.server as Record<string, unknown> | undefined;
     if (server) setServerInfo(server);
     sessionIdRef.current = (server as Record<string, string> | undefined)?.connId ?? null;
@@ -330,11 +420,11 @@ export default function Home() {
         let isContext = false;
         if (m.role === "user" && Array.isArray(filteredContent)) {
           const tp = filteredContent.find((p) => p.type === "text" && p.text);
-          if (tp?.text && typeof tp.text === "string" && tp.text.startsWith("System: [")) isContext = true;
+          if (tp?.text && typeof tp.text === "string" && (tp.text.startsWith(SYSTEM_PREFIX) || tp.text.startsWith(SYSTEM_MESSAGE_PREFIX) || tp.text.includes(HEARTBEAT_MARKER))) isContext = true;
         }
 
-        const isGatewayInjected = m.model === "gateway-injected";
-        const effectiveStopReason = isGatewayInjected ? "injected" : m.stopReason;
+        const isGatewayInjected = m.model === GATEWAY_INJECTED_MODEL;
+        const effectiveStopReason = isGatewayInjected ? STOP_REASON_INJECTED : m.stopReason;
 
         return {
           role: m.role,
@@ -343,7 +433,7 @@ export default function Home() {
           id: `hist-${idx}`,
           reasoning,
           toolName,
-          isError: m.stopReason === "error",
+          isError: m.stopReason === "error" || !!m.isError,
           stopReason: effectiveStopReason,
           isContext,
         } as Message;
@@ -355,6 +445,16 @@ export default function Home() {
       const hm = historyMessages[i];
       if ((hm.role === "tool" || hm.role === "toolResult" || hm.role === "tool_result") && hm.toolName) {
         const resultText = getTextFromContent(hm.content);
+        // Detect error from message flag OR from result content
+        let isErr = !!hm.isError;
+        if (!isErr && resultText) {
+          try {
+            const parsed = JSON.parse(resultText);
+            if (parsed && typeof parsed === "object") {
+              isErr = parsed.status === "error" || (typeof parsed.error === "string" && !!parsed.error) || parsed.isError === true;
+            }
+          } catch {}
+        }
         for (let j = i - 1; j >= 0; j--) {
           const prev = historyMessages[j];
           if (prev.role === "assistant" && Array.isArray(prev.content)) {
@@ -363,8 +463,8 @@ export default function Home() {
               const args = tc.arguments;
               tc.arguments = typeof args === "string" ? args : args ? JSON.stringify(args) : undefined;
               tc.result = resultText;
-              tc.resultError = hm.isError;
-              tc.status = hm.isError ? "error" : "success";
+              tc.resultError = isErr;
+              tc.status = isErr ? "error" : "success";
               if (hm.id) mergedIds.add(hm.id);
               break;
             }
@@ -381,7 +481,7 @@ export default function Home() {
       const model = lastAssistantRaw.model as string;
       setCurrentModel(provider ? `${provider}/${model}` : model);
     }
-    const lastInjected = rawMsgs.filter((m) => m.stopReason === "injected").pop();
+    const lastInjected = rawMsgs.filter((m) => m.stopReason === STOP_REASON_INJECTED).pop();
     if (lastInjected) {
       if (lastInjected.model) {
         const provider = lastInjected.provider as string | undefined;
@@ -403,21 +503,52 @@ export default function Home() {
       }
     }
 
-    // Merge: keep optimistic user messages not yet in server history
+    // Merge: keep optimistic user messages not yet in server history,
+    // and carry over image parts from optimistic messages to server counterparts.
     setMessages((prev: Message[]) => {
-      const historyUserTexts = new Set(
+      // Normalize whitespace for comparison — server may collapse newlines differently
+      const norm = (t: string) => t.replace(/\s+/g, " ").trim();
+
+      // Build a lookup of optimistic user messages by normalized text content
+      const optimisticByNorm = new Map<string, Message>();
+      for (const m of prev) {
+        if (m.role === "user" && m.id?.startsWith("u-")) {
+          optimisticByNorm.set(norm(getTextFromContent(m.content)), m);
+        }
+      }
+
+      const historyUserNorms = new Set(
         finalMessages
           .filter((m) => m.role === "user")
-          .map((m) => getTextFromContent(m.content))
+          .map((m) => norm(getTextFromContent(m.content)))
       );
+
+      // Carry over image parts from optimistic messages to server history
+      const enriched = finalMessages.map((m) => {
+        if (m.role !== "user") return m;
+        const text = getTextFromContent(m.content);
+        const opt = optimisticByNorm.get(norm(text));
+        if (!opt || !Array.isArray(opt.content)) return m;
+        const optImages = (opt.content as ContentPart[]).filter((p) => p.type === "image_url" || p.type === "image");
+        if (optImages.length === 0) return m;
+        const serverImages = Array.isArray(m.content) ? (m.content as ContentPart[]).filter((p) => p.type === "image_url" || p.type === "image") : [];
+        if (serverImages.length > 0) return m; // server already has images
+        const parts = Array.isArray(m.content) ? m.content as ContentPart[] : [{ type: "text" as const, text }];
+        return { ...m, content: [...parts, ...optImages] };
+      });
+
+      // If server history shrank (e.g. /new cleared the session), treat it as
+      // a full reset — don't preserve stale optimistic messages.
+      if (finalMessages.length < prev.length) return enriched;
+
       const optimistic = prev.filter(
         (m) =>
           m.role === "user" &&
           m.id?.startsWith("u-") &&
-          !historyUserTexts.has(getTextFromContent(m.content))
+          !historyUserNorms.has(norm(getTextFromContent(m.content)))
       );
-      if (optimistic.length === 0) return finalMessages;
-      return [...finalMessages, ...optimistic].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+      if (optimistic.length === 0) return enriched;
+      return [...enriched, ...optimistic].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
     });
 
     // Detect in-progress run: last message is an assistant with no stopReason,
@@ -433,7 +564,6 @@ export default function Home() {
     if (runInProgress) {
       setAwaitingResponse(true);
       setIsStreaming(true);
-      markEventReceived();
       // Poll history every 3s to pick up progress (tool results, new text, etc.)
       if (!historyPollRef.current) {
         historyPollRef.current = setInterval(() => {
@@ -455,7 +585,7 @@ export default function Home() {
     for (const raw of rawMsgs) {
       if (raw.role !== "assistant" || !Array.isArray(raw.content)) continue;
       for (const part of raw.content as Array<Record<string, unknown>>) {
-        if ((part.type !== "tool_call" && part.type !== "toolCall") || part.name !== "sessions_spawn") continue;
+        if (!isToolCallPart(part) || part.name !== SPAWN_TOOL_NAME) continue;
         const resultStr = part.result as string | undefined;
         if (!resultStr) continue;
         try {
@@ -479,7 +609,7 @@ export default function Home() {
     // If pull-to-refresh was active, bounce back
     onHistoryReceived();
     setHistoryLoaded(true);
-  }, [onHistoryReceived, requestHistory, markEventReceived, sendWS, subagentStore]);
+  }, [onHistoryReceived, requestHistory, sendWS, subagentStore]);
 
   /** Handle chat events (delta/final/aborted/error). */
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
@@ -495,7 +625,6 @@ export default function Home() {
       case "delta":
         if (payload.message) {
           beginContentArrival();
-          markEventReceived();
           setIsStreaming(true);
           activeRunIdRef.current = payload.runId;
           const msg = payload.message;
@@ -518,7 +647,7 @@ export default function Home() {
                   // This preserves earlier text segments interleaved with tool calls:
                   //   [text("pre-tool"), tool_call(...), text("post-tool")]
                   const lastToolIdx = parts.findLastIndex(
-                    (p: ContentPart) => p.type === "tool_call" || p.type === "toolCall"
+                    (p: ContentPart) => isToolCallPart(p)
                   );
                   const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
 
@@ -568,6 +697,7 @@ export default function Home() {
         activeRunIdRef.current = null;
         thinkTagStateRef.current = { insideThinkTag: false, tagBuffer: "" };
         subagentStore.clearAll();
+        handleUnpinSubagent();
         fetchedSubhistoryRef.current.clear();
         requestHistory();
         break;
@@ -581,6 +711,7 @@ export default function Home() {
         setStreamingId(null);
         activeRunIdRef.current = null;
         subagentStore.clearAll();
+        handleUnpinSubagent();
         fetchedSubhistoryRef.current.clear();
         break;
 
@@ -601,11 +732,12 @@ export default function Home() {
         setMessages((prev) => [...prev, errorMsg]);
         activeRunIdRef.current = null;
         subagentStore.clearAll();
+        handleUnpinSubagent();
         fetchedSubhistoryRef.current.clear();
         break;
       }
     }
-  }, [requestHistory, notifyForRun, beginContentArrival, markEventReceived, markRunEnd, setIsStreaming, setAwaitingResponse, subagentStore]);
+  }, [requestHistory, notifyForRun, beginContentArrival, markRunEnd, setIsStreaming, setAwaitingResponse, subagentStore, handleUnpinSubagent]);
 
   /** Handle agent events (lifecycle/content/reasoning/tool streams). */
   const handleAgentEvent = useCallback((payload: AgentEventPayload) => {
@@ -615,8 +747,6 @@ export default function Home() {
       subagentStore.ingestAgentEvent(payload.sessionKey, payload);
       return;
     }
-    markEventReceived();
-
     if (payload.stream === "lifecycle") {
       const phase = payload.data.phase as string;
       if (phase === "start") {
@@ -642,10 +772,10 @@ export default function Home() {
       const toolName = payload.data.name as string;
       const rawToolCallId = (payload.data.toolCallId || payload.data.tool_call_id) as string | undefined;
       // Always ensure sessions_spawn has a toolCallId so the SpawnPill can render
-      const toolCallId = rawToolCallId || (toolName === "sessions_spawn" ? `spawn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : undefined);
+      const toolCallId = rawToolCallId || (toolName === SPAWN_TOOL_NAME ? `spawn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : undefined);
 
       if (phase === "start" && toolName) {
-        if (toolName === "sessions_spawn" && toolCallId) {
+        if (toolName === SPAWN_TOOL_NAME && toolCallId) {
           subagentStore.registerSpawn(toolCallId);
         }
         beginContentArrival();
@@ -685,7 +815,7 @@ export default function Home() {
           return updateAt(prev, idx, (target) => ({
             ...target,
             content: (target.content as ContentPart[]).map((part) => {
-              if ((part.type === "tool_call" || part.type === "toolCall")) {
+              if (isToolCallPart(part)) {
                 const isMatch = toolCallId
                   ? part.toolCallId === toolCallId
                   : part.name === toolName && !part.result;
@@ -713,7 +843,7 @@ export default function Home() {
           // Append to the trailing thinking part, or create one after the last tool call
           const lastThinkIdx = parts.findLastIndex((p: ContentPart) => p.type === "thinking");
           const lastToolIdx = parts.findLastIndex(
-            (p: ContentPart) => p.type === "tool_call" || p.type === "toolCall"
+            (p: ContentPart) => isToolCallPart(p)
           );
           if (lastThinkIdx > lastToolIdx) {
             // Append to existing thinking part (after last tool)
@@ -738,7 +868,7 @@ export default function Home() {
         return updateAt(updated, idx, (target) => {
           const parts = Array.isArray(target.content) ? [...target.content] : [];
           const lastToolIdx = parts.findLastIndex(
-            (p: ContentPart) => p.type === "tool_call" || p.type === "toolCall"
+            (p: ContentPart) => isToolCallPart(p)
           );
           const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
           if (lastTextIdx > lastToolIdx) {
@@ -750,7 +880,7 @@ export default function Home() {
         });
       });
     }
-  }, [appendReasoning, ensureStreamingMessage, beginContentArrival, markEventReceived, markRunStart, markRunEnd, setIsStreaming, subagentStore]);
+  }, [appendReasoning, ensureStreamingMessage, beginContentArrival, markRunStart, markRunEnd, setIsStreaming, subagentStore]);
 
   // ── Main WebSocket message dispatcher ─────────────────────────────────────
 
@@ -769,7 +899,7 @@ export default function Home() {
 
     if (msg.type === "res") {
       const resPayload = msg.payload as Record<string, unknown> | undefined;
-      if (msg.ok && resPayload?.type === "hello-ok") return handleHelloOk(resPayload);
+      if (msg.ok && resPayload?.type === WS_HELLO_OK) return handleHelloOk(resPayload);
       if (msg.id?.startsWith("run-")) {
         if (!msg.ok && msg.error) {
           const errorText = typeof msg.error === "string" ? msg.error : msg.error?.message || "Request failed";
@@ -1152,16 +1282,59 @@ export default function Home() {
 
   // ── Send message ──────────────────────────────────────────────────────────
 
-  const sendMessage = useCallback((text: string) => {
+  /** Upload images to 0x0.st via our proxy, returns public URLs. */
+  const uploadImages = useCallback(async (attachments: ImageAttachment[]): Promise<string[]> => {
+    const results = await Promise.allSettled(
+      attachments.map(async (a) => {
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: a.content, mimeType: a.mimeType, fileName: a.fileName }),
+        });
+        if (!res.ok) return null;
+        const { url } = await res.json();
+        return url as string;
+      })
+    );
+    return results
+      .filter((r): r is PromiseFulfilledResult<string | null> => r.status === "fulfilled")
+      .map((r) => r.value)
+      .filter((url): url is string => !!url);
+  }, []);
+
+  const sendMessage = useCallback(async (text: string, attachments?: ImageAttachment[]) => {
+    console.log("[sendMessage]", { text: text.slice(0, 50), attachments: attachments?.length ?? 0 });
     requestNotificationPermission();
     pinnedToBottomRef.current = true;
 
-    const userMsg: Message = { role: "user", content: [{ type: "text", text }], id: `u-${Date.now()}`, timestamp: Date.now() };
+    // Show user message immediately with local image previews
+    const contentParts: ContentPart[] = [{ type: "text", text }];
+    if (attachments?.length) {
+      for (const a of attachments) {
+        contentParts.push({ type: "image_url", image_url: { url: `data:${a.mimeType};base64,${a.content}` } });
+      }
+    }
+
+    const userMsg: Message = { role: "user", content: contentParts, id: `u-${Date.now()}`, timestamp: Date.now() };
     setMessages((prev) => [...prev, userMsg]);
+
+    // Upload images in parallel, build message text with public URLs
+    let messageText = text;
+    if (attachments?.length) {
+      const urls = await uploadImages(attachments);
+      console.log("[Image upload]", urls.length ? urls : "no URLs returned (upload may have failed)");
+      if (urls.length > 0) {
+        const urlLines = urls.map((url) => url).join("\n");
+        messageText = text ? `${text}\n\n${urlLines}` : urlLines;
+      }
+    }
+    if (messageText !== text) {
+      console.log("[Send] message text with images:", messageText);
+    }
 
     // Demo mode
     if (isDemoMode || backendMode === "demo") {
-      demoHandlerRef.current?.sendMessage(text);
+      demoHandlerRef.current?.sendMessage(messageText);
       return;
     }
 
@@ -1196,22 +1369,85 @@ export default function Home() {
       method: "chat.send",
       params: {
         sessionKey: sessionKeyRef.current,
-        message: text,
+        message: messageText,
         deliver: true,
         idempotencyKey: runId,
       },
     });
 
     setIsStreaming(true);
-  }, [isConnected, isDemoMode, backendMode, sendWS, pinnedToBottomRef, setIsStreaming, setAwaitingResponse, setThinkingStartTime]);
+  }, [isConnected, isDemoMode, backendMode, sendWS, pinnedToBottomRef, setIsStreaming, setAwaitingResponse, setThinkingStartTime, uploadImages]);
 
-  const handleCommandSelect = useCallback((command: string) => {
-    setPendingCommand(command);
-  }, []);
+  // ── Abort handler ─────────────────────────────────────────────────────────
+  const isRunActive = awaitingResponse || isStreaming;
 
-  const clearPendingCommand = useCallback(() => {
-    setPendingCommand(null);
-  }, []);
+  const handleAbort = useCallback(() => {
+    if (backendMode === "lmstudio") {
+      lmStudioHandlerRef.current?.stop();
+    } else if (backendMode === "demo") {
+      demoHandlerRef.current?.stop();
+    } else {
+      // OpenClaw — send chat.abort
+      sendWS({
+        type: "req",
+        id: `abort-${Date.now()}`,
+        method: "chat.abort",
+        params: {
+          sessionKey: sessionKeyRef.current,
+          runId: activeRunIdRef.current || undefined,
+        },
+      });
+    }
+    setAwaitingResponse(false);
+    setIsStreaming(false);
+    setStreamingId(null);
+    activeRunIdRef.current = null;
+    setMessages((prev) => [...prev, {
+      role: "system",
+      content: [{ type: "text", text: "Interrupted" }],
+      id: `interrupted-${Date.now()}`,
+      timestamp: Date.now(),
+      isError: true,
+    } as Message]);
+  }, [backendMode, sendWS, setIsStreaming, setAwaitingResponse]);
+
+  // ── Merge HEARTBEAT_OK / NO_REPLY messages with preceding assistant ──────
+  const displayMessages = useMemo(() => {
+    const result: Message[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      const msgText = getTextFromContent(msg.content);
+      if (
+        msg.role === "assistant" &&
+        msgText &&
+        (msgText.includes(HEARTBEAT_MARKER) || msgText.includes(NO_REPLY_MARKER)) &&
+        result.length > 0
+      ) {
+        // Absorb ALL consecutive preceding assistant messages into this one
+        const absorbed: ContentPart[] = [];
+        let absorbedReasoning = msg.reasoning;
+        while (result.length > 0) {
+          const prev = result[result.length - 1];
+          if (prev.role !== "assistant" || !Array.isArray(prev.content)) break;
+          const prevParts = prev.content as ContentPart[];
+          absorbed.unshift(...prevParts);
+          if (!absorbedReasoning && prev.reasoning) absorbedReasoning = prev.reasoning;
+          result.pop();
+        }
+        if (absorbed.length > 0) {
+          const thisParts = Array.isArray(msg.content) ? (msg.content as ContentPart[]) : [{ type: "text" as const, text: msgText }];
+          result.push({
+            ...msg,
+            content: [...absorbed, ...thisParts],
+            reasoning: absorbedReasoning,
+          });
+          continue;
+        }
+      }
+      result.push(msg);
+    }
+    return result;
+  }, [messages]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1228,17 +1464,6 @@ export default function Home() {
         isDemoMode={isDemoMode}
       />
 
-      <CommandSheet
-        open={commandsOpen}
-        onClose={() => setCommandsOpen(false)}
-        onSelect={handleCommandSelect}
-        onSend={sendMessage}
-        availableModels={availableModels}
-        modelsLoading={modelsLoading}
-        onFetchModels={fetchModels}
-        backendMode={backendMode}
-      />
-
       <ChatHeader
         currentModel={currentModel}
         theme={theme}
@@ -1253,32 +1478,27 @@ export default function Home() {
         <main
           ref={scrollRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto overflow-x-hidden"
+          className="flex-1 overflow-y-auto overflow-x-hidden pt-14"
           style={{ overscrollBehavior: "none" }}
         >
-          <div className={`mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 pb-28 md:px-6 md:py-4 md:pb-28 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`}>
-            {messages.map((msg, idx) => {
+          <div className={`mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: pinnedSubagent ? "13rem" : "7rem" }}>
+            {displayMessages.map((msg, idx) => {
               const side = getMessageSide(msg.role);
-              const prevSide = idx > 0 ? getMessageSide(messages[idx - 1].role) : null;
-              const prevTimestamp = idx > 0 ? messages[idx - 1].timestamp : null;
+              const prevSide = idx > 0 ? getMessageSide(displayMessages[idx - 1].role) : null;
+              const prevTimestamp = idx > 0 ? displayMessages[idx - 1].timestamp : null;
               const isNewTurn = side !== "center" && side !== prevSide;
               const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
               const isTimeGap = timGap > 10 * 60 * 1000;
               const showTimestamp = side !== "center" && (isNewTurn || isTimeGap);
-              const isHiddenDuringExit = thinkingExiting && msg.id === streamingId;
-              if (isHiddenDuringExit) return null;
-
-              const fadeInClass = msg.id === justRevealedId ? "animate-[fadeIn_200ms_ease-out]" : "";
-
               return (
                 <React.Fragment key={msg.id || idx}>
                   {isTimeGap && !isNewTurn && msg.timestamp && (
-                    <div className={`flex justify-center py-1 ${fadeInClass}`}>
+                    <div className="flex justify-center py-1">
                       <span className="text-[10px] text-muted-foreground/60">{formatMessageTime(msg.timestamp)}</span>
                     </div>
                   )}
                   {showTimestamp && isNewTurn && msg.timestamp && (
-                    <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"} ${fadeInClass}`}>
+                    <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
                       {formatMessageTime(msg.timestamp)}
                       {msg.role === "assistant" && msg.runDuration && msg.runDuration > 0 && (
                         <span className="ml-1">&middot; Worked for {msg.runDuration}s</span>
@@ -1288,13 +1508,13 @@ export default function Home() {
                       )}
                     </p>
                   )}
-                  <div className={fadeInClass}>
-                    <MessageRow message={msg} isStreaming={isStreaming && msg.id === streamingId} subagentStore={subagentStore} />
+                  <div>
+                    <MessageRow message={msg} isStreaming={isStreaming && msg.id === streamingId} subagentStore={subagentStore} pinnedToolCallId={pinnedSubagent?.toolCallId} onPin={handlePinSubagent} onUnpin={handleUnpinSubagent} />
                   </div>
                 </React.Fragment>
               );
             })}
-            <ThinkingIndicator visible={(showThinkingIndicator || midStreamSilent) && !thinkingExiting} onExitComplete={onThinkingExitComplete} startTime={midStreamSilent ? (lastEventTsRef.current || undefined) : (thinkingStartTime ?? undefined)} />
+            <ThinkingIndicator visible={isRunActive} startTime={thinkingStartTime ?? undefined} />
             <div ref={bottomRef} />
           </div>
         </main>
@@ -1311,23 +1531,57 @@ export default function Home() {
         </div>
       </div>
 
+      {/* Floating quote button */}
+      {quotePopup && (
+        <button
+          ref={quotePopupRef}
+          type="button"
+          className="fixed z-50 -translate-x-1/2 -translate-y-full flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-lg active:scale-95 transition-transform animate-[fadeIn_100ms_ease-out]"
+          style={{ left: quotePopup.x, top: quotePopup.y - 8 }}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleAcceptQuote(quotePopup.text);
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" />
+            <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" />
+          </svg>
+          Quote
+        </button>
+      )}
+
       {/* Floating morphing bar */}
       <div
         ref={floatingBarRef}
         className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh] animate-[fadeIn_400ms_ease-out]"
       >
         <div ref={morphRef} className="pointer-events-auto w-full" style={{ maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--sp, 0))), calc(200px + (42rem - 200px) * (1 - var(--sp, 0))))" } as React.CSSProperties}>
+          {pinnedSubagent && (
+            <div style={{ paddingLeft: "calc(48px * (1 - var(--sp, 0)))", paddingRight: "calc(48px * (1 - var(--sp, 0)))" } as React.CSSProperties}>
+              <FloatingSubagentPanel
+                toolCallId={pinnedSubagent.toolCallId}
+                childSessionKey={pinnedSubagent.childSessionKey}
+                taskName={pinnedSubagent.taskName}
+                model={pinnedSubagent.model}
+                subagentStore={subagentStore}
+                onUnpin={handleUnpinSubagent}
+              />
+            </div>
+          )}
           <ChatInput
             onSend={sendMessage}
-            onOpenCommands={() => setCommandsOpen(true)}
-            commandValue={pendingCommand}
-            onCommandValueUsed={clearPendingCommand}
             scrollPhase={scrollPhase}
             onScrollToBottom={scrollToBottom}
             availableModels={availableModels}
             modelsLoading={modelsLoading}
             onFetchModels={fetchModels}
             backendMode={backendMode}
+            quoteText={quoteText}
+            onClearQuote={() => setQuoteText(null)}
+            isRunActive={isRunActive}
+            onAbort={handleAbort}
           />
         </div>
       </div>

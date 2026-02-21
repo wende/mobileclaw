@@ -18,6 +18,11 @@ export function useScrollManager(
   const pinnedToBottomRef = useRef(true);
   const hasScrolledInitialRef = useRef(false);
 
+  // Lerp state for smooth morph animation at constant speed
+  const morphCurrentSp = useRef(0);
+  const morphTargetSp = useRef(0);
+  const morphLerpRafId = useRef<number | null>(null);
+
   // Grace period: when streaming ends while pinned, keep force-scrolling for
   // a short window so the final content snap doesn't get stranded above the fold.
   const scrollGraceRef = useRef(false);
@@ -41,14 +46,55 @@ export function useScrollManager(
     }
   }, []);
 
-  // Track scroll position — continuous CSS var for morph animation, React state for pointer-events phase.
+  // Exponential lerp tick: each frame moves 20% of remaining distance to target.
+  // Produces smooth deceleration — no discrete steps visible.
+  const morphLerpTick = useCallback(() => {
+    morphLerpRafId.current = null;
+    const morph = morphRef.current;
+    if (!morph) return;
+
+    const current = morphCurrentSp.current;
+    const target = morphTargetSp.current;
+    const diff = target - current;
+
+    if (Math.abs(diff) < 0.002) {
+      morphCurrentSp.current = target;
+      morph.style.setProperty("--sp", target.toFixed(3));
+      const newPhase: "input" | "pill" = target > 0.4 ? "pill" : "input";
+      if (newPhase !== scrollPhaseRef.current) {
+        scrollPhaseRef.current = newPhase;
+        setScrollPhase(newPhase);
+      }
+      return;
+    }
+
+    const next = current + diff * 0.2;
+    morphCurrentSp.current = next;
+    morph.style.setProperty("--sp", next.toFixed(3));
+
+    const newPhase: "input" | "pill" = next > 0.4 ? "pill" : "input";
+    if (newPhase !== scrollPhaseRef.current) {
+      scrollPhaseRef.current = newPhase;
+      setScrollPhase(newPhase);
+    }
+
+    morphLerpRafId.current = requestAnimationFrame(morphLerpTick);
+  }, []);
+
+  const setMorphTarget = useCallback((target: number) => {
+    morphTargetSp.current = target;
+    if (morphLerpRafId.current == null) {
+      morphLerpRafId.current = requestAnimationFrame(morphLerpTick);
+    }
+  }, [morphLerpTick]);
+
+  // Track scroll position — sets lerp target, React state for pointer-events phase.
   const handleScroll = useCallback(() => {
     if (scrollRafId.current != null) return;
     scrollRafId.current = requestAnimationFrame(() => {
       scrollRafId.current = null;
       const el = scrollRef.current;
-      const morph = morphRef.current;
-      if (!el || !morph) return;
+      if (!el) return;
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
 
       // During streaming, don't update pinning from scroll position —
@@ -59,24 +105,15 @@ export function useScrollManager(
 
       // When streaming and pinned, lock morph to input mode (--sp = 0)
       if (isStreamingRef.current && pinnedToBottomRef.current) {
-        morph.style.setProperty("--sp", "0");
-        if (scrollPhaseRef.current !== "input") {
-          scrollPhaseRef.current = "input";
-          setScrollPhase("input");
-        }
+        setMorphTarget(0);
         return;
       }
 
       const range = 60;
       const progress = Math.min(Math.max(distanceFromBottom / range, 0), 1);
-      morph.style.setProperty("--sp", progress.toFixed(3));
-      const newPhase: "input" | "pill" = progress > 0.4 ? "pill" : "input";
-      if (newPhase !== scrollPhaseRef.current) {
-        scrollPhaseRef.current = newPhase;
-        setScrollPhase(newPhase);
-      }
+      setMorphTarget(progress);
     });
-  }, [isStreamingRef]);
+  }, [isStreamingRef, setMorphTarget]);
 
   const scrollToBottom = useCallback(() => {
     pinnedToBottomRef.current = true;

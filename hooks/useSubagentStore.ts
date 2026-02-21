@@ -1,5 +1,6 @@
 import { useRef, useCallback } from "react";
 import type { SubagentEntry, SubagentSession, AgentEventPayload } from "@/types/chat";
+import { isToolCallPart } from "@/lib/constants";
 
 const TEXT_COALESCE_GAP_MS = 2000;
 
@@ -128,7 +129,10 @@ export function useSubagentStore(): SubagentStore {
   const ingestChatEvent = useCallback((sessionKey: string, state: "final" | "aborted" | "error") => {
     const session = storeRef.current.get(sessionKey);
     if (!session) return;
-    session.status = state === "error" ? "error" : "done";
+    // Don't mark "done" on chat:final — it fires after each turn in an agent loop,
+    // not just at the end. The real "done" signal is lifecycle:end in ingestAgentEvent.
+    if (state === "error") session.status = "error";
+    else if (state === "aborted") session.status = "done";
     bump();
   }, []);
 
@@ -175,7 +179,7 @@ export function useSubagentStore(): SubagentStore {
           session.entries.push({ type: "reasoning", text: part.text as string, ts });
         } else if (part.type === "text" && part.text) {
           session.entries.push({ type: "text", text: part.text as string, ts });
-        } else if (part.type === "tool_call" || part.type === "toolCall") {
+        } else if (isToolCallPart(part)) {
           const toolName = (part.name as string) || "tool";
           const isErr = !!part.resultError;
           const status = part.result != null ? (isErr ? "error" : "success") : "running";
@@ -184,7 +188,7 @@ export function useSubagentStore(): SubagentStore {
       }
     }
 
-    session.status = hasStopReason ? "done" : "active";
+    session.status = hasStopReason || session.entries.length === 0 ? "done" : "active";
     bump();
   }, []);
 

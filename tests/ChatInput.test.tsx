@@ -5,9 +5,6 @@ import { ChatInput } from "@/components/ChatInput";
 
 const defaultProps = {
   onSend: vi.fn(),
-  onOpenCommands: vi.fn(),
-  commandValue: null,
-  onCommandValueUsed: vi.fn(),
 };
 
 describe("ChatInput", () => {
@@ -19,9 +16,9 @@ describe("ChatInput", () => {
     expect(screen.getByPlaceholderText("Send a message...")).toBeInTheDocument();
   });
 
-  it("renders commands button", () => {
+  it("renders image picker button", () => {
     render(<ChatInput {...defaultProps} />);
-    expect(screen.getByLabelText("Open commands")).toBeInTheDocument();
+    expect(screen.getByLabelText("Attach image")).toBeInTheDocument();
   });
 
   it("renders send button", () => {
@@ -37,7 +34,7 @@ describe("ChatInput", () => {
     const textarea = screen.getByPlaceholderText("Send a message...");
     await user.type(textarea, "hello world{Enter}");
 
-    expect(onSend).toHaveBeenCalledWith("hello world");
+    expect(onSend).toHaveBeenCalledWith("hello world", undefined);
   });
 
   it("does not call onSend on Enter with empty input", async () => {
@@ -60,27 +57,6 @@ describe("ChatInput", () => {
     await user.type(textarea, "hello{Enter}");
 
     expect(textarea.value).toBe("");
-  });
-
-  it("calls onOpenCommands when commands button is clicked", async () => {
-    const onOpenCommands = vi.fn();
-    const user = userEvent.setup();
-    render(<ChatInput {...defaultProps} onOpenCommands={onOpenCommands} />);
-
-    await user.click(screen.getByLabelText("Open commands"));
-    expect(onOpenCommands).toHaveBeenCalledTimes(1);
-  });
-
-  it("fills input from commandValue prop", () => {
-    render(<ChatInput {...defaultProps} commandValue="/help " />);
-    const textarea = screen.getByPlaceholderText("Send a message...") as HTMLTextAreaElement;
-    expect(textarea.value).toBe("/help ");
-  });
-
-  it("calls onCommandValueUsed after filling from commandValue", () => {
-    const onCommandValueUsed = vi.fn();
-    render(<ChatInput {...defaultProps} commandValue="/status " onCommandValueUsed={onCommandValueUsed} />);
-    expect(onCommandValueUsed).toHaveBeenCalledTimes(1);
   });
 
   it("shows command suggestions when typing /", async () => {

@@ -1,6 +1,8 @@
 // Tool display logic — maps tool names/args to human-friendly labels and icons
 
-export type ToolIcon = "terminal" | "file" | "tool" | "robot" | "globe";
+import { isReadTool, isEditTool, isWriteTool, isGatewayTool, SPAWN_TOOL_NAME } from "@/lib/constants";
+
+export type ToolIcon = "terminal" | "file" | "tool" | "robot" | "globe" | "gear";
 
 export interface ToolDisplayInfo {
   label: string;
@@ -13,7 +15,7 @@ function truncatePath(filePath: string, segments = 3): string {
   return ".../" + parts.slice(-segments).join("/");
 }
 
-function parseArgs(args?: string): Record<string, unknown> | null {
+export function parseArgs(args?: string): Record<string, unknown> | null {
   if (!args) return null;
   try {
     const parsed = JSON.parse(args);
@@ -22,73 +24,53 @@ function parseArgs(args?: string): Record<string, unknown> | null {
   return null;
 }
 
+function getFilePath(parsed: Record<string, unknown> | null): string | null {
+  const filePath = parsed?.file_path || parsed?.filePath || parsed?.path;
+  return typeof filePath === "string" ? filePath : null;
+}
+
 export function getToolDisplay(name: string, args?: string): ToolDisplayInfo {
   const parsed = parseArgs(args);
 
-  switch (name) {
-    case "exec": {
-      const command = parsed?.command;
-      if (typeof command === "string") {
-        return { label: command, icon: "terminal" };
-      }
-      return { label: name, icon: "terminal" };
-    }
-
-    case "read":
-    case "readFile":
-    case "read_file": {
-      const filePath = parsed?.file_path || parsed?.filePath || parsed?.path;
-      if (typeof filePath === "string") {
-        return { label: truncatePath(filePath), icon: "file" };
-      }
-      return { label: "file", icon: "file" };
-    }
-
-    case "sessions_spawn": {
-      const model = parsed?.model;
-      if (typeof model === "string") {
-        return { label: model, icon: "robot" };
-      }
-      return { label: "spawn agent", icon: "robot" };
-    }
-
-    case "web_search": {
-      const query = parsed?.query;
-      if (typeof query === "string") {
-        return { label: query, icon: "globe" };
-      }
-      return { label: name, icon: "globe" };
-    }
-
-    case "web_fetch": {
-      const url = parsed?.url;
-      if (typeof url === "string") {
-        return { label: url, icon: "globe" };
-      }
-      return { label: name, icon: "globe" };
-    }
-
-    case "edit":
-    case "file_edit":
-    case "editFile": {
-      const filePath = parsed?.file_path || parsed?.filePath || parsed?.path;
-      if (typeof filePath === "string") {
-        return { label: truncatePath(filePath), icon: "file" };
-      }
-      return { label: "file", icon: "file" };
-    }
-
-    case "write":
-    case "write_file":
-    case "writeFile": {
-      const filePath = parsed?.file_path || parsed?.filePath || parsed?.path;
-      if (typeof filePath === "string") {
-        return { label: `Write ${truncatePath(filePath)}`, icon: "file" };
-      }
-      return { label: "Write file", icon: "file" };
-    }
-
-    default:
-      return { label: name, icon: "tool" };
+  if (name === "exec") {
+    const command = parsed?.command;
+    return { label: typeof command === "string" ? command : name, icon: "terminal" };
   }
+
+  if (isReadTool(name)) {
+    const filePath = getFilePath(parsed);
+    return { label: filePath ? truncatePath(filePath) : "file", icon: "file" };
+  }
+
+  if (isEditTool(name)) {
+    const filePath = getFilePath(parsed);
+    return { label: filePath ? truncatePath(filePath) : "file", icon: "file" };
+  }
+
+  if (isWriteTool(name)) {
+    const filePath = getFilePath(parsed);
+    return { label: filePath ? `Write ${truncatePath(filePath)}` : "Write file", icon: "file" };
+  }
+
+  if (name === SPAWN_TOOL_NAME) {
+    const model = parsed?.model;
+    return { label: typeof model === "string" ? model : "spawn agent", icon: "robot" };
+  }
+
+  if (name === "web_search") {
+    const query = parsed?.query;
+    return { label: typeof query === "string" ? query : name, icon: "globe" };
+  }
+
+  if (isGatewayTool(name)) {
+    const action = parsed?.action;
+    return { label: typeof action === "string" ? action : "gateway", icon: "gear" };
+  }
+
+  if (name === "web_fetch") {
+    const url = parsed?.url;
+    return { label: typeof url === "string" ? url : name, icon: "globe" };
+  }
+
+  return { label: name, icon: "tool" };
 }

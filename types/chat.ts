@@ -50,7 +50,7 @@ export interface Message {
 export interface WSRequest {
   type: "req";
   id: string;
-  method: "connect" | "chat.send" | "chat.history" | "chat.subscribe" | "hello" | "models.list";
+  method: "connect" | "chat.send" | "chat.abort" | "chat.history" | "chat.subscribe" | "hello" | "models.list";
   params?: Record<string, unknown>;
 }
 
@@ -116,6 +116,13 @@ export interface WSHello {
 }
 
 export type WSIncomingMessage = WSResponse | WSEvent | WSHello;
+
+export interface ImageAttachment {
+  mimeType: string;
+  fileName: string;
+  content: string; // base64
+  previewUrl: string; // object URL for local preview
+}
 
 export type BackendMode = "openclaw" | "lmstudio" | "demo";
 

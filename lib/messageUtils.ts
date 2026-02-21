@@ -1,4 +1,5 @@
 import type { ContentPart, Message, MessageRole } from "@/types/chat";
+import { isToolCallPart, isImagePart } from "@/lib/constants";
 
 /** Immutable update of a single array element by index. */
 export function updateAt<T>(arr: T[], index: number, updater: (item: T) => T): T[] {
@@ -25,12 +26,12 @@ export function getTextFromContent(content: ContentPart[] | string | null): stri
 
 export function getToolCalls(content: ContentPart[] | string | null): ContentPart[] {
   if (!content || typeof content === "string") return [];
-  return content.filter((p) => p.type === "tool_call" || p.type === "toolCall");
+  return content.filter(isToolCallPart);
 }
 
 export function getImages(content: ContentPart[] | string | null): ContentPart[] {
   if (!content || typeof content === "string") return [];
-  return content.filter((p) => p.type === "image" || p.type === "image_url");
+  return content.filter(isImagePart);
 }
 
 export function getMessageSide(role: MessageRole): "left" | "right" | "center" {

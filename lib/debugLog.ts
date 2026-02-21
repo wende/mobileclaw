@@ -4,6 +4,7 @@
  */
 
 import type { ChatEventPayload, AgentEventPayload, ContentPart } from "@/types/chat";
+import { isToolCallPart } from "@/lib/constants";
 
 function contentSummary(content: ContentPart[] | string | undefined): string {
   if (!content) return "";
@@ -11,7 +12,7 @@ function contentSummary(content: ContentPart[] | string | undefined): string {
   const parts: string[] = [];
   for (const p of content) {
     if (p.type === "text") parts.push(`t:${(p.text || "").length}`);
-    else if (p.type === "tool_call" || p.type === "toolCall") parts.push(`tc:${p.name}:${p.status || "?"}`);
+    else if (isToolCallPart(p)) parts.push(`tc:${p.name}:${p.status || "?"}`);
     else if (p.type === "thinking") parts.push(`th:${(p.text || p.thinking || "").length}`);
     else parts.push(p.type);
   }

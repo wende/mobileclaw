@@ -29,7 +29,8 @@ export const metadata: Metadata = {
 }
 
 // Script to apply theme before React hydrates (prevents flash)
-const themeScript = `
+// Also registers the service worker for PWA support
+const headScript = `
 (function() {
   try {
     var theme = localStorage.getItem('theme');
@@ -37,6 +38,11 @@ const themeScript = `
       document.documentElement.classList.add('dark');
     }
   } catch (e) {}
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('/sw.js');
+    });
+  }
 })();
 `;
 
@@ -48,7 +54,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script dangerouslySetInnerHTML={{ __html: headScript }} />
       </head>
       <body className={`${GeistSans.variable} ${GeistMono.variable} font-sans antialiased`}>
         <LocatorProvider>{children}</LocatorProvider>

@@ -4,28 +4,17 @@ import { useEffect, useState, useRef } from "react";
 
 interface ThinkingIndicatorProps {
   visible: boolean;
-  onExitComplete?: () => void;
   startTime?: number; // Timestamp when thinking started
 }
 
-export function ThinkingIndicator({ visible, onExitComplete, startTime }: ThinkingIndicatorProps) {
+export function ThinkingIndicator({ visible, startTime }: ThinkingIndicatorProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const prevVisibleRef = useRef(false);
 
-  // Fire exit callback after fade out
+  // Reset elapsed when hidden
   useEffect(() => {
-    if (visible) {
-      prevVisibleRef.current = true;
-    } else if (prevVisibleRef.current) {
-      prevVisibleRef.current = false;
-      const timer = setTimeout(() => {
-        setElapsedSeconds(0);
-        onExitComplete?.();
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [visible, onExitComplete]);
+    if (!visible) setElapsedSeconds(0);
+  }, [visible]);
 
   // Update elapsed time every second
   useEffect(() => {

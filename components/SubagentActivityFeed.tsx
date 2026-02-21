@@ -48,7 +48,7 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
     <div
       ref={scrollContainerRef}
       onScroll={handleScroll}
-      className="h-28 overflow-y-auto border-t border-border px-3 py-1.5 space-y-0.5 scrollbar-hide"
+      className={`${entries.length === 0 && status === "done" ? "" : "h-28"} overflow-y-auto border-t border-border px-3 py-1.5 space-y-0.5 scrollbar-hide`}
     >
       {entries.length === 0 && status === "active" && (
         <div className="h-full flex items-center gap-1.5 text-[11px] text-muted-foreground/40">
@@ -56,6 +56,14 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
           </svg>
           <span>starting...</span>
+        </div>
+      )}
+      {entries.length === 0 && status === "done" && (
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-50">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <span>done</span>
         </div>
       )}
       {entries.map((entry, i) => {
@@ -95,12 +103,28 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
           </div>
         );
       })}
-      {status === "active" && entries.length > 0 && (
+      {entries.length > 0 && status === "active" && (
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 pt-0.5">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin opacity-50">
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
           </svg>
           <span>working...</span>
+        </div>
+      )}
+      {entries.length > 0 && status === "done" && (
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 pt-0.5">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-50">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <span>done</span>
+        </div>
+      )}
+      {entries.length > 0 && status === "error" && (
+        <div className="flex items-center gap-1.5 text-[11px] text-destructive/60 pt-0.5">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
+            <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          <span>error</span>
         </div>
       )}
     </div>

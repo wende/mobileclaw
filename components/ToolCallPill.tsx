@@ -1,9 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getToolDisplay } from "@/lib/toolDisplay";
+import { getToolDisplay, parseArgs } from "@/lib/toolDisplay";
 import { SubagentActivityFeed } from "@/components/SubagentActivityFeed";
+import { SlideContent } from "@/components/SlideContent";
 import type { SubagentStore } from "@/hooks/useSubagentStore";
+import { isEditTool, isReadTool, isGatewayTool, SPAWN_TOOL_NAME } from "@/lib/constants";
+import { useSwipeAction } from "@/hooks/useSwipeAction";
+
+interface PinInfo {
+  toolCallId: string | null;
+  childSessionKey: string | null;
+  taskName: string;
+  model: string | null;
+}
 
 interface ToolCallPillProps {
   name: string;
@@ -13,15 +23,9 @@ interface ToolCallPillProps {
   resultError?: boolean;
   toolCallId?: string;
   subagentStore?: SubagentStore;
-}
-
-function parseArgs(args?: string): Record<string, unknown> | null {
-  if (!args) return null;
-  try {
-    const parsed = JSON.parse(args);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
-  } catch {}
-  return null;
+  isPinned?: boolean;
+  onPin?: (info: PinInfo) => void;
+  onUnpin?: () => void;
 }
 
 // ── Shared icon helpers ──────────────────────────────────────────────────────
@@ -58,6 +62,12 @@ function ToolIcon({ icon }: { icon: string }) {
       <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
     </svg>
   );
+  if (icon === "gear") return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${ICON_CLS} opacity-50`}>
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
   if (icon === "globe") return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${ICON_CLS} opacity-50`}>
       <circle cx="12" cy="12" r="10" /><line x1="2" x2="22" y1="12" y2="12" />
@@ -83,41 +93,27 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-// ── Animated slide wrapper ───────────────────────────────────────────────────
-
-function SlideContent({ open, children }: { open: boolean; children: React.ReactNode }) {
-  return (
-    <div
-      className="grid transition-[grid-template-rows] duration-200 ease-out"
-      style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
-    >
-      <div className="overflow-hidden min-h-0">
-        {children}
-      </div>
-    </div>
-  );
-}
-
 // ── Main export ──────────────────────────────────────────────────────────────
 
-export function ToolCallPill({ name, args, status, result, resultError, toolCallId, subagentStore }: ToolCallPillProps) {
+export function ToolCallPill({ name, args, status, result, resultError, toolCallId, subagentStore, isPinned, onPin, onUnpin }: ToolCallPillProps) {
   const formatJson = (s: string) => { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; } };
   const display = getToolDisplay(name, args);
-  const isEditTool = name === "edit" || name === "file_edit" || name === "editFile";
-  const isReadTool = name === "read" || name === "readFile" || name === "read_file";
+  const isEdit = isEditTool(name);
+  const isRead = isReadTool(name);
+  const isGateway = isGatewayTool(name);
   const [open, setOpen] = useState(false);
-  const isSpawn = name === "sessions_spawn";
+  const isSpawn = name === SPAWN_TOOL_NAME;
 
   // Animate open on mount for edit tools
   useEffect(() => {
-    if (!isEditTool) return;
+    if (!isEdit) return;
     const raf = requestAnimationFrame(() => setOpen(true));
     return () => cancelAnimationFrame(raf);
-  }, [isEditTool]);
+  }, [isEdit]);
 
   // ── Spawn pill: full-width animated card ───────────────────────────────────
   if (isSpawn) {
-    return <SpawnPill args={args} status={status} result={result} resultError={resultError} toolCallId={toolCallId} subagentStore={subagentStore} />;
+    return <SpawnPill args={args} status={status} result={result} resultError={resultError} toolCallId={toolCallId} subagentStore={subagentStore} isPinned={isPinned} onPin={onPin} onUnpin={onUnpin} />;
   }
 
   // ── Default pill: animated slide ───────────────────────────────────────────
@@ -129,20 +125,20 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
       <button
         type="button"
         onClick={hasContent ? () => setOpen((v) => !v) : undefined}
-        className={`w-full text-left px-3 py-1.5 text-xs font-medium text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-full flex items-center ${hasContent ? "cursor-pointer" : "cursor-default"}`}
+        className={`w-full rounded-[inherit] text-left px-3 py-1.5 text-xs font-medium text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-full flex items-center ${hasContent ? "cursor-pointer" : "cursor-default"}`}
       >
         {hasStatusIcon ? <StatusIcon status={status} resultError={resultError} /> : <ToolIcon icon={display.icon} />}
-        {isEditTool ? <><span className="font-bold">edit</span>&nbsp;<span className="truncate">{display.label}</span></> : isReadTool ? <><span className="font-bold">read</span>&nbsp;<span className="truncate">{display.label}</span></> : <span className="truncate">{display.label}</span>}
+        {isEdit ? <><span className="font-bold">edit</span>&nbsp;<span className="truncate">{display.label}</span></> : isRead ? <><span className="font-bold">read</span>&nbsp;<span className="truncate">{display.label}</span></> : <span className="truncate">{display.label}</span>}
         {status === "running" && <span className="ml-1.5 text-muted-foreground/60 shrink-0">running...</span>}
         {hasContent && <Chevron open={open} />}
       </button>
       {hasContent && (
         <SlideContent open={open}>
           <div className="overflow-hidden text-xs text-muted-foreground">
-            {args && !isReadTool && (
+            {args && !isRead && !isGateway && (
               <div className="border-t border-border px-3 py-2">
                 {(() => {
-                  if (isEditTool) {
+                  if (isEdit) {
                     try {
                       const parsed = typeof args === "string" ? JSON.parse(args) : args;
                       if (parsed && typeof parsed === "object") {
@@ -193,7 +189,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
                 })()}
               </div>
             )}
-            {result && !isEditTool && (
+            {result && !isEdit && (
               <div className="border-t border-border px-3 py-2">
                 <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">Result</span>
                 <pre className="mt-1 whitespace-pre-wrap break-words overflow-hidden">{result}</pre>
@@ -208,8 +204,16 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
 
 // ── SpawnPill — full-width animated subagent card ────────────────────────────
 
+function PinIcon({ pinned }: { pinned: boolean }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill={pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50">
+      <path d="M12 17v5" /><path d="M9 2h6l-1.5 4.5L18 9l-1 1h-5.5L9 17H7l2.5-7H4l-1-1 4.5-2.5L9 2z" transform="rotate(45 12 12)" />
+    </svg>
+  );
+}
+
 function SpawnPill({
-  args, status, result, resultError, toolCallId, subagentStore,
+  args, status, result, resultError, toolCallId, subagentStore, isPinned, onPin, onUnpin,
 }: {
   args?: string;
   status?: "running" | "success" | "error";
@@ -217,6 +221,9 @@ function SpawnPill({
   resultError?: boolean;
   toolCallId?: string;
   subagentStore?: SubagentStore;
+  isPinned?: boolean;
+  onPin?: (info: PinInfo) => void;
+  onUnpin?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const parsed = parseArgs(args);
@@ -249,32 +256,65 @@ function SpawnPill({
 
   // Animate open on mount: render 0fr first, then transition to 1fr after paint
   useEffect(() => {
-    const raf = requestAnimationFrame(() => setOpen(true));
-    return () => cancelAnimationFrame(raf);
-  }, []);
+    if (!isPinned) {
+      const raf = requestAnimationFrame(() => setOpen(true));
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [isPinned]);
+
+  // Swipe left to pin/unpin
+  const { offset, animating, pastThreshold, handlers } = useSwipeAction(
+    useCallback(() => {
+      if (isPinned) onUnpin?.();
+      else onPin?.({ toolCallId: toolCallId || null, childSessionKey, taskName: task || "spawn agent", model });
+    }, [isPinned, onPin, onUnpin, toolCallId, childSessionKey, task, model]),
+    { disabled: !hasFeed }
+  );
 
   return (
-    <div className={`w-full rounded-lg border ${resultError ? "border-destructive/30 bg-destructive/5" : "border-border bg-secondary"}`}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full cursor-pointer px-3 py-1.5 text-left text-xs font-medium text-muted-foreground"
-      >
-        <div className="flex items-center gap-1">
-          <StatusIcon status={status} resultError={resultError} />
-          {!status || status === "success" ? <ToolIcon icon="robot" /> : null}
-          <span className="truncate">{task || "spawn agent"}</span>
-          <Chevron open={open} />
+    <div
+      className={`w-full rounded-lg border overflow-hidden relative ${resultError ? "border-destructive/30" : "border-border"}`}
+      {...handlers}
+    >
+      {/* Swipe action indicator (behind content) */}
+      {hasFeed && offset !== 0 && (
+        <div className="absolute right-0 inset-y-0 w-20 flex items-center justify-center">
+          <div className={`flex flex-col items-center gap-0.5 text-[10px] font-medium transition-colors ${pastThreshold ? "text-foreground" : "text-muted-foreground/50"}`}>
+            <PinIcon pinned={!!isPinned} />
+            <span>{isPinned ? "Unpin" : "Pin"}</span>
+          </div>
         </div>
-        {model && (
-          <div className="text-[10px] text-muted-foreground/40 font-normal mt-0.5 ml-[18px]">{model}</div>
-        )}
-      </button>
-      <SlideContent open={open}>
-        {hasFeed && (
-          <SubagentActivityFeed getEntries={getEntries} storeVersion={subagentStore.versionRef} />
-        )}
-      </SlideContent>
+      )}
+      {/* Sliding content */}
+      <div
+        className={`rounded-[inherit] ${resultError ? "bg-destructive/5" : "bg-secondary"}`}
+        style={{
+          transform: offset !== 0 ? `translateX(${offset}px)` : undefined,
+          transition: animating ? "transform 200ms ease-out" : "none",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="w-full rounded-[inherit] cursor-pointer px-3 py-1.5 text-left text-xs font-medium text-muted-foreground"
+        >
+          <div className="flex items-center gap-1">
+            <StatusIcon status={status} resultError={resultError} />
+            {!status || status === "success" ? <ToolIcon icon="robot" /> : null}
+            <span className="truncate">{task || "spawn agent"}</span>
+            {isPinned && <PinIcon pinned />}
+            <Chevron open={open && !isPinned} />
+          </div>
+          {model && (
+            <div className="text-[10px] text-muted-foreground/40 font-normal mt-0.5 ml-[18px]">{model}</div>
+          )}
+        </button>
+        <SlideContent open={open && !isPinned}>
+          {hasFeed && (
+            <SubagentActivityFeed getEntries={getEntries} storeVersion={subagentStore.versionRef} />
+          )}
+        </SlideContent>
+      </div>
     </div>
   );
 }

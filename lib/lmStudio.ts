@@ -4,6 +4,8 @@
 // ── Types ────────────────────────────────────────────────────────────────────
 
 import type { ContentPart, Message } from "@/types/chat";
+import { STOP_REASON_INJECTED } from "@/lib/constants";
+import { getTextFromContent } from "@/lib/messageUtils";
 
 export interface LmStudioConfig {
   baseUrl: string;
@@ -42,15 +44,6 @@ export async function fetchLmStudioModels(
 
 // ── Message conversion ───────────────────────────────────────────────────────
 
-function getTextFromContent(content: ContentPart[] | string | null): string {
-  if (!content) return "";
-  if (typeof content === "string") return content;
-  return content
-    .filter((p) => p.type === "text" && p.text)
-    .map((p) => p.text!)
-    .join("");
-}
-
 function getToolCallsFromContent(content: ContentPart[] | string | null): ContentPart[] {
   if (!content || typeof content === "string") return [];
   return content.filter((p) => p.type === "tool_call" && p.name);
@@ -60,7 +53,7 @@ export function toOpenAIMessages(messages: Message[]): OpenAIMessage[] {
   const result: OpenAIMessage[] = [];
 
   for (const msg of messages) {
-    if (msg.role === "system" || msg.stopReason === "injected") {
+    if (msg.role === "system" || msg.stopReason === STOP_REASON_INJECTED) {
       const text = getTextFromContent(msg.content);
       if (text) result.push({ role: "system", content: text });
       continue;
