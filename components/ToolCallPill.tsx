@@ -101,15 +101,16 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
   const isEdit = isEditTool(name);
   const isRead = isReadTool(name);
   const isGateway = isGatewayTool(name);
-  const [open, setOpen] = useState(false);
+  // Edit tools: start expanded if already complete (history load), animate only during streaming
+  const [open, setOpen] = useState(() => isEdit && (!!result || status === "success" || status === "error"));
   const isSpawn = name === SPAWN_TOOL_NAME;
 
-  // Animate open on mount for edit tools
+  // Animate open on mount for edit tools (streaming case only)
   useEffect(() => {
-    if (!isEdit) return;
+    if (!isEdit || result || status === "success" || status === "error") return;
     const raf = requestAnimationFrame(() => setOpen(true));
     return () => cancelAnimationFrame(raf);
-  }, [isEdit]);
+  }, [isEdit, result, status]);
 
   // ── Spawn pill: full-width animated card ───────────────────────────────────
   if (isSpawn) {
@@ -117,7 +118,12 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
   }
 
   // ── Default pill: animated slide ───────────────────────────────────────────
-  const hasContent = !!(args || result);
+  // Only count content that will actually render inside the expanded area:
+  // - args section is hidden for read/gateway tools
+  // - result section is hidden for edit tools
+  const hasVisibleArgs = !!(args && !isRead && !isGateway);
+  const hasVisibleResult = !!(result && !isEdit);
+  const hasContent = hasVisibleArgs || hasVisibleResult;
   const hasStatusIcon = status === "running" || resultError;
 
   return (
@@ -143,8 +149,8 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
                       const parsed = typeof args === "string" ? JSON.parse(args) : args;
                       if (parsed && typeof parsed === "object") {
                         const filePath = parsed.file_path || parsed.filePath || parsed.path;
-                        const oldStr = parsed.old_string ?? parsed.oldString ?? "";
-                        const newStr = parsed.new_string ?? parsed.newString ?? "";
+                        const oldStr = parsed.old_string ?? parsed.oldString ?? parsed.old_str ?? parsed.oldText ?? "";
+                        const newStr = parsed.new_string ?? parsed.newString ?? parsed.new_str ?? parsed.newText ?? "";
                         const oldLines = String(oldStr).split("\n");
                         const newLines = String(newStr).split("\n");
                         return (

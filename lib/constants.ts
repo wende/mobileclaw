@@ -1,6 +1,24 @@
 // Special message markers
 export const HEARTBEAT_MARKER = "HEARTBEAT_OK";
 export const NO_REPLY_MARKER = "NO_REPLY";
+
+/** Returns true only if `marker` appears in `text` outside of double-quoted strings. */
+export function hasUnquotedMarker(text: string, marker: string): boolean {
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '"') {
+      // Skip everything inside quotes
+      i++;
+      while (i < text.length && text[i] !== '"') i++;
+      i++; // skip closing quote
+    } else if (text.startsWith(marker, i)) {
+      return true;
+    } else {
+      i++;
+    }
+  }
+  return false;
+}
 export const SYSTEM_PREFIX = "System: [";
 export const SYSTEM_MESSAGE_PREFIX = "[System Message]";
 export const GATEWAY_INJECTED_MODEL = "gateway-injected";

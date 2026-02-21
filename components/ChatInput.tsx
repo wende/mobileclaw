@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import { ALL_COMMANDS, type Command } from "@/components/CommandSheet";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import type { ModelChoice, ImageAttachment } from "@/types/chat";
@@ -14,19 +14,11 @@ export interface ModelSuggestion {
   description: string;
 }
 
-export function ChatInput({
-  onSend,
-  scrollPhase = "input",
-  onScrollToBottom,
-  availableModels = [],
-  modelsLoading = false,
-  onFetchModels,
-  backendMode = "openclaw",
-  quoteText = null,
-  onClearQuote,
-  isRunActive = false,
-  onAbort,
-}: {
+export interface ChatInputHandle {
+  setValue: (v: string) => void;
+}
+
+export const ChatInput = forwardRef<ChatInputHandle, {
   onSend: (text: string, attachments?: ImageAttachment[]) => void;
   scrollPhase?: "input" | "pill";
   onScrollToBottom?: () => void;
@@ -37,12 +29,33 @@ export function ChatInput({
   quoteText?: string | null;
   onClearQuote?: () => void;
   isRunActive?: boolean;
+  hasQueued?: boolean;
   onAbort?: () => void;
-}) {
+}>(function ChatInput({
+  onSend,
+  scrollPhase = "input",
+  onScrollToBottom,
+  availableModels = [],
+  modelsLoading = false,
+  onFetchModels,
+  backendMode = "openclaw",
+  quoteText = null,
+  onClearQuote,
+  isRunActive = false,
+  hasQueued = false,
+  onAbort,
+}, forwardedRef) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  useImperativeHandle(forwardedRef, () => ({
+    setValue: (v: string) => {
+      setValue(v);
+      setTimeout(() => ref.current?.focus(), 0);
+    },
+  }), []);
 
   // Restore draft from localStorage after hydration to avoid mismatch
   useEffect(() => {
@@ -257,7 +270,7 @@ export function ChatInput({
     } else {
       // On mobile/touch devices, Enter inserts a newline — only the send button submits.
       // On desktop, Enter submits (Shift+Enter for newline).
-      const isMobile = "ontouchstart" in window;
+      const isMobile = navigator.maxTouchPoints > 0 && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       if (e.key === "Enter" && !e.shiftKey && !isMobile) {
         e.preventDefault();
         submit();
@@ -369,7 +382,7 @@ export function ChatInput({
       <button
         type="button"
         onClick={() => fileInputRef.current?.click()}
-        className="mb-1 flex shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground overflow-hidden"
+        className="mb-1 flex shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-[opacity] duration-200 hover:bg-accent hover:text-foreground overflow-hidden"
         style={{
           opacity: "max(0, 1 - var(--sp, 0) * 2.5)",
           width: "calc(40px * (1 - var(--sp, 0)))",
@@ -491,47 +504,65 @@ export function ChatInput({
                 addFiles(files);
               }
             }}
-            placeholder="Send a message..."
+            placeholder={isRunActive ? (hasQueued ? "Replace queued message..." : "Queue a message...") : "Send a message..."}
             rows={1}
             className="block w-full resize-none bg-transparent text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
         </div>
       </div>
 
-      {/* Send / Stop button — crossfade between states */}
-      <button
-        type="button"
-        onClick={isRunActive ? onAbort : submit}
-        disabled={!isRunActive && !hasContent}
-        className="mb-1 relative shrink-0 rounded-full overflow-hidden transition-all duration-200"
-        style={{
-          opacity: (isRunActive || hasContent) ? "max(0, 1 - var(--sp, 0) * 2.5)" : "max(0, (1 - var(--sp, 0) * 2.5) * 0.3)",
-          width: "calc(40px * (1 - var(--sp, 0)))",
-          height: "calc(40px * (1 - var(--sp, 0)))",
-          minWidth: 0,
-          pointerEvents: isPill ? "none" : "auto",
-        } as React.CSSProperties}
-        aria-label={isRunActive ? "Stop" : "Send"}
-      >
-        {/* Stop face */}
-        <span
-          className="absolute inset-0 flex items-center justify-center border border-destructive/30 bg-destructive/5 text-destructive/60 rounded-full transition-opacity duration-200"
-          style={{ opacity: isRunActive ? 1 : 0, pointerEvents: isRunActive ? "auto" : "none" }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2.5" /></svg>
-        </span>
-        {/* Send face */}
-        <span
-          className="absolute inset-0 flex items-center justify-center bg-primary text-primary-foreground rounded-full transition-opacity duration-200"
-          style={{ opacity: isRunActive ? 0 : 1, pointerEvents: isRunActive ? "none" : "auto" }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg>
-        </span>
-      </button>
+      {/* Send / Stop / Queue button — crossfade between three states */}
+      {(() => {
+        const showStop = isRunActive && !hasContent;
+        const showQueue = isRunActive && hasContent && !hasQueued;
+        const queueFull = isRunActive && hasContent && hasQueued;
+        const showSend = !isRunActive && hasContent;
+        const isActive = showStop || showQueue || showSend;
+        return (
+          <button
+            type="button"
+            onClick={isPill ? onScrollToBottom : showStop ? onAbort : submit}
+            disabled={(!isActive || queueFull) && !isPill}
+            className="mb-1 relative shrink-0 rounded-full overflow-hidden transition-[opacity] duration-200"
+            style={{
+              opacity: (isActive && !queueFull)
+                ? "max(0, 1 - var(--sp, 0) * 2.5)"
+                : "max(0, (1 - var(--sp, 0) * 2.5) * 0.3)",
+              width: "calc(40px * (1 - var(--sp, 0)))",
+              height: "calc(40px * (1 - var(--sp, 0)))",
+              minWidth: 0,
+              pointerEvents: isPill ? "none" : "auto",
+            } as React.CSSProperties}
+            aria-label={showStop ? "Stop" : showQueue ? "Queue" : "Send"}
+          >
+            {/* Stop face */}
+            <span
+              className="absolute inset-0 flex items-center justify-center border border-destructive/30 bg-destructive/5 text-destructive/60 rounded-full transition-opacity duration-200"
+              style={{ opacity: showStop ? 1 : 0, pointerEvents: showStop ? "auto" : "none" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2.5" /></svg>
+            </span>
+            {/* Queue face — append icon */}
+            <span
+              className="absolute inset-0 flex items-center justify-center border border-border bg-secondary text-muted-foreground rounded-full transition-opacity duration-200"
+              style={{ opacity: showQueue ? 1 : 0, pointerEvents: showQueue ? "auto" : "none" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 4v12a2 2 0 0 0 2 2h8" /><path d="m16 14 4 4-4 4" /></svg>
+            </span>
+            {/* Send face — also serves as default/disabled state */}
+            <span
+              className="absolute inset-0 flex items-center justify-center bg-primary text-primary-foreground rounded-full transition-opacity duration-200"
+              style={{ opacity: (!showStop && !showQueue) ? 1 : 0 }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg>
+            </span>
+          </button>
+        );
+      })()}
       </div>
       {lightboxSrc && (
         <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
       )}
     </div>
   );
-}
+});

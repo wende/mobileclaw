@@ -24,6 +24,7 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       { name: "/model", description: "Show or change the current AI model." },
       { name: "/context", description: "Explain how context is built and used." },
       { name: "/whoami", description: "Show your sender id.", aliases: ["/id"] },
+      { name: "/compact", description: "Compact current conversation to reduce token count." },
     ],
   },
   {

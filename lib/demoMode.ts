@@ -277,14 +277,97 @@ const RESPONSES: Record<string, DemoResponse> = {
     thinking: "The user wants to see how images render in markdown. I'll include a few different image examples to show inline markdown image syntax.",
     text: "Here are some example images rendered with markdown:\n\n### A Mountain Landscape\n\n![Mountain landscape](https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80)\n\nImages scale down to fit the chat bubble — they'll never overflow.\n\n### Side by Side\n\nYou can also reference images inline like this: ![tiny icon](https://www.google.com/favicon.ico) — they'll sit right in the text flow.\n\n![Ocean sunset](https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80)\n\n> Markdown syntax: `![alt text](url)`",
   },
+  long: {
+    thinking: "The user wants a long-form response. I'll write a comprehensive technical deep-dive about building real-time collaborative systems. This will cover WebSocket architecture, conflict resolution, state synchronization, and production scaling patterns. Let me research the topic first, then write the full guide.",
+    toolCalls: [
+      {
+        name: "web_search",
+        args: { query: "real-time collaborative systems architecture 2026" },
+        result: JSON.stringify({
+          results: [
+            { title: "Building Real-Time Systems at Scale", url: "https://engineering.example.com/real-time", snippet: "Patterns for WebSocket architecture, CRDT-based conflict resolution, and horizontal scaling." },
+            { title: "The State of CRDTs in 2026", url: "https://crdt.tech/survey-2026", snippet: "Survey of conflict-free replicated data types in production systems." },
+          ],
+        }, null, 2),
+        delayMs: 2000,
+      },
+    ],
+    text: `## Building Real-Time Collaborative Systems: A Comprehensive Guide
+
+Real-time collaboration has become the baseline expectation for modern applications. Users expect to see changes from other participants instantly — whether they're editing a document, chatting in a thread, or co-designing an interface. Building these systems well requires understanding several interconnected layers: transport, state synchronization, conflict resolution, and operational scaling. This guide walks through each layer with practical patterns drawn from production systems.
+
+### The Transport Layer: Beyond Simple WebSockets
+
+WebSockets provide the foundation for bidirectional real-time communication, but raw WebSocket connections are just the beginning. A production transport layer needs to handle connection lifecycle management, reconnection with state recovery, multiplexing multiple logical channels over a single connection, and graceful degradation when WebSocket connections fail.
+
+**Connection lifecycle** starts with the initial handshake. Unlike HTTP, a WebSocket upgrade involves a protocol switch that many corporate proxies and load balancers handle poorly. Your client should attempt a WebSocket connection first, then fall back to long-polling or Server-Sent Events if the upgrade fails. Track connection state as a finite state machine: \`disconnected → connecting → authenticating → ready → disconnecting\`. This prevents race conditions where messages arrive before authentication completes.
+
+**Reconnection** is where most implementations stumble. A naive approach reconnects immediately on disconnect, but this causes thundering herd problems when a server restarts — thousands of clients reconnect simultaneously and overwhelm the new instance. Instead, use exponential backoff with jitter: start at 1 second, double up to a cap of 30 seconds, and add random jitter of plus or minus 25 percent to spread reconnection attempts across time.
+
+The critical reconnection challenge is **state recovery**. When a client reconnects, it needs to catch up on events it missed during the disconnection window. The simplest approach is cursor-based recovery: every event has a monotonically increasing sequence number, and the client sends its last-seen sequence on reconnect. The server replays all events since that sequence. This works well for short disconnections but becomes expensive for long gaps. For gaps exceeding your replay buffer, fall back to a full state sync — have the client request a snapshot and reset its local state.
+
+**Multiplexing** lets you run multiple logical channels over one physical connection. Rather than opening separate WebSocket connections for chat, presence, and document updates, tag each message with a channel identifier and route it client-side. This reduces connection overhead and simplifies authentication, since you only need to authenticate once per physical connection.
+
+### State Synchronization: The Heart of Collaboration
+
+State synchronization is the central challenge of real-time systems. Every participant has a local copy of the shared state, and the system must keep these copies converging toward consistency — even when participants make concurrent changes.
+
+The simplest model is **authoritative server**: all mutations go through the server, which applies them sequentially and broadcasts the results. This guarantees consistency but introduces latency on every operation. The user types a character, it round-trips to the server, and only then appears on screen. For applications where latency is acceptable — like chat messages or form submissions — this model works perfectly. MobileClaw uses this approach: messages are sent to the server and rendered only when the server echoes them back (or when streaming events arrive).
+
+For latency-sensitive applications like text editors, you need **optimistic updates** with conflict resolution. The client applies changes locally and immediately, then sends them to the server. If the server accepts the change as-is, everything is fine. If the server reorders or transforms the change, the client needs to reconcile its optimistic state with the server's authoritative version.
+
+**Operational Transformation (OT)** was the first widely-deployed solution to this problem, used by Google Docs since 2010. OT defines transformation functions for every pair of operation types. When two users insert text at different positions concurrently, the transformation function adjusts the positions so both operations produce the correct result regardless of application order. The transformation functions for text editing are well-understood, but OT has a fundamental complexity problem: the number of transformation functions grows quadratically with the number of operation types. Adding a new operation type (say, table formatting) requires defining transforms against every existing operation.
+
+**CRDTs (Conflict-free Replicated Data Types)** solve this differently. Instead of transforming operations, CRDTs design data structures where concurrent operations commute naturally — applying them in any order produces the same result. The Yjs library popularized CRDTs for text editing, and by 2026 they've become the dominant approach for new collaborative editors. CRDTs trade space efficiency for algorithmic simplicity: they attach metadata to every element (character, list item, map entry) that enables automatic conflict resolution. A CRDT document is typically two to five times larger than the raw content, but this overhead is manageable for most applications.
+
+The practical choice between OT and CRDTs depends on your constraints. OT is better when you have a central server and need minimal memory overhead. CRDTs are better for peer-to-peer scenarios or when you want offline editing support, since they can merge divergent states without a central coordinator.
+
+### Presence and Awareness
+
+Beyond document state, collaborative systems need to synchronize **ephemeral presence data**: who is online, where their cursor is, what they're selecting, and whether they're typing. This data is high-frequency and loss-tolerant — if a cursor position update is dropped, the next one will correct it.
+
+Design presence as a separate channel from document operations. Presence updates are frequent (cursor movements generate dozens of events per second) but individually unimportant. Throttle presence broadcasts to a fixed interval — 50 to 100 milliseconds is typical — and always send the latest state rather than queuing individual updates. If the user moved their cursor ten times in 100 milliseconds, only the final position matters.
+
+**Awareness** extends presence with richer metadata: the user's display name, avatar color, viewport scroll position, and current selection. Libraries like Yjs include an awareness protocol that handles this automatically, broadcasting awareness state to all connected peers and cleaning up when users disconnect.
+
+A subtle challenge is **presence timeout**. When a user's browser tab goes to sleep (common on mobile), WebSocket connections may stay open but the user is effectively gone. Implement a heartbeat system: clients send a ping every 30 seconds, and the server marks a user as away if two consecutive pings are missed. Display away users differently in the UI — dimmed avatars, for example — rather than removing them entirely, since they may return when they switch back to the tab.
+
+### Scaling to Production
+
+A single WebSocket server can handle roughly 50,000 to 100,000 concurrent connections on modern hardware, depending on message volume. Beyond that, you need horizontal scaling, which introduces the **fan-out problem**: when User A sends a message, the server handling their connection needs to forward it to all other participants, who may be connected to different servers.
+
+**Redis Pub/Sub** is the most common solution for small to medium scale. Each server subscribes to channels for the rooms it hosts. When a message arrives, the receiving server publishes it to Redis, and all subscribed servers forward it to their local connections. Redis handles roughly 500,000 messages per second on a single instance, which supports millions of concurrent users if message volume per user is moderate.
+
+For larger scale, move to a partitioned message broker like **NATS** or **Kafka**. Partition rooms across broker shards so that each room's messages flow through a single partition, preserving ordering. NATS JetStream provides exactly-once delivery semantics that simplify your application logic — you don't need to deduplicate messages or handle redelivery at the application level.
+
+**Connection routing** determines which server handles each client. The simplest approach is random routing through a load balancer, with Redis Pub/Sub handling fan-out. But this means every message hops through Redis even when sender and receiver are on the same server. For better efficiency, use **sticky routing**: hash the room identifier to a server, and route all participants in that room to the same server. This localizes most fan-out but requires re-routing when servers are added or removed. Consistent hashing minimizes disruption during topology changes.
+
+### Error Handling and Edge Cases
+
+Production real-time systems encounter numerous edge cases that simple prototypes miss. Here are the most important ones to handle.
+
+**Message ordering**: WebSocket guarantees in-order delivery on a single connection, but when messages flow through a broker, ordering can break. Attach monotonic sequence numbers to messages and buffer out-of-order arrivals on the client. If a gap persists for more than two seconds, request a state sync rather than waiting indefinitely.
+
+**Large payloads**: A user pasting an entire log file into a collaborative editor generates a massive operation. Set a maximum message size (typically 1 MB) and split larger operations into chunks. Each chunk references its parent operation and position within the sequence. The receiving end reassembles chunks before applying them.
+
+**Zombie connections**: Sometimes a connection appears alive (no TCP reset) but is actually dead — the network path is broken but neither end has detected it. Server-side heartbeats catch this: if a client doesn't respond to a ping within 10 seconds, terminate the connection. Without this, zombie connections accumulate and waste server resources.
+
+**Split brain**: In partitioned networks, two groups of users might make conflicting changes without seeing each other's updates. When the partition heals, the system must merge divergent states. CRDTs handle this automatically. For OT systems, you need a reconciliation protocol — typically, one side's changes are rebased onto the other side's history, similar to a git rebase.
+
+### Wrapping Up
+
+Building real-time collaborative systems is one of the most challenging areas in application development. The transport layer, state synchronization, presence management, and operational scaling each introduce their own complexities, and they interact in non-obvious ways. Start with the simplest architecture that meets your requirements — authoritative server with WebSocket transport — and add complexity only when you have concrete evidence that you need it. Premature optimization toward CRDTs or custom message brokers wastes engineering time without delivering user-visible improvements.
+
+The most important principle is this: **design for failure**. Networks are unreliable, servers restart, clients go to sleep, and users do unexpected things. A system that handles these gracefully — with automatic reconnection, state recovery, and conflict resolution — will feel magical to users, even if the underlying architecture is straightforward.`,
+  },
   help: {
-    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **help** | This list |\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
+    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **long** / **essay** | Long-form streaming (~1 minute) |\n| **help** | This list |\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
   },
 };
 
 const DEFAULT_RESPONSE: DemoResponse = {
   thinking: "The user sent a message that doesn't match any specific demo trigger. I'll let them know they're in demo mode and suggest what they can try.",
-  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `help` — full command list",
+  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `long` — long-form streaming (~1 minute)\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `help` — full command list",
 };
 
 // ── Match keywords ───────────────────────────────────────────────────────────
@@ -305,6 +388,8 @@ function matchResponse(input: string): DemoResponse {
     return RESPONSES.error;
   if (lower.includes("research") || lower.includes("search") || lower.includes("look up") || lower.includes("find out"))
     return RESPONSES.research;
+  if (lower.includes("long") || lower.includes("essay") || lower.includes("minute"))
+    return RESPONSES.long;
   if (lower.includes("subagent") || lower.includes("sub-agent") || lower.includes("spawn"))
     return RESPONSES.subagent;
   if (lower.includes("agent") || lower.includes("project") || lower.includes("analyze") || lower.includes("review"))

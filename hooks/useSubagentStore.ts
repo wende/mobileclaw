@@ -155,14 +155,35 @@ export function useSubagentStore(): SubagentStore {
   }, []);
 
   const loadFromHistory = useCallback((sessionKey: string, rawMessages: Array<Record<string, unknown>>) => {
+    const existedBefore = storeRef.current.has(sessionKey);
     const session = ensureSession(sessionKey);
     // Only populate if the session is empty (avoid duplicating on re-fetch)
     if (session.entries.length > 0) return;
 
     let hasStopReason = false;
     for (const m of rawMessages) {
-      if (m.role !== "assistant") continue;
       const ts = (m.timestamp as number) || 0;
+
+      // Tool result messages: mark the matching "running" tool entry as done
+      if (m.role === "tool" || m.role === "toolResult" || m.role === "tool_result") {
+        const toolName = (m.name as string) || (m.toolName as string);
+        if (toolName) {
+          let isErr = !!m.isError;
+          if (!isErr && typeof m.content === "string") {
+            try { const p = JSON.parse(m.content); isErr = p?.status === "error" || !!p?.isError; } catch {}
+          }
+          for (let i = session.entries.length - 1; i >= 0; i--) {
+            const e = session.entries[i];
+            if (e.type === "tool" && e.text === toolName && e.toolStatus === "running") {
+              e.toolStatus = isErr ? "error" : "success";
+              break;
+            }
+          }
+        }
+        continue;
+      }
+
+      if (m.role !== "assistant") continue;
       const content = m.content as Array<Record<string, unknown>> | string | null;
       if (m.stopReason) hasStopReason = true;
 
@@ -188,7 +209,19 @@ export function useSubagentStore(): SubagentStore {
       }
     }
 
-    session.status = hasStopReason || session.entries.length === 0 ? "done" : "active";
+    // Determine status:
+    // - stopReason present: definitively done
+    // - entries populated, no stopReason: still active
+    // - entries empty, session is new (pure history load): done (completed empty session)
+    // - entries empty, session existed (from lifecycle:start): keep "active" (subagent just starting)
+    if (hasStopReason) {
+      session.status = "done";
+    } else if (session.entries.length > 0) {
+      session.status = "active";
+    } else if (!existedBefore) {
+      session.status = "done";
+    }
+    // else: keep current status (e.g., "active" from lifecycle:start)
     bump();
   }, []);
 

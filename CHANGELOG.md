@@ -5,6 +5,11 @@ All notable changes to MobileClaw are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Message queue — type while the agent is running; message auto-sends when the run ends
+- QueuePill UI with dismiss button (restores text to input)
+- `/compact` slash command in command palette
+- `hasUnquotedMarker` utility — detects markers outside double-quoted strings (prevents false positives on quoted NO_REPLY text)
+- Demo mode "long"/"essay" keyword for long-form streaming demo
 - Context pills — expandable dark pills on user messages for system-injected context
 - Injected pills — centered expandable pills for heartbeat/no-reply assistant messages
 - Message merging — heartbeat/no-reply messages absorb preceding assistant content
@@ -24,15 +29,26 @@ All notable changes to MobileClaw are documented in this file.
 - `ImageAttachment` type and `chat.abort` WebSocket method
 
 ### Fixed
+- Service worker only registers on non-localhost (prevents dev caching issues)
+- Edit tool pills start expanded when loaded from history (no re-animation)
+- Tool pill expand toggle no longer shows for pills with no visible content
+- Mobile Enter key detection uses `maxTouchPoints` + UA check (more reliable than `ontouchstart`)
+- History enrichment preserves client-side text content (fixes quote-reply newlines lost by server)
+- Session reset detection compares against server message count only (prevents false resets from queued messages)
+- Subagent history tool results now properly mark tool entries as success/error
+- Subagent session status distinguishes new (history-only) vs existing (lifecycle:start) sessions
 - Morph bar animation smoothed with exponential lerp (20% per frame) instead of discrete steps
 - Draft restore moved to `useEffect` to avoid SSR hydration mismatch
 - Removed duplicate `getTextFromContent` in lmStudio.ts (now imported from messageUtils)
 
 ### Changed
+- ChatInput converted to `forwardRef` with imperative `setValue` handle
+- Send button has three crossfading states: stop, queue, send
+- `@treelocator/runtime` bumped to 0.3.1 (lazy-imported in dev)
 - Notification suppression for heartbeat and no-reply messages
 - `toolDisplay.ts` refactored — shared `getFilePath` helper, `parseArgs` exported, tool matching uses `constants.ts` helpers
 - `ToolCallPill` accepts `isPinned`/`onPin`/`onUnpin` props for subagent pinning
-- `ChatInput` accepts `quoteText`, `isRunActive`, `onAbort`, and image attachments
+- `ChatInput` accepts `quoteText`, `isRunActive`, `hasQueued`, `onAbort`, and image attachments
 - `SlideContent` extracted from `ToolCallPill` into standalone component
 - Removed `CommandSheet` integration from page (commands handled inline)
 - Removed mid-stream silence detection timer (replaced by simpler run duration tracking)

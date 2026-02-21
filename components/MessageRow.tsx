@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import type { ContentPart, Message } from "@/types/chat";
 import { getTextFromContent, getImages, thinkingPreview } from "@/lib/messageUtils";
-import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME } from "@/lib/constants";
+import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker } from "@/lib/constants";
 import { useExpandablePanel } from "@/hooks/useExpandablePanel";
 import { SlideContent } from "@/components/SlideContent";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
@@ -80,7 +80,7 @@ function getInjectedSummary(text: string): { type: "heartbeat" | "no_reply" | "i
     const last = sentences?.[sentences.length - 1]?.trim();
     return { type: "heartbeat", summary: "Heartbeat" };
   }
-  if (text.includes(NO_REPLY_MARKER)) {
+  if (hasUnquotedMarker(text, NO_REPLY_MARKER)) {
     const before = text.slice(0, text.indexOf(NO_REPLY_MARKER)).trim();
     const sentences = before.match(/[^.!?\n]+[.!?]?/g);
     const last = sentences?.[sentences.length - 1]?.trim();
@@ -445,7 +445,7 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
   }
 
   // HEARTBEAT_OK / NO_REPLY assistant messages — render as injected pill
-  if (message.role === "assistant" && text && (text.includes(HEARTBEAT_MARKER) || text.includes(NO_REPLY_MARKER))) {
+  if (message.role === "assistant" && text && (text.includes(HEARTBEAT_MARKER) || hasUnquotedMarker(text, NO_REPLY_MARKER))) {
     return <InjectedPill text={text} message={message} subagentStore={subagentStore} />;
   }
 

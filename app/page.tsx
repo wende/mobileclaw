@@ -19,7 +19,7 @@ import type {
   ImageAttachment,
 } from "@/types/chat";
 import { getTextFromContent, getMessageSide, formatMessageTime, updateAt, updateMessageById } from "@/lib/messageUtils";
-import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, GATEWAY_INJECTED_MODEL, WS_HELLO_OK, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME } from "@/lib/constants";
+import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, GATEWAY_INJECTED_MODEL, WS_HELLO_OK, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker } from "@/lib/constants";
 import { requestNotificationPermission, notifyMessageComplete } from "@/lib/notifications";
 import { loadOrCreateDeviceIdentity, signDevicePayload, buildDeviceAuthPayload } from "@/lib/deviceIdentity";
 import { parseBackendModels } from "@/lib/parseBackendModels";
@@ -27,7 +27,7 @@ import { logChatEvent, logAgentEvent } from "@/lib/debugLog";
 import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 
-import { ChatInput } from "@/components/ChatInput";
+import { ChatInput, type ChatInputHandle } from "@/components/ChatInput";
 import { SetupDialog } from "@/components/SetupDialog";
 import { ChatHeader } from "@/components/ChatHeader";
 import { useThinkingState } from "@/hooks/useThinkingState";
@@ -37,6 +37,44 @@ import { useKeyboardLayout } from "@/hooks/useKeyboardLayout";
 import { useTheme } from "@/hooks/useTheme";
 import { useSubagentStore } from "@/hooks/useSubagentStore";
 import { FloatingSubagentPanel } from "@/components/FloatingSubagentPanel";
+
+// ── QueuePill ────────────────────────────────────────────────────────────────
+
+function QueuePill({ text, onDismiss }: { text: string; onDismiss: () => void }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div
+      className="grid transition-[grid-template-rows] duration-200 ease-out mb-2"
+      style={{ gridTemplateRows: mounted ? "1fr" : "0fr" }}
+    >
+      <div className="overflow-hidden min-h-0">
+        <div className="rounded-xl border border-border bg-secondary overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-50">
+              <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
+            </svg>
+            <span className="font-medium shrink-0">Queued</span>
+            <span className="truncate text-muted-foreground/50">{text}</span>
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="shrink-0 ml-auto rounded-full p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
@@ -144,6 +182,11 @@ export default function Home() {
   // Run duration tracking
   const runStartTsRef = useRef<number>(0);
 
+  // ── Message queue (send while agent is running) ─────────────────────────
+  const [queuedMessage, setQueuedMessage] = useState<{ text: string; attachments?: ImageAttachment[] } | null>(null);
+  const queuedMessageRef = useRef<{ text: string; attachments?: ImageAttachment[] } | null>(null);
+  queuedMessageRef.current = queuedMessage;
+
   // ── Quote selection ──────────────────────────────────────────────────────
   const [quoteText, setQuoteText] = useState<string | null>(null);
   const [quotePopup, setQuotePopup] = useState<{ x: number; y: number; text: string } | null>(null);
@@ -247,7 +290,7 @@ export default function Home() {
     );
     const preview = msg ? getTextFromContent(msg.content) : "";
     // Skip notification for silent injected messages
-    if (preview.includes(HEARTBEAT_MARKER) || preview.includes(NO_REPLY_MARKER)) return;
+    if (preview.includes(HEARTBEAT_MARKER) || hasUnquotedMarker(preview, NO_REPLY_MARKER)) return;
     notifyMessageComplete(preview);
   }, []);
 
@@ -523,23 +566,33 @@ export default function Home() {
           .map((m) => norm(getTextFromContent(m.content)))
       );
 
-      // Carry over image parts from optimistic messages to server history
+      // Carry over text + image parts from optimistic messages to server history.
+      // The server may collapse newlines (breaking quote-reply formatting),
+      // so we always prefer the client's original text content.
       const enriched = finalMessages.map((m) => {
         if (m.role !== "user") return m;
         const text = getTextFromContent(m.content);
         const opt = optimisticByNorm.get(norm(text));
         if (!opt || !Array.isArray(opt.content)) return m;
+
+        // Prefer the client's content (preserves original newlines for quote-reply)
+        const optText = (opt.content as ContentPart[]).filter((p) => p.type === "text");
         const optImages = (opt.content as ContentPart[]).filter((p) => p.type === "image_url" || p.type === "image");
-        if (optImages.length === 0) return m;
         const serverImages = Array.isArray(m.content) ? (m.content as ContentPart[]).filter((p) => p.type === "image_url" || p.type === "image") : [];
-        if (serverImages.length > 0) return m; // server already has images
-        const parts = Array.isArray(m.content) ? m.content as ContentPart[] : [{ type: "text" as const, text }];
-        return { ...m, content: [...parts, ...optImages] };
+        const images = serverImages.length > 0 ? serverImages : optImages;
+        const nonTextNonImage = Array.isArray(m.content) ? (m.content as ContentPart[]).filter((p) => p.type !== "text" && p.type !== "image_url" && p.type !== "image") : [];
+
+        if (optText.length === 0 && images.length === 0) return m;
+        return { ...m, content: [...optText, ...nonTextNonImage, ...images] };
       });
 
       // If server history shrank (e.g. /new cleared the session), treat it as
       // a full reset — don't preserve stale optimistic messages.
-      if (finalMessages.length < prev.length) return enriched;
+      // Compare against non-optimistic messages only, so a freshly-queued
+      // user message doesn't trick this into treating a stale history
+      // response as a session reset.
+      const prevServerCount = prev.filter(m => !(m.role === "user" && m.id?.startsWith("u-"))).length;
+      if (finalMessages.length < prevServerCount) return enriched;
 
       const optimistic = prev.filter(
         (m) =>
@@ -699,7 +752,12 @@ export default function Home() {
         subagentStore.clearAll();
         handleUnpinSubagent();
         fetchedSubhistoryRef.current.clear();
-        requestHistory();
+        // Skip history refresh when a queued message is about to be sent —
+        // the stale response could race with the optimistic user message.
+        // The queued message's own run will requestHistory() when it finishes.
+        if (!queuedMessageRef.current) {
+          requestHistory();
+        }
         break;
       }
 
@@ -768,6 +826,7 @@ export default function Home() {
     }
 
     if (payload.stream === "tool") {
+      console.log("[TOOL]", JSON.stringify(payload.data, null, 2));
       const phase = payload.data.phase as string;
       const toolName = payload.data.name as string;
       const rawToolCallId = (payload.data.toolCallId || payload.data.tool_call_id) as string | undefined;
@@ -1378,10 +1437,46 @@ export default function Home() {
     setIsStreaming(true);
   }, [isConnected, isDemoMode, backendMode, sendWS, pinnedToBottomRef, setIsStreaming, setAwaitingResponse, setThinkingStartTime, uploadImages]);
 
-  // ── Abort handler ─────────────────────────────────────────────────────────
+  // ── Send-or-queue wrapper ────────────────────────────────────────────────
   const isRunActive = awaitingResponse || isStreaming;
 
+  const handleSendOrQueue = useCallback((text: string, attachments?: ImageAttachment[]) => {
+    if (isRunActive) {
+      if (!queuedMessageRef.current) {
+        setQueuedMessage({ text, attachments });
+      }
+      return;
+    }
+    sendMessage(text, attachments);
+  }, [isRunActive, sendMessage]);
+
+  // Auto-send queued message when run ends naturally (not via abort)
+  const prevIsRunActiveRef = useRef(false);
+  const abortedWithQueueRef = useRef(false);
+  useEffect(() => {
+    const wasActive = prevIsRunActiveRef.current;
+    prevIsRunActiveRef.current = isRunActive;
+    if (wasActive && !isRunActive && queuedMessageRef.current && !abortedWithQueueRef.current) {
+      const { text, attachments } = queuedMessageRef.current;
+      setQueuedMessage(null);
+      setTimeout(() => sendMessage(text, attachments), 150);
+    }
+    abortedWithQueueRef.current = false;
+  }, [isRunActive, sendMessage]);
+
+  // ── Abort handler ─────────────────────────────────────────────────────────
+
+  const chatInputRef = useRef<ChatInputHandle | null>(null);
+
   const handleAbort = useCallback(() => {
+    // If there's a queued message, restore it to the input instead of auto-sending
+    if (queuedMessageRef.current) {
+      const { text } = queuedMessageRef.current;
+      setQueuedMessage(null);
+      abortedWithQueueRef.current = true;
+      chatInputRef.current?.setValue(text);
+    }
+
     if (backendMode === "lmstudio") {
       lmStudioHandlerRef.current?.stop();
     } else if (backendMode === "demo") {
@@ -1420,7 +1515,7 @@ export default function Home() {
       if (
         msg.role === "assistant" &&
         msgText &&
-        (msgText.includes(HEARTBEAT_MARKER) || msgText.includes(NO_REPLY_MARKER)) &&
+        (msgText.includes(HEARTBEAT_MARKER) || hasUnquotedMarker(msgText, NO_REPLY_MARKER)) &&
         result.length > 0
       ) {
         // Absorb ALL consecutive preceding assistant messages into this one
@@ -1481,7 +1576,7 @@ export default function Home() {
           className="flex-1 overflow-y-auto overflow-x-hidden pt-14"
           style={{ overscrollBehavior: "none" }}
         >
-          <div className={`mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: pinnedSubagent ? "13rem" : "7rem" }}>
+          <div className={`mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: pinnedSubagent ? "13rem" : queuedMessage ? "10rem" : "7rem" }}>
             {displayMessages.map((msg, idx) => {
               const side = getMessageSide(msg.role);
               const prevSide = idx > 0 ? getMessageSide(displayMessages[idx - 1].role) : null;
@@ -1570,8 +1665,17 @@ export default function Home() {
               />
             </div>
           )}
+          {queuedMessage && (
+            <div style={{ paddingLeft: "calc(48px * (1 - var(--sp, 0)))", paddingRight: "calc(48px * (1 - var(--sp, 0)))" } as React.CSSProperties}>
+              <QueuePill text={queuedMessage.text} onDismiss={() => {
+                chatInputRef.current?.setValue(queuedMessage.text);
+                setQueuedMessage(null);
+              }} />
+            </div>
+          )}
           <ChatInput
-            onSend={sendMessage}
+            ref={chatInputRef}
+            onSend={handleSendOrQueue}
             scrollPhase={scrollPhase}
             onScrollToBottom={scrollToBottom}
             availableModels={availableModels}
@@ -1581,6 +1685,7 @@ export default function Home() {
             quoteText={quoteText}
             onClearQuote={() => setQuoteText(null)}
             isRunActive={isRunActive}
+            hasQueued={!!queuedMessage}
             onAbort={handleAbort}
           />
         </div>

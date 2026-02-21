@@ -1,11 +1,10 @@
 "use client";
 import { useEffect } from "react";
-import setupLocatorUI from "@treelocator/runtime";
 
 export function LocatorProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (process.env.NODE_ENV === "development") {
-      setupLocatorUI();
+      import("@treelocator/runtime").then((m) => m.default());
     }
   }, []);
   return <>{children}</>;

@@ -84,3 +84,23 @@ Used by both `InjectedPill` and `ContextPill`. Solves the problem of smoothly an
 ## Notification Suppression
 
 `notifyForRun` in `page.tsx` returns early (no push notification) when the message text contains `HEARTBEAT_OK` or `NO_REPLY`.
+
+## Morph Bar Side Buttons — `--sp` Collapse Fix (`ChatInput.tsx`)
+
+The send/stop/queue button was rewritten to support three crossfading faces (stop, queue, send). The new version used fixed `w-10 h-10` and Tailwind `opacity-*` classes, losing the `--sp`-based collapse that the old button had. This left the button visually stuck at 40×40 in pill mode.
+
+### Fix: restore `--sp`-driven sizing
+
+Both the image picker and send button now use inline styles for width/height/opacity driven by `--sp`:
+```css
+width: calc(40px * (1 - var(--sp, 0)));
+height: calc(40px * (1 - var(--sp, 0)));
+opacity: max(0, 1 - var(--sp, 0) * 2.5);  /* active state */
+opacity: max(0, (1 - var(--sp, 0) * 2.5) * 0.3);  /* disabled state */
+```
+
+### Transition choice: `transition-[opacity]` not `transition-all`
+
+Initially used `transition-all duration-200` on both buttons for a smooth delayed fade. This caused a layout jitter: width/height lagged behind `--sp`, so the side buttons occupied flex space longer than expected, squeezing the center textarea/pill div, which then snapped wider when the buttons finally collapsed.
+
+Fix: use `transition-[opacity] duration-200` — only opacity gets the smooth 200ms transition (nice delayed fade after morph settles), while width/height follow `--sp` instantly (no flex layout disruption).
