@@ -131,7 +131,7 @@ export function useScrollManager(
     el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  // ResizeObserver: catch content-height changes from StreamingText typewriter, etc.
+  // ResizeObserver: catch content-height changes when NOT streaming (e.g. images loading).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -147,6 +147,31 @@ export function useScrollManager(
     ro.observe(content);
     return () => ro.disconnect();
   }, []);
+
+  // rAF loop: during streaming, continuously pin scroll to bottom.
+  // SmoothGrow uses explicit height + CSS transition which delays scrollHeight
+  // updates by ~150ms. The ResizeObserver on the content div only fires once
+  // SmoothGrow's transition propagates, so tool call pills (which add height
+  // in a single jump) can appear below the viewport before the scroll catches up.
+  // This loop checks every frame and scrolls immediately, costing only a few
+  // ref reads per frame when idle.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let id: number;
+    const tick = () => {
+      if (
+        (pinnedToBottomRef.current || scrollGraceRef.current) &&
+        (isStreamingRef.current || scrollGraceRef.current) &&
+        el.scrollHeight > el.clientHeight
+      ) {
+        el.scrollTop = el.scrollHeight;
+      }
+      id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [isStreamingRef]);
 
   // Unpin auto-scroll when user actively scrolls up (wheel or touch)
   useEffect(() => {

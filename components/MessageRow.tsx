@@ -49,6 +49,15 @@ function stripThinkTags(raw: string): { thinking: string; text: string } {
   return { thinking: thinking.trim(), text: text.trim() };
 }
 
+/** Strip outermost <final>...</final> wrapper if the entire text is wrapped in it. */
+function stripFinalTags(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("<final>") && trimmed.endsWith("</final>")) {
+    return trimmed.slice("<final>".length, -"</final>".length).trim();
+  }
+  return text;
+}
+
 // ── InjectedPill — expandable context pill for injected assistant messages ──
 
 const INJECTED_ICON_CLS = "shrink-0 opacity-50";
@@ -485,7 +494,8 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
                 return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status as "running" | "success" | "error" | undefined} result={part.result} resultError={part.resultError} toolCallId={part.toolCallId} subagentStore={isSpawn ? subagentStore : undefined} isPinned={isSpawn && !!part.toolCallId && part.toolCallId === pinnedToolCallId} onPin={isSpawn ? onPin : undefined} onUnpin={isSpawn ? onUnpin : undefined} />;
               }
               if (part.type === "text" && part.text) {
-                const { thinking: extractedThinking, text: cleanText } = stripThinkTags(part.text);
+                const { thinking: extractedThinking, text: rawCleanText } = stripThinkTags(part.text);
+                const cleanText = stripFinalTags(rawCleanText);
                 const remainingParts = (message.content as ContentPart[]).slice(i + 1);
                 const isLastText = !remainingParts.some((p) => p.type === "text" && p.text);
                 // Hide cursor if tool call or thinking appears after this text
@@ -513,7 +523,8 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
               }
               return null;
             }) : text ? (() => {
-              const { thinking: extractedThinking, text: cleanText } = stripThinkTags(text);
+              const { thinking: extractedThinking, text: rawCleanText } = stripThinkTags(text);
+              const cleanText = stripFinalTags(rawCleanText);
               return (
                 <>
                   {extractedThinking && !hasThinkingParts && !message.reasoning && (

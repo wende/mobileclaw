@@ -13,7 +13,7 @@ export const viewport = {
 }
 
 export const metadata: Metadata = {
-  title: 'OpenClaw Chat',
+  title: 'MobileClaw',
   description: 'A minimal, animated chat interface with real-time streaming',
   generator: 'v0.app',
   manifest: '/manifest.json',
