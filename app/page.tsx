@@ -22,7 +22,8 @@ import { getTextFromContent, getMessageSide, formatMessageTime, updateAt, update
 import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, GATEWAY_INJECTED_MODEL, WS_HELLO_OK, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker } from "@/lib/constants";
 import { requestNotificationPermission, notifyMessageComplete } from "@/lib/notifications";
 import { loadOrCreateDeviceIdentity, signDevicePayload, buildDeviceAuthPayload } from "@/lib/deviceIdentity";
-import { parseBackendModels } from "@/lib/parseBackendModels";
+import { parseConfigProviders, mergeModels } from "@/lib/parseBackendModels";
+import type { ConfigParseResult } from "@/lib/parseBackendModels";
 import { logChatEvent, logAgentEvent } from "@/lib/debugLog";
 import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
@@ -320,18 +321,19 @@ export default function Home() {
     });
   }, [sendWS]);
 
-  /** Fetch configured models from OpenClaw gateway config. */
+  /** Fetch configured models from OpenClaw gateway.
+   *  Sends both config.get (for configured provider keys) and models.list (for full catalog),
+   *  then intersects them so only configured providers appear. */
+  const configResultRef = useRef<ConfigParseResult | null>(null);
+  const modelsCatalogRef = useRef<any[] | null>(null);
   const fetchModels = useCallback(() => {
     if (backendMode !== "openclaw") return;
     if (modelsRequestedRef.current) return;
     modelsRequestedRef.current = true;
     setModelsLoading(true);
-    sendWS({
-      type: "req",
-      id: `config-models-${Date.now()}`,
-      method: "config.get",
-      params: {},
-    });
+    const ts = Date.now();
+    sendWS({ type: "req", id: `config-providers-${ts}`, method: "config.get", params: {} });
+    sendWS({ type: "req", id: `models-catalog-${ts}`, method: "models.list", params: {} });
   }, [sendWS, backendMode]);
 
   /** Ensure a streaming assistant message exists for `runId`, creating one if needed. */
@@ -418,6 +420,8 @@ export default function Home() {
   const handleHelloOk = useCallback((resPayload: Record<string, unknown>) => {
     markEstablishedRef.current?.();
     modelsRequestedRef.current = false;
+    configResultRef.current = null;
+    modelsCatalogRef.current = null;
     setModelsLoading(false);
     setAvailableModels([]);
     const server = resPayload.server as Record<string, unknown> | undefined;
@@ -987,11 +991,35 @@ export default function Home() {
         return;
       }
       if (msg.ok && msg.id?.startsWith("history-") && resPayload?.messages) return handleHistoryResponse(resPayload);
-      if (msg.id?.startsWith("config-models-")) {
-        setModelsLoading(false);
+      if (msg.id?.startsWith("config-providers-")) {
         if (msg.ok && resPayload) {
-          const models = parseBackendModels(resPayload);
-          setAvailableModels(models);
+          const result = parseConfigProviders(resPayload);
+          configResultRef.current = result;
+          if (result.authOnlyProviders.size === 0) {
+            // No auth-only providers — explicit models are sufficient, no need to wait for catalog
+            setAvailableModels(result.explicitModels);
+            setModelsLoading(false);
+          } else if (modelsCatalogRef.current) {
+            setAvailableModels(mergeModels(result, modelsCatalogRef.current));
+            setModelsLoading(false);
+          }
+        } else {
+          configResultRef.current = null;
+          setModelsLoading(false);
+        }
+        return;
+      }
+      if (msg.id?.startsWith("models-catalog-")) {
+        if (msg.ok && resPayload) {
+          const catalog = Array.isArray(resPayload.models) ? resPayload.models : [];
+          modelsCatalogRef.current = catalog;
+          if (configResultRef.current) {
+            setAvailableModels(mergeModels(configResultRef.current, catalog));
+            setModelsLoading(false);
+          }
+        } else {
+          modelsCatalogRef.current = null;
+          setModelsLoading(false);
         }
         return;
       }
@@ -1450,6 +1478,11 @@ export default function Home() {
     sendMessage(text, attachments);
   }, [isRunActive, sendMessage]);
 
+  // Dynamic tab title — show "Thinking…" while run is active
+  useEffect(() => {
+    document.title = isRunActive ? "Thinking… — MobileClaw" : "MobileClaw";
+  }, [isRunActive]);
+
   // Auto-send queued message when run ends naturally (not via abort)
   const prevIsRunActiveRef = useRef(false);
   const abortedWithQueueRef = useRef(false);
@@ -1687,6 +1720,14 @@ export default function Home() {
             isRunActive={isRunActive}
             hasQueued={!!queuedMessage}
             onAbort={handleAbort}
+            lastUserMessage={(() => {
+              for (let i = messages.length - 1; i >= 0; i--) {
+                if (messages[i].role === "user" && !messages[i].isContext) {
+                  return getTextFromContent(messages[i].content);
+                }
+              }
+              return "";
+            })()}
           />
         </div>
       </div>

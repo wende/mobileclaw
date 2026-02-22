@@ -31,6 +31,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   isRunActive?: boolean;
   hasQueued?: boolean;
   onAbort?: () => void;
+  lastUserMessage?: string;
 }>(function ChatInput({
   onSend,
   scrollPhase = "input",
@@ -44,6 +45,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   isRunActive = false,
   hasQueued = false,
   onAbort,
+  lastUserMessage = "",
 }, forwardedRef) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -154,7 +156,6 @@ export const ChatInput = forwardRef<ChatInputHandle, {
             ? `${m.provider} · ${Math.round(m.contextWindow / 1000)}k context${m.reasoning ? " · reasoning" : ""}`
             : m.provider,
         }))
-        .slice(0, 10)
     : [];
 
   // Compute matching commands when value starts with /
@@ -268,6 +269,12 @@ export const ChatInput = forwardRef<ChatInputHandle, {
         return;
       }
     } else {
+      // ArrowUp with empty input recalls the last sent message
+      if (e.key === "ArrowUp" && !value && lastUserMessage) {
+        e.preventDefault();
+        setValue(lastUserMessage);
+        return;
+      }
       // On mobile/touch devices, Enter inserts a newline — only the send button submits.
       // On desktop, Enter submits (Shift+Enter for newline).
       const isMobile = navigator.maxTouchPoints > 0 && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
