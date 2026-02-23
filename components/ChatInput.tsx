@@ -5,7 +5,7 @@ import { ALL_COMMANDS, type Command } from "@/components/CommandSheet";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import type { ModelChoice, ImageAttachment } from "@/types/chat";
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB (litterbox allows up to 1GB)
 
 export interface ModelSuggestion {
   id: string;
@@ -72,7 +72,6 @@ export const ChatInput = forwardRef<ChatInputHandle, {
 
   const addFiles = useCallback((files: FileList | File[]) => {
     Array.from(files).forEach((file) => {
-      if (!file.type.startsWith("image/")) return;
       if (file.size > MAX_FILE_SIZE) return;
       const reader = new FileReader();
       reader.onload = () => {
@@ -294,7 +293,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="*/*"
         multiple
         className="hidden"
         onChange={(e) => {
@@ -397,10 +396,10 @@ export const ChatInput = forwardRef<ChatInputHandle, {
           minWidth: 0,
           pointerEvents: isPill ? "none" : "auto",
         } as React.CSSProperties}
-        aria-label="Attach image"
+        aria-label="Attach file"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect width="18" height="18" x="3" y="3" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+          <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
         </svg>
       </button>
 
@@ -427,25 +426,37 @@ export const ChatInput = forwardRef<ChatInputHandle, {
               pointerEvents: isPill ? "none" : "auto",
             } as React.CSSProperties}
           >
-            {attachments.map((att, i) => (
-              <div key={att.previewUrl} className="relative shrink-0 h-10 w-10 rounded-lg overflow-hidden border border-border bg-secondary">
-                <img
-                  src={att.previewUrl}
-                  alt={att.fileName}
-                  className="h-full w-full object-cover cursor-pointer"
-                  onClick={() => setLightboxSrc(att.previewUrl)}
-                />
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(i)}
-                  className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-background/80 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-                  </svg>
-                </button>
-              </div>
-            ))}
+            {attachments.map((att, i) => {
+              const isImage = att.mimeType.startsWith("image/");
+              return (
+                <div key={att.previewUrl} className={`relative shrink-0 rounded-lg overflow-hidden border border-border bg-secondary ${isImage ? "h-10 w-10" : "h-10 flex items-center gap-1.5 px-2.5"}`}>
+                  {isImage ? (
+                    <img
+                      src={att.previewUrl}
+                      alt={att.fileName}
+                      className="h-full w-full object-cover cursor-pointer"
+                      onClick={() => setLightboxSrc(att.previewUrl)}
+                    />
+                  ) : (
+                    <>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted-foreground">
+                        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" />
+                      </svg>
+                      <span className="max-w-[120px] truncate text-xs text-muted-foreground">{att.fileName}</span>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(i)}
+                    className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-background/80 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -503,7 +514,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
             onKeyDown={handleKeyDown}
             onPaste={(e) => {
               const files = Array.from(e.clipboardData.items)
-                .filter((item) => item.type.startsWith("image/"))
+                .filter((item) => item.kind === "file")
                 .map((item) => item.getAsFile())
                 .filter((f): f is File => f !== null);
               if (files.length > 0) {

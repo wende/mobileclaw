@@ -32,23 +32,9 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
  *  - The document is not currently visible (user tabbed away / locked phone)
  */
 export function notifyMessageComplete(messagePreview: string): void {
-  console.log("[notify] notifyMessageComplete called, preview:", messagePreview.slice(0, 50));
-  console.log("[notify] supported:", notificationsSupported());
-  console.log("[notify] permission:", typeof Notification !== "undefined" ? Notification.permission : "N/A");
-  console.log("[notify] visibilityState:", document.visibilityState);
-
-  if (!notificationsSupported()) {
-    console.log("[notify] BAIL: notifications not supported");
-    return;
-  }
-  if (Notification.permission !== "granted") {
-    console.log("[notify] BAIL: permission not granted");
-    return;
-  }
-  if (document.visibilityState === "visible") {
-    console.log("[notify] BAIL: document is visible (skipping for now)");
-    // Still proceed for debugging — remove this comment block once confirmed working
-  }
+  if (!notificationsSupported()) return;
+  if (Notification.permission !== "granted") return;
+  if (document.visibilityState === "visible") return;
 
   const title = "MobileClaw";
   const body = messagePreview.length > 120
@@ -56,15 +42,12 @@ export function notifyMessageComplete(messagePreview: string): void {
     : messagePreview;
 
   try {
-    console.log("[notify] Attempting new Notification(...)");
     const notification = new Notification(title, {
       body: body || "Agent finished responding",
       tag: "mobileclaw-message",
       icon: "/apple-icon.png",
     });
-    console.log("[notify] Notification created successfully");
 
-    // Bring the app to focus when tapped
     notification.onclick = () => {
       try {
         window.focus();
@@ -73,7 +56,7 @@ export function notifyMessageComplete(messagePreview: string): void {
       }
       notification.close();
     };
-  } catch (err) {
-    console.error("[notify] Notification constructor threw:", err);
+  } catch {
+    // Notification constructor can throw in restrictive environments
   }
 }

@@ -28,6 +28,13 @@ All notable changes to MobileClaw are documented in this file.
 - `/compact` command label shown in thinking indicator and tab title
 - Persist run-active state across page refresh
 - Server-echoed user messages and system-injected context handling
+- File uploads switched from catbox.moe (permanent) to Litterbox (temporary, 72h expiry)
+- Attachment picker accepts all file types (was image-only); non-image files show as named pills
+- Attach button icon changed from image to paperclip
+- Upload size limit raised to 50MB (was 5MB)
+- Native `attachments` field sent alongside URL text for vision-capable models
+- Notifications only fire when app is backgrounded (visibility check was bypassed by debug code)
+- Notifications suppressed for slash command and injected responses
 
 ## 2026-02-22
 

@@ -16,9 +16,9 @@ describe("ChatInput", () => {
     expect(screen.getByPlaceholderText("Send a message...")).toBeInTheDocument();
   });
 
-  it("renders image picker button", () => {
+  it("renders file picker button", () => {
     render(<ChatInput {...defaultProps} />);
-    expect(screen.getByLabelText("Attach image")).toBeInTheDocument();
+    expect(screen.getByLabelText("Attach file")).toBeInTheDocument();
   });
 
   it("renders send button", () => {

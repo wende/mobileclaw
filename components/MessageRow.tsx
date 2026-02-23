@@ -82,7 +82,7 @@ function InjectedIcon({ type }: { type: "heartbeat" | "no_reply" | "info" }) {
 }
 
 function getInjectedSummary(text: string): { type: "heartbeat" | "no_reply" | "info"; summary: string } {
-  if (hasHeartbeatOnOwnLine(text)) {
+  if (text.includes(HEARTBEAT_MARKER)) {
     // Last sentence before HEARTBEAT_OK
     const before = text.slice(0, text.indexOf(HEARTBEAT_MARKER)).trim();
     const sentences = before.match(/[^.!?\n]+[.!?]?/g);

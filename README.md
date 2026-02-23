@@ -72,6 +72,7 @@ Run local models with full chat UI support. Auto-fetches available models, parse
 - **Dark mode** — automatic theme switching via CSS custom properties
 - **Mobile-first** — optimized for iOS Safari with viewport fixes and smooth scroll animations
 - **Demo mode** — fully functional without a backend server
+- **File & image uploads** — attach any file type; uploaded via [Litterbox](https://litterbox.catbox.moe/) (temporary hosting, 72h expiry). Litterbox is a free community service — [consider donating](https://ko-fi.com/catboxmoe)
 - **Push notifications** — get notified when the agent finishes responding
 
 <br />

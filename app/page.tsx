@@ -307,7 +307,10 @@ export default function Home() {
     const msg = messagesRef.current.find(
       (m) => m.id === runId && m.role === "assistant"
     );
-    const preview = msg ? getTextFromContent(msg.content) : "";
+    if (!msg) return;
+    // Skip notification for injected/command responses
+    if (msg.isCommandResponse || msg.stopReason === STOP_REASON_INJECTED) return;
+    const preview = getTextFromContent(msg.content);
     // Skip notification for silent injected messages
     if (hasHeartbeatOnOwnLine(preview) || hasUnquotedMarker(preview, NO_REPLY_MARKER)) return;
     notifyMessageComplete(preview);
@@ -485,7 +488,7 @@ export default function Home() {
         let isContext = false;
         if (m.role === "user" && Array.isArray(filteredContent)) {
           const tp = filteredContent.find((p) => p.type === "text" && p.text);
-          if (tp?.text && typeof tp.text === "string" && (tp.text.startsWith(SYSTEM_PREFIX) || tp.text.startsWith(SYSTEM_MESSAGE_PREFIX) || hasHeartbeatOnOwnLine(tp.text))) isContext = true;
+          if (tp?.text && typeof tp.text === "string" && (tp.text.startsWith(SYSTEM_PREFIX) || tp.text.startsWith(SYSTEM_MESSAGE_PREFIX) || tp.text.includes(HEARTBEAT_MARKER))) isContext = true;
         }
 
         const isGatewayInjected = m.model === GATEWAY_INJECTED_MODEL;
@@ -1435,8 +1438,8 @@ export default function Home() {
 
   // ── Send message ──────────────────────────────────────────────────────────
 
-  /** Upload images to 0x0.st via our proxy, returns public URLs. */
-  const uploadImages = useCallback(async (attachments: ImageAttachment[]): Promise<string[]> => {
+  /** Upload files to litterbox via our proxy, returns public URLs (72h expiry). */
+  const uploadFiles = useCallback(async (attachments: ImageAttachment[]): Promise<string[]> => {
     const results = await Promise.allSettled(
       attachments.map(async (a) => {
         const res = await fetch("/api/upload", {
@@ -1465,11 +1468,13 @@ export default function Home() {
     requestNotificationPermission();
     pinnedToBottomRef.current = true;
 
-    // Show user message immediately with local image previews
+    // Show user message immediately with local previews
     const contentParts: ContentPart[] = [{ type: "text", text }];
     if (attachments?.length) {
       for (const a of attachments) {
-        contentParts.push({ type: "image_url", image_url: { url: `data:${a.mimeType};base64,${a.content}` } });
+        if (a.mimeType.startsWith("image/")) {
+          contentParts.push({ type: "image_url", image_url: { url: `data:${a.mimeType};base64,${a.content}` } });
+        }
       }
     }
 
@@ -1485,18 +1490,23 @@ export default function Home() {
       setMessages((prev) => [...prev, userMsg]);
     }
 
-    // Upload images in parallel, build message text with public URLs
+    // Upload attachments to litterbox (temporary hosting, 72h expiry) and
+    // include the public URLs in the message text so the agent can fetch them.
+    // Also send as native `attachments` for vision-capable models.
     let messageText = text;
+    let nativeAttachments: { mimeType: string; fileName: string; content: string }[] | undefined;
     if (attachments?.length) {
-      const urls = await uploadImages(attachments);
-      console.log("[Image upload]", urls.length ? urls : "no URLs returned (upload may have failed)");
+      const urls = await uploadFiles(attachments);
       if (urls.length > 0) {
         const urlLines = urls.map((url) => url).join("\n");
         messageText = text ? `${text}\n\n${urlLines}` : urlLines;
       }
-    }
-    if (messageText !== text) {
-      console.log("[Send] message text with images:", messageText);
+      // Also send as native attachments for models with vision support
+      nativeAttachments = attachments.map((a) => ({
+        mimeType: a.mimeType,
+        fileName: a.fileName,
+        content: a.content,
+      }));
     }
 
     // Demo mode
@@ -1539,11 +1549,12 @@ export default function Home() {
         message: messageText,
         deliver: true,
         idempotencyKey: runId,
+        ...(nativeAttachments?.length ? { attachments: nativeAttachments } : {}),
       },
     });
 
     setIsStreaming(true);
-  }, [isConnected, isDemoMode, backendMode, sendWS, pinnedToBottomRef, setIsStreaming, setAwaitingResponse, setThinkingStartTime, uploadImages]);
+  }, [isConnected, isDemoMode, backendMode, sendWS, pinnedToBottomRef, setIsStreaming, setAwaitingResponse, setThinkingStartTime, uploadFiles]);
 
   // ── Send-or-queue wrapper ────────────────────────────────────────────────
   const isRunActive = awaitingResponse || isStreaming;
