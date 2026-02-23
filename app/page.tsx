@@ -19,7 +19,7 @@ import type {
   ImageAttachment,
 } from "@/types/chat";
 import { getTextFromContent, getMessageSide, formatMessageTime, updateAt, updateMessageById } from "@/lib/messageUtils";
-import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, GATEWAY_INJECTED_MODEL, WS_HELLO_OK, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker } from "@/lib/constants";
+import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, GATEWAY_INJECTED_MODEL, WS_HELLO_OK, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine } from "@/lib/constants";
 import { requestNotificationPermission, notifyMessageComplete } from "@/lib/notifications";
 import { loadOrCreateDeviceIdentity, signDevicePayload, buildDeviceAuthPayload } from "@/lib/deviceIdentity";
 import { parseConfigProviders, mergeModels } from "@/lib/parseBackendModels";
@@ -291,7 +291,7 @@ export default function Home() {
     );
     const preview = msg ? getTextFromContent(msg.content) : "";
     // Skip notification for silent injected messages
-    if (preview.includes(HEARTBEAT_MARKER) || hasUnquotedMarker(preview, NO_REPLY_MARKER)) return;
+    if (hasHeartbeatOnOwnLine(preview) || hasUnquotedMarker(preview, NO_REPLY_MARKER)) return;
     notifyMessageComplete(preview);
   }, []);
 
@@ -467,7 +467,7 @@ export default function Home() {
         let isContext = false;
         if (m.role === "user" && Array.isArray(filteredContent)) {
           const tp = filteredContent.find((p) => p.type === "text" && p.text);
-          if (tp?.text && typeof tp.text === "string" && (tp.text.startsWith(SYSTEM_PREFIX) || tp.text.startsWith(SYSTEM_MESSAGE_PREFIX) || tp.text.includes(HEARTBEAT_MARKER))) isContext = true;
+          if (tp?.text && typeof tp.text === "string" && (tp.text.startsWith(SYSTEM_PREFIX) || tp.text.startsWith(SYSTEM_MESSAGE_PREFIX) || hasHeartbeatOnOwnLine(tp.text))) isContext = true;
         }
 
         const isGatewayInjected = m.model === GATEWAY_INJECTED_MODEL;
@@ -1548,7 +1548,7 @@ export default function Home() {
       if (
         msg.role === "assistant" &&
         msgText &&
-        (msgText.includes(HEARTBEAT_MARKER) || hasUnquotedMarker(msgText, NO_REPLY_MARKER)) &&
+        (hasHeartbeatOnOwnLine(msgText) || hasUnquotedMarker(msgText, NO_REPLY_MARKER)) &&
         result.length > 0
       ) {
         // Absorb ALL consecutive preceding assistant messages into this one
