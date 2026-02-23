@@ -85,6 +85,7 @@ export default function Home() {
   const [isStreaming, _setIsStreaming] = useState(false);
   const isStreamingRef = useRef(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
+  const [sentAnimId, setSentAnimId] = useState<string | null>(null);
 
   // Sync ref immediately so scroll/wheel handlers see the correct value
   // without waiting for React's async render cycle.
@@ -519,6 +520,36 @@ export default function Home() {
         }
       }
     }
+    // Normalize tool call parts from server history:
+    // - Set status to "running" for tool calls without results (server doesn't send status)
+    // - Normalize toolCallId from server field names (id, tool_call_id)
+    // - Stringify non-string arguments
+    for (const hm of historyMessages) {
+      if (hm.role !== "assistant" || !Array.isArray(hm.content)) continue;
+      for (const part of hm.content as ContentPart[]) {
+        if (!isToolCallPart(part) && part.name) {
+          // Server may send "tool_use" type — normalize to "tool_call"
+          (part as ContentPart).type = "tool_call";
+        }
+        if (isToolCallPart(part)) {
+          if (!part.result && !part.status) part.status = "running";
+          // Normalize toolCallId from various server field names
+          if (!part.toolCallId) {
+            const p = part as Record<string, unknown>;
+            const id = (p.tool_call_id || p.id) as string | undefined;
+            if (id) part.toolCallId = id;
+          }
+          // Normalize arguments from server field names
+          if (!part.arguments) {
+            const p = part as Record<string, unknown>;
+            if (p.input) part.arguments = typeof p.input === "string" ? p.input : JSON.stringify(p.input);
+          } else if (typeof part.arguments !== "string") {
+            part.arguments = JSON.stringify(part.arguments);
+          }
+        }
+      }
+    }
+
     const finalMessages = historyMessages.filter((m) => !m.id || !mergedIds.has(m.id));
 
     // Extract model from history
@@ -723,7 +754,25 @@ export default function Home() {
               });
             }
             if (msg.role === "user") {
-              return prev;
+              // Check if this is an echo of the user's own optimistic message
+              const newText = typeof msg.content === "string"
+                ? msg.content
+                : getTextFromContent(msg.content);
+              const norm = (t: string) => t.replace(/\s+/g, " ").trim();
+              const normNew = norm(newText);
+              const isDuplicate = prev.some(
+                (m) => m.role === "user" && norm(getTextFromContent(m.content)) === normNew
+              );
+              if (isDuplicate) return prev;
+              // Server-injected system message — add it with isContext flag
+              const isCtx = !!(newText && (newText.startsWith(SYSTEM_PREFIX) || newText.startsWith(SYSTEM_MESSAGE_PREFIX) || newText.includes(HEARTBEAT_MARKER)));
+              return [...prev, {
+                role: "user",
+                content: newContent,
+                id: payload.runId,
+                timestamp: msg.timestamp,
+                isContext: isCtx,
+              } as Message];
             }
             setStreamingId(payload.runId);
             return [...prev, {
@@ -1389,8 +1438,11 @@ export default function Home() {
       .filter((url): url is string => !!url);
   }, []);
 
+  const lastCommandRef = useRef<string | null>(null);
+
   const sendMessage = useCallback(async (text: string, attachments?: ImageAttachment[]) => {
     console.log("[sendMessage]", { text: text.slice(0, 50), attachments: attachments?.length ?? 0 });
+    lastCommandRef.current = text.trim().startsWith("/") ? text.trim().split(/\s/)[0].toLowerCase() : null;
     requestNotificationPermission();
     pinnedToBottomRef.current = true;
 
@@ -1403,6 +1455,7 @@ export default function Home() {
     }
 
     const userMsg: Message = { role: "user", content: contentParts, id: `u-${Date.now()}`, timestamp: Date.now() };
+    setSentAnimId(userMsg.id!);
     setMessages((prev) => [...prev, userMsg]);
 
     // Upload images in parallel, build message text with public URLs
@@ -1478,9 +1531,21 @@ export default function Home() {
     sendMessage(text, attachments);
   }, [isRunActive, sendMessage]);
 
+  const thinkingLabel = isRunActive && lastCommandRef.current === "/compact" ? "Compacting" : undefined;
+
   // Dynamic tab title — show "Thinking…" while run is active
   useEffect(() => {
-    document.title = isRunActive ? "Thinking… — MobileClaw" : "MobileClaw";
+    if (!isRunActive) { document.title = "MobileClaw"; return; }
+    document.title = lastCommandRef.current === "/compact" ? "Compacting… — MobileClaw" : "Thinking… — MobileClaw";
+  }, [isRunActive]);
+
+  // Persist run-active state so "Thinking..." shows immediately after refresh
+  useEffect(() => {
+    const save = () => {
+      try { sessionStorage.setItem("mc-run-active", isRunActive ? "1" : "0"); } catch {}
+    };
+    window.addEventListener("beforeunload", save);
+    return () => window.removeEventListener("beforeunload", save);
   }, [isRunActive]);
 
   // Auto-send queued message when run ends naturally (not via abort)
@@ -1609,7 +1674,7 @@ export default function Home() {
           className="flex-1 overflow-y-auto overflow-x-hidden pt-14"
           style={{ overscrollBehavior: "none" }}
         >
-          <div className={`mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: pinnedSubagent ? "13rem" : queuedMessage ? "10rem" : "7rem" }}>
+          <div className={`mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: pinnedSubagent ? "16rem" : queuedMessage ? "13rem" : "10rem" }}>
             {displayMessages.map((msg, idx) => {
               const side = getMessageSide(msg.role);
               const prevSide = idx > 0 ? getMessageSide(displayMessages[idx - 1].role) : null;
@@ -1636,13 +1701,16 @@ export default function Home() {
                       )}
                     </p>
                   )}
-                  <div>
+                  <div
+                    style={msg.id === sentAnimId ? { animation: "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both", transformOrigin: "bottom right" } : undefined}
+                    onAnimationEnd={msg.id === sentAnimId ? () => setSentAnimId(null) : undefined}
+                  >
                     <MessageRow message={msg} isStreaming={isStreaming && msg.id === streamingId} subagentStore={subagentStore} pinnedToolCallId={pinnedSubagent?.toolCallId} onPin={handlePinSubagent} onUnpin={handleUnpinSubagent} />
                   </div>
                 </React.Fragment>
               );
             })}
-            <ThinkingIndicator visible={isRunActive} startTime={thinkingStartTime ?? undefined} />
+            <ThinkingIndicator visible={isRunActive} startTime={thinkingStartTime ?? undefined} label={thinkingLabel} />
             <div ref={bottomRef} />
           </div>
         </main>

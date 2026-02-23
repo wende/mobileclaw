@@ -137,7 +137,7 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
     };
   }, [isStreaming]);
 
-  // Fade cursor after 3s of no movement
+  // Fade cursor after 1s of no movement
   useEffect(() => {
     if (!isStreaming) {
       setCursorStale(false);
@@ -145,7 +145,7 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
     }
     setCursorStale(false);
     if (staleTimerRef.current) clearTimeout(staleTimerRef.current);
-    staleTimerRef.current = setTimeout(() => setCursorStale(true), 3000);
+    staleTimerRef.current = setTimeout(() => setCursorStale(true), 1000);
     return () => {
       if (staleTimerRef.current) clearTimeout(staleTimerRef.current);
     };

@@ -66,7 +66,9 @@ export const DEMO_HISTORY: Message[] = [
 console.log("Hello from MobileClaw!");
 \`\`\`
 
-You're absolutely right!`,
+You're absolutely right!
+
+Run **/help** to discover all the features.`,
       },
     ],
     timestamp: BASE_TS + 5_000,
@@ -93,6 +95,7 @@ interface DemoResponse {
     subagentActivity?: SubagentActivity;
   }[];
   text: string;
+  delayMs?: number; // Extra delay before text starts (e.g. for /compact simulation)
 }
 
 const RESPONSES: Record<string, DemoResponse> = {
@@ -360,20 +363,26 @@ Building real-time collaborative systems is one of the most challenging areas in
 
 The most important principle is this: **design for failure**. Networks are unreliable, servers restart, clients go to sleep, and users do unexpected things. A system that handles these gracefully — with automatic reconnection, state recovery, and conflict resolution — will feel magical to users, even if the underlying architecture is straightforward.`,
   },
+  compact: {
+    text: "Conversation compacted. Reduced from **47 messages** (12,840 tokens) to **summary + last 5 messages** (2,160 tokens). Context savings: **83%**.",
+    delayMs: 5000,
+  },
   help: {
-    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **long** / **essay** | Long-form streaming (~1 minute) |\n| **help** | This list |\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
+    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **long** / **essay** | Long-form streaming (~1 minute) |\n| **/compact** | Compacting animation (5s) |\n| **help** | This list |\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
   },
 };
 
 const DEFAULT_RESPONSE: DemoResponse = {
   thinking: "The user sent a message that doesn't match any specific demo trigger. I'll let them know they're in demo mode and suggest what they can try.",
-  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `long` — long-form streaming (~1 minute)\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `help` — full command list",
+  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `long` — long-form streaming (~1 minute)\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `/compact` — compacting animation\n- `help` — full command list",
 };
 
 // ── Match keywords ───────────────────────────────────────────────────────────
 
 function matchResponse(input: string): DemoResponse {
-  const lower = input.toLowerCase();
+  const lower = input.toLowerCase().trim();
+  if (lower.startsWith("/compact"))
+    return RESPONSES.compact;
   if (lower.includes("weather") || lower.includes("forecast") || lower.includes("temperature"))
     return RESPONSES.weather;
   if (lower.includes("image") || lower.includes("picture") || lower.includes("photo") || lower.includes("img"))
@@ -473,6 +482,9 @@ export function createDemoHandler(callbacks: DemoCallbacks) {
         delay += 300;
       }
     }
+
+    // Extra delay (e.g. for /compact simulation)
+    if (response.delayMs) delay += response.delayMs;
 
     // Stream text word-by-word
     const words = response.text.split(/(\s+)/);

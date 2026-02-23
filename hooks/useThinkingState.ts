@@ -11,7 +11,14 @@ export function useThinkingState(
   messages: Message[],
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
 ) {
-  const [awaitingResponse, setAwaitingResponse] = useState(false);
+  const [awaitingResponse, setAwaitingResponse] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const saved = sessionStorage.getItem("mc-run-active");
+      sessionStorage.removeItem("mc-run-active");
+      return saved === "1";
+    } catch { return false; }
+  });
   const [thinkingExiting, setThinkingExiting] = useState(false);
   const [justRevealedId, setJustRevealedId] = useState<string | null>(null);
   const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null);

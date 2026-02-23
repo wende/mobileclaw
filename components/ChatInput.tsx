@@ -530,7 +530,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
             type="button"
             onClick={isPill ? onScrollToBottom : showStop ? onAbort : submit}
             disabled={(!isActive || queueFull) && !isPill}
-            className="mb-1 relative shrink-0 rounded-full overflow-hidden transition-[opacity] duration-200"
+            className="mb-1 relative shrink-0 rounded-full overflow-hidden transition-[opacity,transform] duration-200 active:scale-85"
             style={{
               opacity: (isActive && !queueFull)
                 ? "max(0, 1 - var(--sp, 0) * 2.5)"

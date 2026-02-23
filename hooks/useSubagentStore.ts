@@ -3,6 +3,8 @@ import type { SubagentEntry, SubagentSession, AgentEventPayload } from "@/types/
 import { isToolCallPart } from "@/lib/constants";
 
 const TEXT_COALESCE_GAP_MS = 2000;
+/** Grace period after lifecycle:end before marking "done" — if lifecycle:start fires within this window, cancel. */
+const DONE_GRACE_MS = 5000;
 
 export interface SubagentStore {
   /** Ingest an agent event from a non-main session. Auto-links unknown sessions to pending spawns. */
@@ -32,6 +34,8 @@ export function useSubagentStore(): SubagentStore {
   const pendingSpawnsRef = useRef<string[]>([]);
   // Monotonic version counter
   const versionRef = useRef<number>(0);
+  // Pending "done" timers per session (debounced lifecycle:end)
+  const doneTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const bump = () => { versionRef.current += 1; };
 
@@ -42,6 +46,15 @@ export function useSubagentStore(): SubagentStore {
       storeRef.current.set(sessionKey, session);
     }
     return session;
+  };
+
+  /** Cancel any pending "done" timer for a session. */
+  const cancelDoneTimer = (sessionKey: string) => {
+    const timer = doneTimersRef.current.get(sessionKey);
+    if (timer) {
+      clearTimeout(timer);
+      doneTimersRef.current.delete(sessionKey);
+    }
   };
 
   /** Try to auto-link an unknown sessionKey to the oldest pending spawn. */
@@ -63,14 +76,28 @@ export function useSubagentStore(): SubagentStore {
     if (stream === "lifecycle") {
       const phase = data.phase as string;
       if (phase === "start") {
+        // New turn starting — cancel any pending "done" timer and reset to active
+        cancelDoneTimer(sessionKey);
         autoLink(sessionKey);
-        ensureSession(sessionKey);
+        const session = ensureSession(sessionKey);
+        session.status = "active";
         bump();
       } else if (phase === "end") {
-        const session = storeRef.current.get(sessionKey);
-        if (session) session.status = "done";
+        // lifecycle:end fires per-turn. Debounce: schedule "done" after a grace period.
+        // If a new lifecycle:start fires within the window, the timer is cancelled.
+        cancelDoneTimer(sessionKey);
+        const timer = setTimeout(() => {
+          doneTimersRef.current.delete(sessionKey);
+          const session = storeRef.current.get(sessionKey);
+          if (session && session.status === "active") {
+            session.status = "done";
+            bump();
+          }
+        }, DONE_GRACE_MS);
+        doneTimersRef.current.set(sessionKey, timer);
         bump();
       } else if (phase === "error") {
+        cancelDoneTimer(sessionKey);
         const session = storeRef.current.get(sessionKey);
         if (session) session.status = "error";
         bump();
@@ -78,9 +105,14 @@ export function useSubagentStore(): SubagentStore {
       return;
     }
 
+    // Any non-lifecycle event means the session is still active — cancel pending "done"
+    cancelDoneTimer(sessionKey);
+
     // Auto-link even if we missed the lifecycle:start
     autoLink(sessionKey);
     const session = ensureSession(sessionKey);
+    // Ensure status is active if we're receiving events
+    if (session.status !== "active") session.status = "active";
 
     if (stream === "content" || stream === "assistant") {
       const delta = (data.delta || data.text || data.content || "") as string;
@@ -107,7 +139,6 @@ export function useSubagentStore(): SubagentStore {
     } else if (stream === "tool") {
       const phase = data.phase as string;
       const toolName = data.name as string;
-      const toolCallId = data.toolCallId as string | undefined;
 
       if (phase === "start" && toolName) {
         session.entries.push({ type: "tool", text: toolName, toolStatus: "running", ts });
@@ -129,10 +160,9 @@ export function useSubagentStore(): SubagentStore {
   const ingestChatEvent = useCallback((sessionKey: string, state: "final" | "aborted" | "error") => {
     const session = storeRef.current.get(sessionKey);
     if (!session) return;
-    // Don't mark "done" on chat:final — it fires after each turn in an agent loop,
-    // not just at the end. The real "done" signal is lifecycle:end in ingestAgentEvent.
-    if (state === "error") session.status = "error";
-    else if (state === "aborted") session.status = "done";
+    // Don't mark "done" on chat:final — it fires after each turn in an agent loop.
+    if (state === "error") { cancelDoneTimer(sessionKey); session.status = "error"; }
+    else if (state === "aborted") { cancelDoneTimer(sessionKey); session.status = "done"; }
     bump();
   }, []);
 
@@ -210,11 +240,15 @@ export function useSubagentStore(): SubagentStore {
     }
 
     // Determine status:
-    // - stopReason present: definitively done
-    // - entries populated, no stopReason: still active
-    // - entries empty, session is new (pure history load): done (completed empty session)
-    // - entries empty, session existed (from lifecycle:start): keep "active" (subagent just starting)
-    if (hasStopReason) {
+    // - Any tool still running → active (mid-turn, waiting for tool result)
+    // - stopReason present, no running tools → done
+    // - entries populated, no stopReason → active
+    // - entries empty, new session → done (completed empty session)
+    // - entries empty, existing session → keep current (e.g., "active" from lifecycle:start)
+    const hasRunningTools = session.entries.some((e) => e.type === "tool" && e.toolStatus === "running");
+    if (hasRunningTools) {
+      session.status = "active";
+    } else if (hasStopReason) {
       session.status = "done";
     } else if (session.entries.length > 0) {
       session.status = "active";
@@ -226,6 +260,9 @@ export function useSubagentStore(): SubagentStore {
   }, []);
 
   const clearAll = useCallback(() => {
+    // Cancel all pending done timers
+    for (const timer of doneTimersRef.current.values()) clearTimeout(timer);
+    doneTimersRef.current.clear();
     storeRef.current.clear();
     linkMapRef.current.clear();
     pendingSpawnsRef.current = [];

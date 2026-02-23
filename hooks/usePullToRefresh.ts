@@ -82,6 +82,21 @@ export function usePullToRefresh({
     }, remaining);
   }, []);
 
+  // Reset pull state when app resumes from background (touchend may not fire
+  // if the app was backgrounded mid-gesture, leaving a residual transform).
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible" && !refreshingRef.current) {
+        pullStartYRef.current = null;
+        isPullingRef.current = false;
+        pullDistanceRef.current = 0;
+        setPullTransform(0, false);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [setPullTransform]);
+
   // Touch handlers — direct DOM transforms, no React re-renders
   useEffect(() => {
     const el = scrollRef.current;
