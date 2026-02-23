@@ -77,6 +77,18 @@ function QueuePill({ text, onDismiss }: { text: string; onDismiss: () => void })
   );
 }
 
+/** Check if ?detached is in the URL. Stable for session lifetime, safe in effects & callbacks. */
+function isDetachedMode(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).has("detached");
+}
+
+/** Read a URL search param. Returns null when absent or during SSR. */
+function getSearchParam(name: string): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(name);
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -123,10 +135,7 @@ export default function Home() {
   const sessionIdRef = useRef<string | null>(null);
   const sessionKeyRef = useRef<string>("main");
   const [isDemoMode, setIsDemoMode] = useState(false);
-  const isDetachedRef = useRef(false);
   const [isDetached, setIsDetached] = useState(false);
-  const detachedUrlRef = useRef<string | null>(null);
-  const detachedTokenRef = useRef<string | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
@@ -1119,7 +1128,7 @@ export default function Home() {
     },
     onInitialConnectFail: () => {
       setConnectionError("Could not reach server");
-      if (!isDetachedRef.current) setShowSetup(true);
+      if (!isDetachedMode()) setShowSetup(true);
     },
     onClose: () => {
       if (historyPollRef.current) { clearInterval(historyPollRef.current); historyPollRef.current = null; }
@@ -1149,18 +1158,8 @@ export default function Home() {
 
   // Detect ?detached and ?demo URL params on mount
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("detached")) {
-      isDetachedRef.current = true;
-      setIsDetached(true);
-      const urlParam = params.get("url");
-      if (urlParam) {
-        detachedUrlRef.current = urlParam;
-        detachedTokenRef.current = params.get("token") || null;
-      }
-    }
-    if (params.has("demo")) {
+    if (isDetachedMode()) setIsDetached(true);
+    if (getSearchParam("demo") !== null) {
       setIsDemoMode(true);
       setBackendMode("demo");
       setMessages(DEMO_HISTORY);
@@ -1349,20 +1348,18 @@ export default function Home() {
   // ── Backend initialization (localStorage restore) ─────────────────────────
 
   useEffect(() => {
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo")) {
-      return;
-    }
+    if (getSearchParam("demo") !== null) return;
     if (isDemoMode) return;
 
     // Detached mode with ?url param — connect directly, skip localStorage
-    if (detachedUrlRef.current) {
-      const url = detachedUrlRef.current;
-      gatewayTokenRef.current = detachedTokenRef.current;
+    const embedUrl = getSearchParam("url");
+    if (isDetachedMode() && embedUrl) {
+      gatewayTokenRef.current = getSearchParam("token");
       setBackendMode("openclaw");
-      setOpenclawUrl(url);
-      let wsUrl = url;
-      if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
-        wsUrl = url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+      setOpenclawUrl(embedUrl);
+      let wsUrl = embedUrl;
+      if (!embedUrl.startsWith("ws://") && !embedUrl.startsWith("wss://")) {
+        wsUrl = embedUrl.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
       }
       connect(wsUrl);
       return;
@@ -1391,7 +1388,7 @@ export default function Home() {
         } catch { }
         setHistoryLoaded(true);
       } else {
-        if (!isDetachedRef.current) setShowSetup(true);
+        if (!isDetachedMode()) setShowSetup(true);
         setHistoryLoaded(true);
       }
     } else {
@@ -1407,7 +1404,7 @@ export default function Home() {
         }
         connect(wsUrl);
       } else {
-        if (!isDetachedRef.current) setShowSetup(true);
+        if (!isDetachedMode()) setShowSetup(true);
         setHistoryLoaded(true);
       }
     }
@@ -1601,7 +1598,7 @@ export default function Home() {
 
   // Dynamic tab title — show "Thinking…" while run is active
   useEffect(() => {
-    if (isDetachedRef.current) return;
+    if (isDetachedMode()) return;
     if (!isRunActive) { document.title = "MobileClaw"; return; }
     document.title = lastCommandRef.current === "/compact" ? "Compacting… — MobileClaw" : "Thinking… — MobileClaw";
   }, [isRunActive]);
