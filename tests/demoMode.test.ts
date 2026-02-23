@@ -102,7 +102,7 @@ describe("createDemoHandler", () => {
     vi.advanceTimersByTime(60_000);
     expect(callbacks.onTextDelta).toHaveBeenCalled();
     // last call should have the full accumulated text
-    const lastCall = callbacks.onTextDelta.mock.calls.at(-1);
+    const lastCall = vi.mocked(callbacks.onTextDelta).mock.calls.at(-1);
     expect(lastCall?.[2]).toContain("Demo Mode");
   });
 

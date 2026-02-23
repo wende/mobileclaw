@@ -8,6 +8,9 @@
     "start": "next start",
     "prod": "lsof -ti:3000 | xargs kill -9 2>/dev/null; next build && next start",
     "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck && pnpm lint",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -69,6 +72,7 @@
   },
   "devDependencies": {
     "@locator/webpack-loader": "^0.5.1",
+    "@next/eslint-plugin-next": "^16.1.6",
     "@playwright/test": "^1.55.0",
     "@tailwindcss/postcss": "^4.1.9",
     "@testing-library/jest-dom": "^6.9.1",
@@ -79,11 +83,14 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^5.1.4",
+    "eslint": "^9.39.3",
+    "eslint-plugin-react-hooks": "^7.0.1",
     "jsdom": "^28.0.0",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",
     "typescript": "^5",
+    "typescript-eslint": "^8.56.1",
     "vitest": "^4.0.18"
   }
 }

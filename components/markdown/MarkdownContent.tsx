@@ -22,7 +22,7 @@ export function StreamingCursor({ stale }: { stale?: boolean }) {
 export function CodeBlock({ lang, code }: { lang?: string; code: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
-    navigator.clipboard.writeText(code);
+    void navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

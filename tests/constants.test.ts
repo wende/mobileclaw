@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hasHeartbeatOnOwnLine, hasUnquotedMarker, HEARTBEAT_MARKER } from "@/lib/constants";
+import { hasHeartbeatOnOwnLine } from "@/lib/constants";
 
 describe("hasHeartbeatOnOwnLine", () => {
   it("matches HEARTBEAT_OK as the entire text", () => {

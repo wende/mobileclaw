@@ -83,10 +83,6 @@ function InjectedIcon({ type }: { type: "heartbeat" | "no_reply" | "info" }) {
 
 function getInjectedSummary(text: string): { type: "heartbeat" | "no_reply" | "info"; summary: string } {
   if (text.includes(HEARTBEAT_MARKER)) {
-    // Last sentence before HEARTBEAT_OK
-    const before = text.slice(0, text.indexOf(HEARTBEAT_MARKER)).trim();
-    const sentences = before.match(/[^.!?\n]+[.!?]?/g);
-    const last = sentences?.[sentences.length - 1]?.trim();
     return { type: "heartbeat", summary: "Heartbeat" };
   }
   if (hasUnquotedMarker(text, NO_REPLY_MARKER)) {
@@ -104,7 +100,7 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
   const { type, summary: rawSummary } = getInjectedSummary(text);
   const summary = rawSummary.replace(/[#*_~`>]/g, "").replace(/\s+/g, " ").trim();
 
-  const parts = message && Array.isArray(message.content) ? message.content as ContentPart[] : null;
+  const parts = message && Array.isArray(message.content) ? message.content : null;
   const hasThinkingParts = parts?.some((p) => p.type === "thinking");
   const hasRichContent = !!(parts && parts.some((p) => p.type === "thinking" || isToolCallPart(p))) || !!message?.reasoning;
 
@@ -141,7 +137,7 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
                         return <ThinkingPill key={`thinking-${i}`} text={part.text || ""} />;
                       }
                       if (isToolCallPart(part)) {
-                        return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status as "running" | "success" | "error" | undefined} result={part.result} resultError={part.resultError} toolCallId={part.toolCallId} subagentStore={part.name === SPAWN_TOOL_NAME ? subagentStore : undefined} />;
+                        return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status} result={part.result} resultError={part.resultError} toolCallId={part.toolCallId} subagentStore={part.name === SPAWN_TOOL_NAME ? subagentStore : undefined} />;
                       }
                       if (part.type === "text" && part.text) {
                         return (
@@ -361,7 +357,7 @@ function CommandResponsePill({ text, isStreaming }: { text: string; isStreaming?
             width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
             className="ml-auto shrink-0 opacity-40 transition-transform duration-200"
-            style={{ transform: (userToggled ?? !isStreaming ?? true) ? "rotate(0deg)" : "rotate(-90deg)" }}
+            style={{ transform: (userToggled ?? !isStreaming) ? "rotate(0deg)" : "rotate(-90deg)" }}
           >
             <path d="m6 9 6 6 6-6" />
           </svg>
@@ -387,7 +383,7 @@ function CommandResponsePill({ text, isStreaming }: { text: string; isStreaming?
 }
 
 function ContextPill({ summary, iconEl, text }: { summary: string; iconEl: React.ReactNode; text: string }) {
-  const { open, toggle, mounted, expanded, outerRef, contentRef, handleTransitionEnd } = useExpandablePanel();
+  const { toggle, mounted, expanded, outerRef, contentRef, handleTransitionEnd } = useExpandablePanel();
 
   return (
     <div className="flex flex-row-reverse">
@@ -532,11 +528,11 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
 
   // Check if content array has structured thinking parts
   const hasThinkingParts = Array.isArray(message.content)
-    && (message.content as ContentPart[]).some((p) => p.type === "thinking");
+    && (message.content).some((p) => p.type === "thinking");
 
   // Force assistant container to fill max-width when a spawn tool is present
   const hasSpawnTool = !isUser && Array.isArray(message.content)
-    && (message.content as ContentPart[]).some((p) => isToolCallPart(p) && p.name === SPAWN_TOOL_NAME);
+    && (message.content).some((p) => isToolCallPart(p) && p.name === SPAWN_TOOL_NAME);
 
   return (
     <div data-message-role={message.role} className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
@@ -555,13 +551,13 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
           <SmoothGrow active={isStreaming} className="flex flex-col gap-1.5">
             {/* message.reasoning (from OpenClaw stream parser) renders first — it precedes tool calls */}
             {message.reasoning && !hasThinkingParts && <ThinkingPill text={message.reasoning} />}
-            {Array.isArray(message.content) ? (message.content as ContentPart[]).map((part, i) => {
+            {Array.isArray(message.content) ? (message.content).map((part, i) => {
               if (part.type === "thinking") {
                 return <ThinkingPill key={`thinking-${i}`} text={part.text || ""} />;
               }
               if (isToolCallPart(part)) {
                 const isSpawn = part.name === SPAWN_TOOL_NAME;
-                return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status as "running" | "success" | "error" | undefined} result={part.result} resultError={part.resultError} toolCallId={part.toolCallId} subagentStore={isSpawn ? subagentStore : undefined} isPinned={isSpawn && !!part.toolCallId && part.toolCallId === pinnedToolCallId} onPin={isSpawn ? onPin : undefined} onUnpin={isSpawn ? onUnpin : undefined} />;
+                return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status} result={part.result} resultError={part.resultError} toolCallId={part.toolCallId} subagentStore={isSpawn ? subagentStore : undefined} isPinned={isSpawn && !!part.toolCallId && part.toolCallId === pinnedToolCallId} onPin={isSpawn ? onPin : undefined} onUnpin={isSpawn ? onUnpin : undefined} />;
               }
               if (part.type === "text" && part.text) {
                 const { thinking: extractedThinking, text: rawCleanText } = stripThinkTags(part.text);

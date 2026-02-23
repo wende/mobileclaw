@@ -6,6 +6,7 @@ import {
   getMessageSide,
   thinkingPreview,
 } from "@/lib/messageUtils";
+import type { MessageRole } from "@/types/chat";
 
 describe("getTextFromContent", () => {
   it("returns empty string for null", () => {
@@ -18,17 +19,17 @@ describe("getTextFromContent", () => {
 
   it("joins text parts from ContentPart array", () => {
     const content = [
-      { type: "text", text: "Hello " },
-      { type: "tool_call", name: "exec" },
-      { type: "text", text: "world" },
+      { type: "text" as const, text: "Hello " },
+      { type: "tool_call" as const, name: "exec" },
+      { type: "text" as const, text: "world" },
     ];
     expect(getTextFromContent(content)).toBe("Hello world");
   });
 
   it("skips parts without text", () => {
     const content = [
-      { type: "text" },
-      { type: "text", text: "only this" },
+      { type: "text" as const },
+      { type: "text" as const, text: "only this" },
     ];
     expect(getTextFromContent(content)).toBe("only this");
   });
@@ -49,9 +50,9 @@ describe("getToolCalls", () => {
 
   it("filters tool_call parts", () => {
     const content = [
-      { type: "text", text: "result" },
-      { type: "tool_call", name: "exec", arguments: '{"cmd":"ls"}' },
-      { type: "toolCall", name: "read" },
+      { type: "text" as const, text: "result" },
+      { type: "tool_call" as const, name: "exec", arguments: '{"cmd":"ls"}' },
+      { type: "toolCall" as const, name: "read" },
     ];
     const calls = getToolCalls(content);
     expect(calls).toHaveLength(2);
@@ -71,9 +72,9 @@ describe("getImages", () => {
 
   it("filters image and image_url parts", () => {
     const content = [
-      { type: "text", text: "look at this" },
-      { type: "image", image_url: { url: "data:image/png;base64,..." } },
-      { type: "image_url", image_url: { url: "https://example.com/img.png" } },
+      { type: "text" as const, text: "look at this" },
+      { type: "image" as const, image_url: { url: "data:image/png;base64,..." } },
+      { type: "image_url" as const, image_url: { url: "https://example.com/img.png" } },
     ];
     const images = getImages(content);
     expect(images).toHaveLength(2);
@@ -102,7 +103,7 @@ describe("getMessageSide", () => {
   });
 
   it("returns 'center' for unknown roles", () => {
-    expect(getMessageSide("unknown")).toBe("center");
+    expect(getMessageSide("unknown" as MessageRole)).toBe("center");
   });
 });
 

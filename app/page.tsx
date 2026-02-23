@@ -103,7 +103,7 @@ export default function Home() {
   // without waiting for React's async render cycle.
   const {
     scrollRef, bottomRef, morphRef, scrollPhase, pinnedToBottomRef,
-    scrollGraceRef, handleScroll, scrollToBottom, updateGraceForStreamingChange,
+    handleScroll, scrollToBottom, updateGraceForStreamingChange,
   } = useScrollManager(messages, isStreamingRef);
 
   const setIsStreaming = useCallback((value: boolean) => {
@@ -124,14 +124,13 @@ export default function Home() {
   // ── UI state ────────────────────────────────────────────────────────────────
   const [showSetup, setShowSetup] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [serverInfo, setServerInfo] = useState<Record<string, unknown> | null>(null);
+  const [_serverInfo, setServerInfo] = useState<Record<string, unknown> | null>(null);
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelChoice[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const modelsRequestedRef = useRef(false);
   const appRef = useRef<HTMLDivElement>(null);
   const floatingBarRef = useRef<HTMLDivElement>(null);
-  const currentAssistantMsgRef = useRef<Message | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const sessionKeyRef = useRef<string>("main");
   const [isDemoMode, setIsDemoMode] = useState(false);
@@ -297,23 +296,6 @@ export default function Home() {
     tagBuffer: string;
   }>({ insideThinkTag: false, tagBuffer: "" });
 
-  const getEffectiveRunId = useCallback((serverRunId: string) => {
-    const mappedId = cmdRunIdMapRef.current.get(serverRunId);
-    if (mappedId) return mappedId;
-
-    if (lastCommandRef.current) {
-      const mappedValues = new Set(cmdRunIdMapRef.current.values());
-      const placeholder = messagesRef.current.findLast(
-        (m) => m.isCommandResponse && m.role === "assistant" && m.id && !mappedValues.has(m.id)
-      );
-      if (placeholder && placeholder.id) {
-        cmdRunIdMapRef.current.set(serverRunId, placeholder.id);
-        return placeholder.id;
-      }
-    }
-    return serverRunId;
-  }, []);
-
   // Notification: extract message preview and fire notification for a completed run
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
@@ -340,7 +322,7 @@ export default function Home() {
   }, []);
 
   const {
-    pullContentRef, pullSpinnerRef, isPullingRef,
+    pullContentRef, pullSpinnerRef, isPullingRef: _isPullingRef,
     onHistoryReceived,
   } = usePullToRefresh({ scrollRef, backendMode, sendWS, sessionKeyRef });
 
@@ -560,22 +542,22 @@ export default function Home() {
     // - Stringify non-string arguments
     for (const hm of historyMessages) {
       if (hm.role !== "assistant" || !Array.isArray(hm.content)) continue;
-      for (const part of hm.content as ContentPart[]) {
+      for (const part of hm.content) {
         if (!isToolCallPart(part) && part.name) {
           // Server may send "tool_use" type — normalize to "tool_call"
-          (part as ContentPart).type = "tool_call";
+          (part).type = "tool_call";
         }
         if (isToolCallPart(part)) {
           if (!part.result && !part.status) part.status = "running";
           // Normalize toolCallId from various server field names
           if (!part.toolCallId) {
-            const p = part as Record<string, unknown>;
+            const p = part as unknown as Record<string, unknown>;
             const id = (p.tool_call_id || p.id) as string | undefined;
             if (id) part.toolCallId = id;
           }
           // Normalize arguments from server field names
           if (!part.arguments) {
-            const p = part as Record<string, unknown>;
+            const p = part as unknown as Record<string, unknown>;
             if (p.input) part.arguments = typeof p.input === "string" ? p.input : JSON.stringify(p.input);
           } else if (typeof part.arguments !== "string") {
             part.arguments = JSON.stringify(part.arguments);
@@ -645,11 +627,11 @@ export default function Home() {
         if (!opt || !Array.isArray(opt.content)) return m;
 
         // Prefer the client's content (preserves original newlines for quote-reply)
-        const optText = (opt.content as ContentPart[]).filter((p) => p.type === "text");
-        const optImages = (opt.content as ContentPart[]).filter((p) => p.type === "image_url" || p.type === "image");
-        const serverImages = Array.isArray(m.content) ? (m.content as ContentPart[]).filter((p) => p.type === "image_url" || p.type === "image") : [];
+        const optText = (opt.content).filter((p) => p.type === "text");
+        const optImages = (opt.content).filter((p) => p.type === "image_url" || p.type === "image");
+        const serverImages = Array.isArray(m.content) ? (m.content).filter((p) => p.type === "image_url" || p.type === "image") : [];
         const images = serverImages.length > 0 ? serverImages : optImages;
-        const nonTextNonImage = Array.isArray(m.content) ? (m.content as ContentPart[]).filter((p) => p.type !== "text" && p.type !== "image_url" && p.type !== "image") : [];
+        const nonTextNonImage = Array.isArray(m.content) ? (m.content).filter((p) => p.type !== "text" && p.type !== "image_url" && p.type !== "image") : [];
 
         if (optText.length === 0 && images.length === 0) return m;
         return { ...m, content: [...optText, ...nonTextNonImage, ...images] };
@@ -706,9 +688,9 @@ export default function Home() {
     // Request subagent history for any sessions_spawn tool calls with childSessionKey
     for (const raw of rawMsgs) {
       if (raw.role !== "assistant" || !Array.isArray(raw.content)) continue;
-      for (const part of raw.content as Array<Record<string, unknown>>) {
+      for (const part of raw.content as ContentPart[]) {
         if (!isToolCallPart(part) || part.name !== SPAWN_TOOL_NAME) continue;
-        const resultStr = part.result as string | undefined;
+        const resultStr = part.result;
         if (!resultStr) continue;
         try {
           const r = JSON.parse(resultStr);
@@ -1211,7 +1193,7 @@ export default function Home() {
             ...target,
             content: target.content.map((p: ContentPart) =>
               p.type === "tool_call" && p.name === name && p.status === "running"
-                ? { ...p, status: (isError ? "error" : "success") as "error" | "success", result, resultError: isError }
+                ? { ...p, status: (isError ? "error" : "success"), result, resultError: isError }
                 : p
             ),
           };
@@ -1318,7 +1300,7 @@ export default function Home() {
             ...target,
             content: target.content.map((p: ContentPart) =>
               p.type === "tool_call" && p.name === name && p.status === "running"
-                ? { ...p, status: (isError ? "error" : "success") as "error" | "success", result: result || undefined, resultError: isError }
+                ? { ...p, status: (isError ? "error" : "success"), result: result || undefined, resultError: isError }
                 : p
             ),
           };
@@ -1456,18 +1438,23 @@ export default function Home() {
 
   // ── Send message ──────────────────────────────────────────────────────────
 
-  /** Upload files to litterbox via our proxy, returns public URLs (72h expiry). */
+  /** Upload files directly to litterbox.catbox.moe, returns public URLs (72h expiry). */
   const uploadFiles = useCallback(async (attachments: ImageAttachment[]): Promise<string[]> => {
     const results = await Promise.allSettled(
       attachments.map(async (a) => {
-        const res = await fetch("/api/upload", {
+        const buf = Uint8Array.from(atob(a.content), (c) => c.charCodeAt(0));
+        const ext = a.mimeType.split("/")[1]?.replace("jpeg", "jpg") || "bin";
+        const name = a.fileName || `file.${ext}`;
+        const form = new FormData();
+        form.append("reqtype", "fileupload");
+        form.append("time", "72h");
+        form.append("fileToUpload", new File([buf], name, { type: a.mimeType }));
+        const res = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: a.content, mimeType: a.mimeType, fileName: a.fileName }),
+          body: form,
         });
         if (!res.ok) return null;
-        const { url } = await res.json();
-        return url as string;
+        return (await res.text()).trim();
       })
     );
     return results
@@ -1477,13 +1464,12 @@ export default function Home() {
   }, []);
 
   const lastCommandRef = useRef<string | null>(null);
-  const cmdRunIdMapRef = useRef<Map<string, string>>(new Map());
 
   const sendMessage = useCallback(async (text: string, attachments?: ImageAttachment[]) => {
     console.log("[sendMessage]", { text: text.slice(0, 50), attachments: attachments?.length ?? 0 });
     const isSlashCommand = text.trim().startsWith("/");
     lastCommandRef.current = isSlashCommand ? text.trim().split(/\s/)[0].toLowerCase() : null;
-    requestNotificationPermission();
+    void requestNotificationPermission();
     pinnedToBottomRef.current = true;
 
     // Show user message immediately with local previews
@@ -1541,7 +1527,7 @@ export default function Home() {
         try { window.localStorage.setItem("lmstudio-messages", JSON.stringify(prev)); } catch { }
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            lmStudioHandlerRef.current?.sendMessage(prev);
+            void lmStudioHandlerRef.current?.sendMessage(prev);
           });
         });
         return prev;
@@ -1584,7 +1570,7 @@ export default function Home() {
       }
       return;
     }
-    sendMessage(text, attachments);
+    void sendMessage(text, attachments);
   }, [isRunActive, sendMessage]);
 
   const thinkingLabel = isRunActive && lastCommandRef.current === "/compact" ? "Compacting" : undefined;
@@ -1679,13 +1665,13 @@ export default function Home() {
         while (result.length > 0) {
           const prev = result[result.length - 1];
           if (prev.role !== "assistant" || !Array.isArray(prev.content)) break;
-          const prevParts = prev.content as ContentPart[];
+          const prevParts = prev.content;
           absorbed.unshift(...prevParts);
           if (!absorbedReasoning && prev.reasoning) absorbedReasoning = prev.reasoning;
           result.pop();
         }
         if (absorbed.length > 0) {
-          const thisParts = Array.isArray(msg.content) ? (msg.content as ContentPart[]) : [{ type: "text" as const, text: msgText }];
+          const thisParts = Array.isArray(msg.content) ? (msg.content) : [{ type: "text" as const, text: msgText }];
           result.push({
             ...msg,
             content: [...absorbed, ...thisParts],

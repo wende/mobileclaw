@@ -30,9 +30,9 @@ export function parseConfigProviders(resPayload: Record<string, unknown>): Confi
   // Explicit model providers — parse their curated model lists
   const modelProviders = (cfg.models as any)?.providers;
   if (modelProviders && typeof modelProviders === "object") {
-    for (const [providerKey, providerConfig] of Object.entries(modelProviders) as [string, any][]) {
+    for (const [providerKey, providerConfig] of Object.entries(modelProviders)) {
       explicitProviders.add(providerKey);
-      const models = providerConfig?.models;
+      const models = (providerConfig as Record<string, unknown>)?.models;
       if (!Array.isArray(models)) continue;
       for (const m of models) {
         if (!m?.id) continue;
@@ -50,8 +50,8 @@ export function parseConfigProviders(resPayload: Record<string, unknown>): Confi
   // Auth profiles reference providers implicitly (e.g. google-antigravity)
   const authProfiles = (cfg.auth as any)?.profiles;
   if (authProfiles && typeof authProfiles === "object") {
-    for (const profile of Object.values(authProfiles) as any[]) {
-      const provider = profile?.provider;
+    for (const profile of Object.values(authProfiles)) {
+      const provider = (profile as Record<string, unknown>)?.provider as string | undefined;
       if (provider && !explicitProviders.has(provider)) {
         authOnlyProviders.add(provider);
       }
