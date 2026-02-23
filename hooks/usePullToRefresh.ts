@@ -102,7 +102,7 @@ export function usePullToRefresh({
     // Reset stroke-dasharray so the spinner looks normal when not in hold mode
     const spinner = pullSpinnerRef.current;
     if (spinner) {
-      const path = spinner.querySelector("svg path") as SVGElement | null;
+      const path = spinner.querySelector<SVGElement>("svg path");
       if (path) {
         path.style.strokeDasharray = "";
         path.style.strokeDashoffset = "";
