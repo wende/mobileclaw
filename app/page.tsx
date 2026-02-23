@@ -77,16 +77,16 @@ function QueuePill({ text, onDismiss }: { text: string; onDismiss: () => void })
   );
 }
 
-/** Check if ?detached is in the URL. Stable for session lifetime, safe in effects & callbacks. */
-function isDetachedMode(): boolean {
-  if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).has("detached");
-}
-
 /** Read a URL search param. Returns null when absent or during SSR. */
 function getSearchParam(name: string): string | null {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get(name);
+}
+
+/** Convert an HTTP(S) URL to its WS(S) equivalent. Already-WS URLs pass through. */
+function toWsUrl(url: string): string {
+  if (url.startsWith("ws://") || url.startsWith("wss://")) return url;
+  return url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -136,6 +136,7 @@ export default function Home() {
   const sessionKeyRef = useRef<string>("main");
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [isDetached, setIsDetached] = useState(false);
+  const isDetachedRef = useRef(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
@@ -1128,7 +1129,7 @@ export default function Home() {
     },
     onInitialConnectFail: () => {
       setConnectionError("Could not reach server");
-      if (!isDetachedMode()) setShowSetup(true);
+      if (!isDetachedRef.current) setShowSetup(true);
     },
     onClose: () => {
       if (historyPollRef.current) { clearInterval(historyPollRef.current); historyPollRef.current = null; }
@@ -1158,7 +1159,10 @@ export default function Home() {
 
   // Detect ?detached and ?demo URL params on mount
   useEffect(() => {
-    if (isDetachedMode()) setIsDetached(true);
+    if (getSearchParam("detached") !== null) {
+      setIsDetached(true);
+      isDetachedRef.current = true;
+    }
     if (getSearchParam("demo") !== null) {
       setIsDemoMode(true);
       setBackendMode("demo");
@@ -1352,16 +1356,13 @@ export default function Home() {
     if (isDemoMode) return;
 
     // Detached mode with ?url param — connect directly, skip localStorage
+    const detached = getSearchParam("detached") !== null;
     const embedUrl = getSearchParam("url");
-    if (isDetachedMode() && embedUrl) {
+    if (detached && embedUrl) {
       gatewayTokenRef.current = getSearchParam("token");
       setBackendMode("openclaw");
       setOpenclawUrl(embedUrl);
-      let wsUrl = embedUrl;
-      if (!embedUrl.startsWith("ws://") && !embedUrl.startsWith("wss://")) {
-        wsUrl = embedUrl.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
-      }
-      connect(wsUrl);
+      connect(toWsUrl(embedUrl));
       return;
     }
 
@@ -1388,7 +1389,7 @@ export default function Home() {
         } catch { }
         setHistoryLoaded(true);
       } else {
-        if (!isDetachedMode()) setShowSetup(true);
+        if (!detached) setShowSetup(true);
         setHistoryLoaded(true);
       }
     } else {
@@ -1398,13 +1399,9 @@ export default function Home() {
         gatewayTokenRef.current = savedToken ?? null;
         setBackendMode("openclaw");
         setOpenclawUrl(savedUrl);
-        let wsUrl = savedUrl;
-        if (!savedUrl.startsWith("ws://") && !savedUrl.startsWith("wss://")) {
-          wsUrl = savedUrl.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
-        }
-        connect(wsUrl);
+        connect(toWsUrl(savedUrl));
       } else {
-        if (!isDetachedMode()) setShowSetup(true);
+        if (!detached) setShowSetup(true);
         setHistoryLoaded(true);
       }
     }
@@ -1454,11 +1451,7 @@ export default function Home() {
     lmStudioConfigRef.current = null;
     lmStudioHandlerRef.current = null;
     setOpenclawUrl(config.url);
-    let wsUrl = config.url;
-    if (!config.url.startsWith("ws://") && !config.url.startsWith("wss://")) {
-      wsUrl = config.url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
-    }
-    connect(wsUrl);
+    connect(toWsUrl(config.url));
   }, [connect, disconnect, resetThinkingState]);
 
   // ── Send message ──────────────────────────────────────────────────────────
@@ -1598,10 +1591,10 @@ export default function Home() {
 
   // Dynamic tab title — show "Thinking…" while run is active
   useEffect(() => {
-    if (isDetachedMode()) return;
+    if (isDetached) return;
     if (!isRunActive) { document.title = "MobileClaw"; return; }
     document.title = lastCommandRef.current === "/compact" ? "Compacting… — MobileClaw" : "Thinking… — MobileClaw";
-  }, [isRunActive]);
+  }, [isRunActive, isDetached]);
 
   // Persist run-active state so "Thinking..." shows immediately after refresh
   useEffect(() => {
@@ -1708,31 +1701,34 @@ export default function Home() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  const bottomPad = pinnedSubagent ? (isDetached ? "12rem" : "16rem")
+    : queuedMessage ? (isDetached ? "9rem" : "13rem")
+    : (isDetached ? "6rem" : "10rem");
+
   const chatWidget = (
     <div ref={appRef} className="relative flex flex-col overflow-hidden bg-background" style={{ height: isDetached ? "100%" : "100dvh" }}>
       {!isDetached && (
-        <SetupDialog
-          onConnect={(config) => {
-            setShowSetup(false);
-            handleConnect(config);
-          }}
-          onClose={openclawUrl || isDemoMode || backendMode !== "openclaw" ? () => setShowSetup(false) : undefined}
-          visible={showSetup}
-          connectionError={connectionError}
-          isDemoMode={isDemoMode}
-        />
-      )}
-
-      {!isDetached && (
-        <ChatHeader
-          currentModel={currentModel}
-          theme={theme}
-          toggleTheme={toggleTheme}
-          connectionState={connectionState}
-          backendMode={backendMode}
-          isDemoMode={isDemoMode}
-          onOpenSetup={() => setShowSetup(true)}
-        />
+        <>
+          <SetupDialog
+            onConnect={(config) => {
+              setShowSetup(false);
+              handleConnect(config);
+            }}
+            onClose={openclawUrl || isDemoMode || backendMode !== "openclaw" ? () => setShowSetup(false) : undefined}
+            visible={showSetup}
+            connectionError={connectionError}
+            isDemoMode={isDemoMode}
+          />
+          <ChatHeader
+            currentModel={currentModel}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            connectionState={connectionState}
+            backendMode={backendMode}
+            isDemoMode={isDemoMode}
+            onOpenSetup={() => setShowSetup(true)}
+          />
+        </>
       )}
 
       <div ref={pullContentRef} className="flex flex-1 flex-col min-h-0">
@@ -1742,7 +1738,7 @@ export default function Home() {
           className={`flex-1 overflow-y-auto overflow-x-hidden ${isDetached ? "" : "pt-14"}`}
           style={{ overscrollBehavior: "none" }}
         >
-          <div className={`mx-auto flex w-full ${isDetached ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: isDetached ? (pinnedSubagent ? "12rem" : queuedMessage ? "9rem" : "6rem") : (pinnedSubagent ? "16rem" : queuedMessage ? "13rem" : "10rem") }}>
+          <div className={`mx-auto flex w-full ${isDetached ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
             {displayMessages.map((msg, idx) => {
               const side = getMessageSide(msg.role);
               const prevSide = idx > 0 ? getMessageSide(displayMessages[idx - 1].role) : null;
