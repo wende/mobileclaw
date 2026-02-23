@@ -123,6 +123,8 @@ export default function Home() {
   const sessionIdRef = useRef<string | null>(null);
   const sessionKeyRef = useRef<string>("main");
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const isDetachedRef = useRef(false);
+  const [isDetached, setIsDetached] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
@@ -1115,7 +1117,7 @@ export default function Home() {
     },
     onInitialConnectFail: () => {
       setConnectionError("Could not reach server");
-      setShowSetup(true);
+      if (!isDetachedRef.current) setShowSetup(true);
     },
     onClose: () => {
       if (historyPollRef.current) { clearInterval(historyPollRef.current); historyPollRef.current = null; }
@@ -1143,10 +1145,14 @@ export default function Home() {
 
   // ── Demo mode ─────────────────────────────────────────────────────────────
 
-  // Detect ?demo URL param on mount
+  // Detect ?detached and ?demo URL params on mount
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
+    if (params.has("detached")) {
+      isDetachedRef.current = true;
+      setIsDetached(true);
+    }
     if (params.has("demo")) {
       setIsDemoMode(true);
       setBackendMode("demo");
@@ -1363,7 +1369,7 @@ export default function Home() {
         } catch { }
         setHistoryLoaded(true);
       } else {
-        setShowSetup(true);
+        if (!isDetachedRef.current) setShowSetup(true);
         setHistoryLoaded(true);
       }
     } else {
@@ -1379,7 +1385,7 @@ export default function Home() {
         }
         connect(wsUrl);
       } else {
-        setShowSetup(true);
+        if (!isDetachedRef.current) setShowSetup(true);
         setHistoryLoaded(true);
       }
     }
@@ -1573,6 +1579,7 @@ export default function Home() {
 
   // Dynamic tab title — show "Thinking…" while run is active
   useEffect(() => {
+    if (isDetachedRef.current) return;
     if (!isRunActive) { document.title = "MobileClaw"; return; }
     document.title = lastCommandRef.current === "/compact" ? "Compacting… — MobileClaw" : "Thinking… — MobileClaw";
   }, [isRunActive]);
@@ -1682,37 +1689,41 @@ export default function Home() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  return (
-    <div ref={appRef} className="relative flex flex-col overflow-hidden bg-background" style={{ height: "100dvh" }}>
-      <SetupDialog
-        onConnect={(config) => {
-          setShowSetup(false);
-          handleConnect(config);
-        }}
-        onClose={openclawUrl || isDemoMode || backendMode !== "openclaw" ? () => setShowSetup(false) : undefined}
-        visible={showSetup}
-        connectionError={connectionError}
-        isDemoMode={isDemoMode}
-      />
+  const chatWidget = (
+    <div ref={appRef} className="relative flex flex-col overflow-hidden bg-background" style={{ height: isDetached ? "100%" : "100dvh" }}>
+      {!isDetached && (
+        <SetupDialog
+          onConnect={(config) => {
+            setShowSetup(false);
+            handleConnect(config);
+          }}
+          onClose={openclawUrl || isDemoMode || backendMode !== "openclaw" ? () => setShowSetup(false) : undefined}
+          visible={showSetup}
+          connectionError={connectionError}
+          isDemoMode={isDemoMode}
+        />
+      )}
 
-      <ChatHeader
-        currentModel={currentModel}
-        theme={theme}
-        toggleTheme={toggleTheme}
-        connectionState={connectionState}
-        backendMode={backendMode}
-        isDemoMode={isDemoMode}
-        onOpenSetup={() => setShowSetup(true)}
-      />
+      {!isDetached && (
+        <ChatHeader
+          currentModel={currentModel}
+          theme={theme}
+          toggleTheme={toggleTheme}
+          connectionState={connectionState}
+          backendMode={backendMode}
+          isDemoMode={isDemoMode}
+          onOpenSetup={() => setShowSetup(true)}
+        />
+      )}
 
       <div ref={pullContentRef} className="flex flex-1 flex-col min-h-0">
         <main
           ref={scrollRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto overflow-x-hidden pt-14"
+          className={`flex-1 overflow-y-auto overflow-x-hidden ${isDetached ? "" : "pt-14"}`}
           style={{ overscrollBehavior: "none" }}
         >
-          <div className={`mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: pinnedSubagent ? "16rem" : queuedMessage ? "13rem" : "10rem" }}>
+          <div className={`mx-auto flex w-full ${isDetached ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: isDetached ? (pinnedSubagent ? "12rem" : queuedMessage ? "9rem" : "6rem") : (pinnedSubagent ? "16rem" : queuedMessage ? "13rem" : "10rem") }}>
             {displayMessages.map((msg, idx) => {
               const side = getMessageSide(msg.role);
               const prevSide = idx > 0 ? getMessageSide(displayMessages[idx - 1].role) : null;
@@ -1753,16 +1764,18 @@ export default function Home() {
           </div>
         </main>
         {/* Pull-to-refresh spinner */}
-        <div
-          ref={pullSpinnerRef}
-          className="flex h-0 items-center justify-center gap-2 overflow-visible"
-          style={{ opacity: 0, transform: "translateY(calc(-3dvh - 23px))" }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground" style={{ animation: "none" }}>
-            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-          </svg>
-          <span className="text-sm leading-none">🦞</span>
-        </div>
+        {!isDetached && (
+          <div
+            ref={pullSpinnerRef}
+            className="flex h-0 items-center justify-center gap-2 overflow-visible"
+            style={{ opacity: 0, transform: "translateY(calc(-3dvh - 23px))" }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground" style={{ animation: "none" }}>
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            <span className="text-sm leading-none">🦞</span>
+          </div>
+        )}
       </div>
 
       {/* Floating quote button */}
@@ -1789,7 +1802,7 @@ export default function Home() {
       {/* Floating morphing bar */}
       <div
         ref={floatingBarRef}
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh] animate-[fadeIn_400ms_ease-out]"
+        className={`pointer-events-none ${isDetached ? "absolute" : "fixed"} inset-x-0 bottom-0 z-20 flex justify-center ${isDetached ? "px-3 pb-3" : "px-3 pb-[3dvh] md:px-6 md:pb-[3dvh]"} animate-[fadeIn_400ms_ease-out]`}
       >
         <div ref={morphRef} className="pointer-events-auto w-full" style={{ maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--lp, 0))), calc(200px + (42rem - 200px) * (1 - var(--lp, 0))))" } as React.CSSProperties}>
           {pinnedSubagent && (
@@ -1839,4 +1852,16 @@ export default function Home() {
       </div>
     </div>
   );
+
+  if (isDetached) {
+    return (
+      <div className="flex items-center justify-center bg-muted" style={{ width: "100vw", height: "100dvh" }}>
+        <div className="rounded-2xl overflow-hidden shadow-xl border border-border/60" style={{ width: "420px", height: "640px", maxWidth: "calc(100vw - 2rem)", maxHeight: "calc(100dvh - 2rem)" }}>
+          {chatWidget}
+        </div>
+      </div>
+    );
+  }
+
+  return chatWidget;
 }
