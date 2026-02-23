@@ -125,6 +125,8 @@ export default function Home() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const isDetachedRef = useRef(false);
   const [isDetached, setIsDetached] = useState(false);
+  const detachedUrlRef = useRef<string | null>(null);
+  const detachedTokenRef = useRef<string | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
@@ -1152,6 +1154,11 @@ export default function Home() {
     if (params.has("detached")) {
       isDetachedRef.current = true;
       setIsDetached(true);
+      const urlParam = params.get("url");
+      if (urlParam) {
+        detachedUrlRef.current = urlParam;
+        detachedTokenRef.current = params.get("token") || null;
+      }
     }
     if (params.has("demo")) {
       setIsDemoMode(true);
@@ -1346,6 +1353,21 @@ export default function Home() {
       return;
     }
     if (isDemoMode) return;
+
+    // Detached mode with ?url param — connect directly, skip localStorage
+    if (detachedUrlRef.current) {
+      const url = detachedUrlRef.current;
+      gatewayTokenRef.current = detachedTokenRef.current;
+      setBackendMode("openclaw");
+      setOpenclawUrl(url);
+      let wsUrl = url;
+      if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
+        wsUrl = url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+      }
+      connect(wsUrl);
+      return;
+    }
+
     const savedMode = window.localStorage.getItem("mobileclaw-mode") as BackendMode | null;
 
     if (savedMode === "demo") return;
