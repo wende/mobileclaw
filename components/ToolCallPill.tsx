@@ -148,7 +148,6 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
                     try {
                       const parsed = typeof args === "string" ? JSON.parse(args) : args;
                       if (parsed && typeof parsed === "object") {
-                        const filePath = parsed.file_path || parsed.filePath || parsed.path;
                         const oldStr = parsed.old_string ?? parsed.oldString ?? parsed.old_str ?? parsed.oldText ?? "";
                         const newStr = parsed.new_string ?? parsed.newString ?? parsed.new_str ?? parsed.newText ?? "";
                         const oldLines = String(oldStr).split("\n");

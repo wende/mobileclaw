@@ -1,6 +1,6 @@
 // Demo mode — simulates an OpenClaw backend with curated history and keyword-matched responses
 
-import type { ContentPart, Message } from "@/types/chat";
+import type { Message } from "@/types/chat";
 
 // ── Demo conversation history ────────────────────────────────────────────────
 // Single message exchange that showcases ALL display features

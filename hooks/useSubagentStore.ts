@@ -223,7 +223,7 @@ export function useSubagentStore(): SubagentStore {
       }
       if (!Array.isArray(content)) continue;
 
-      for (const part of content) {
+      for (const part of content as Array<{ type: string;[key: string]: unknown }>) {
         if (part.type === "thinking" && part.thinking) {
           session.entries.push({ type: "reasoning", text: part.thinking as string, ts });
         } else if (part.type === "thinking" && part.text) {

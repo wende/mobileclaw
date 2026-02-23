@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
         write: async (chunk: Uint8Array) => controller.enqueue(chunk),
       } as WritableStreamDefaultWriter<Uint8Array>;
 
-      let messages = [...(rest.messages || [])];
+      const messages = [...(rest.messages || [])];
       let round = 0;
 
       try {
@@ -188,7 +188,7 @@ export async function POST(req: NextRequest) {
           console.log(`[lmstudio-proxy] ── round ${round} ──`);
           console.log(`[lmstudio-proxy] messages: ${messages.length} (roles: ${messages.map((m: Record<string,unknown>) => m.role).join(", ")})`);
 
-          let requestBody = { ...rest, messages };
+          const requestBody = { ...rest, messages };
           let upstream = await fetch(target, {
             method: "POST",
             headers,

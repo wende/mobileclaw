@@ -77,6 +77,18 @@ function QueuePill({ text, onDismiss }: { text: string; onDismiss: () => void })
   );
 }
 
+/** Read a URL search param. Returns null when absent or during SSR. */
+function getSearchParam(name: string): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(name);
+}
+
+/** Convert an HTTP(S) URL to its WS(S) equivalent. Already-WS URLs pass through. */
+function toWsUrl(url: string): string {
+  if (url.startsWith("ws://") || url.startsWith("wss://")) return url;
+  return url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -91,7 +103,7 @@ export default function Home() {
   // without waiting for React's async render cycle.
   const {
     scrollRef, bottomRef, morphRef, scrollPhase, pinnedToBottomRef,
-    scrollGraceRef, handleScroll, scrollToBottom, updateGraceForStreamingChange,
+    handleScroll, scrollToBottom, updateGraceForStreamingChange,
   } = useScrollManager(messages, isStreamingRef);
 
   const setIsStreaming = useCallback((value: boolean) => {
@@ -112,17 +124,18 @@ export default function Home() {
   // ── UI state ────────────────────────────────────────────────────────────────
   const [showSetup, setShowSetup] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [serverInfo, setServerInfo] = useState<Record<string, unknown> | null>(null);
+  const [_serverInfo, setServerInfo] = useState<Record<string, unknown> | null>(null);
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelChoice[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const modelsRequestedRef = useRef(false);
   const appRef = useRef<HTMLDivElement>(null);
   const floatingBarRef = useRef<HTMLDivElement>(null);
-  const currentAssistantMsgRef = useRef<Message | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const sessionKeyRef = useRef<string>("main");
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [isDetached, setIsDetached] = useState(false);
+  const isDetachedRef = useRef(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
@@ -283,23 +296,6 @@ export default function Home() {
     tagBuffer: string;
   }>({ insideThinkTag: false, tagBuffer: "" });
 
-  const getEffectiveRunId = useCallback((serverRunId: string) => {
-    const mappedId = cmdRunIdMapRef.current.get(serverRunId);
-    if (mappedId) return mappedId;
-
-    if (lastCommandRef.current) {
-      const mappedValues = new Set(cmdRunIdMapRef.current.values());
-      const placeholder = messagesRef.current.findLast(
-        (m) => m.isCommandResponse && m.role === "assistant" && m.id && !mappedValues.has(m.id)
-      );
-      if (placeholder && placeholder.id) {
-        cmdRunIdMapRef.current.set(serverRunId, placeholder.id);
-        return placeholder.id;
-      }
-    }
-    return serverRunId;
-  }, []);
-
   // Notification: extract message preview and fire notification for a completed run
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
@@ -326,7 +322,7 @@ export default function Home() {
   }, []);
 
   const {
-    pullContentRef, pullSpinnerRef, isPullingRef,
+    pullContentRef, pullSpinnerRef, isPullingRef: _isPullingRef,
     onHistoryReceived,
   } = usePullToRefresh({ scrollRef, backendMode, sendWS, sessionKeyRef });
 
@@ -546,22 +542,22 @@ export default function Home() {
     // - Stringify non-string arguments
     for (const hm of historyMessages) {
       if (hm.role !== "assistant" || !Array.isArray(hm.content)) continue;
-      for (const part of hm.content as ContentPart[]) {
+      for (const part of hm.content) {
         if (!isToolCallPart(part) && part.name) {
           // Server may send "tool_use" type — normalize to "tool_call"
-          (part as ContentPart).type = "tool_call";
+          (part).type = "tool_call";
         }
         if (isToolCallPart(part)) {
           if (!part.result && !part.status) part.status = "running";
           // Normalize toolCallId from various server field names
           if (!part.toolCallId) {
-            const p = part as Record<string, unknown>;
+            const p = part as unknown as Record<string, unknown>;
             const id = (p.tool_call_id || p.id) as string | undefined;
             if (id) part.toolCallId = id;
           }
           // Normalize arguments from server field names
           if (!part.arguments) {
-            const p = part as Record<string, unknown>;
+            const p = part as unknown as Record<string, unknown>;
             if (p.input) part.arguments = typeof p.input === "string" ? p.input : JSON.stringify(p.input);
           } else if (typeof part.arguments !== "string") {
             part.arguments = JSON.stringify(part.arguments);
@@ -631,11 +627,11 @@ export default function Home() {
         if (!opt || !Array.isArray(opt.content)) return m;
 
         // Prefer the client's content (preserves original newlines for quote-reply)
-        const optText = (opt.content as ContentPart[]).filter((p) => p.type === "text");
-        const optImages = (opt.content as ContentPart[]).filter((p) => p.type === "image_url" || p.type === "image");
-        const serverImages = Array.isArray(m.content) ? (m.content as ContentPart[]).filter((p) => p.type === "image_url" || p.type === "image") : [];
+        const optText = (opt.content).filter((p) => p.type === "text");
+        const optImages = (opt.content).filter((p) => p.type === "image_url" || p.type === "image");
+        const serverImages = Array.isArray(m.content) ? (m.content).filter((p) => p.type === "image_url" || p.type === "image") : [];
         const images = serverImages.length > 0 ? serverImages : optImages;
-        const nonTextNonImage = Array.isArray(m.content) ? (m.content as ContentPart[]).filter((p) => p.type !== "text" && p.type !== "image_url" && p.type !== "image") : [];
+        const nonTextNonImage = Array.isArray(m.content) ? (m.content).filter((p) => p.type !== "text" && p.type !== "image_url" && p.type !== "image") : [];
 
         if (optText.length === 0 && images.length === 0) return m;
         return { ...m, content: [...optText, ...nonTextNonImage, ...images] };
@@ -692,9 +688,9 @@ export default function Home() {
     // Request subagent history for any sessions_spawn tool calls with childSessionKey
     for (const raw of rawMsgs) {
       if (raw.role !== "assistant" || !Array.isArray(raw.content)) continue;
-      for (const part of raw.content as Array<Record<string, unknown>>) {
+      for (const part of raw.content as ContentPart[]) {
         if (!isToolCallPart(part) || part.name !== SPAWN_TOOL_NAME) continue;
-        const resultStr = part.result as string | undefined;
+        const resultStr = part.result;
         if (!resultStr) continue;
         try {
           const r = JSON.parse(resultStr);
@@ -1115,7 +1111,7 @@ export default function Home() {
     },
     onInitialConnectFail: () => {
       setConnectionError("Could not reach server");
-      setShowSetup(true);
+      if (!isDetachedRef.current) setShowSetup(true);
     },
     onClose: () => {
       if (historyPollRef.current) { clearInterval(historyPollRef.current); historyPollRef.current = null; }
@@ -1143,11 +1139,13 @@ export default function Home() {
 
   // ── Demo mode ─────────────────────────────────────────────────────────────
 
-  // Detect ?demo URL param on mount
+  // Detect ?detached and ?demo URL params on mount
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("demo")) {
+    if (getSearchParam("detached") !== null) {
+      setIsDetached(true);
+      isDetachedRef.current = true;
+    }
+    if (getSearchParam("demo") !== null) {
       setIsDemoMode(true);
       setBackendMode("demo");
       setMessages(DEMO_HISTORY);
@@ -1195,7 +1193,7 @@ export default function Home() {
             ...target,
             content: target.content.map((p: ContentPart) =>
               p.type === "tool_call" && p.name === name && p.status === "running"
-                ? { ...p, status: (isError ? "error" : "success") as "error" | "success", result, resultError: isError }
+                ? { ...p, status: (isError ? "error" : "success"), result, resultError: isError }
                 : p
             ),
           };
@@ -1302,7 +1300,7 @@ export default function Home() {
             ...target,
             content: target.content.map((p: ContentPart) =>
               p.type === "tool_call" && p.name === name && p.status === "running"
-                ? { ...p, status: (isError ? "error" : "success") as "error" | "success", result: result || undefined, resultError: isError }
+                ? { ...p, status: (isError ? "error" : "success"), result: result || undefined, resultError: isError }
                 : p
             ),
           };
@@ -1336,10 +1334,20 @@ export default function Home() {
   // ── Backend initialization (localStorage restore) ─────────────────────────
 
   useEffect(() => {
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo")) {
+    if (getSearchParam("demo") !== null) return;
+    if (isDemoMode) return;
+
+    // Detached mode with ?url param — connect directly, skip localStorage
+    const detached = getSearchParam("detached") !== null;
+    const embedUrl = getSearchParam("url");
+    if (detached && embedUrl) {
+      gatewayTokenRef.current = getSearchParam("token");
+      setBackendMode("openclaw");
+      setOpenclawUrl(embedUrl);
+      connect(toWsUrl(embedUrl));
       return;
     }
-    if (isDemoMode) return;
+
     const savedMode = window.localStorage.getItem("mobileclaw-mode") as BackendMode | null;
 
     if (savedMode === "demo") return;
@@ -1363,7 +1371,7 @@ export default function Home() {
         } catch { }
         setHistoryLoaded(true);
       } else {
-        setShowSetup(true);
+        if (!detached) setShowSetup(true);
         setHistoryLoaded(true);
       }
     } else {
@@ -1373,13 +1381,9 @@ export default function Home() {
         gatewayTokenRef.current = savedToken ?? null;
         setBackendMode("openclaw");
         setOpenclawUrl(savedUrl);
-        let wsUrl = savedUrl;
-        if (!savedUrl.startsWith("ws://") && !savedUrl.startsWith("wss://")) {
-          wsUrl = savedUrl.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
-        }
-        connect(wsUrl);
+        connect(toWsUrl(savedUrl));
       } else {
-        setShowSetup(true);
+        if (!detached) setShowSetup(true);
         setHistoryLoaded(true);
       }
     }
@@ -1429,32 +1433,28 @@ export default function Home() {
     lmStudioConfigRef.current = null;
     lmStudioHandlerRef.current = null;
     setOpenclawUrl(config.url);
-    let wsUrl = config.url;
-    if (!config.url.startsWith("ws://") && !config.url.startsWith("wss://")) {
-      wsUrl = config.url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
-    }
-    connect(wsUrl);
+    connect(toWsUrl(config.url));
   }, [connect, disconnect, resetThinkingState]);
 
   // ── Send message ──────────────────────────────────────────────────────────
 
-  /** Upload files to litterbox via our proxy, returns public URLs (72h expiry). */
+  /** Upload files directly to litterbox.catbox.moe, returns public URLs (72h expiry). */
   const uploadFiles = useCallback(async (attachments: ImageAttachment[]): Promise<string[]> => {
     const results = await Promise.allSettled(
       attachments.map(async (a) => {
         const buf = Uint8Array.from(atob(a.content), (c) => c.charCodeAt(0));
-        const file = new File([buf], a.fileName, { type: a.mimeType });
+        const ext = a.mimeType.split("/")[1]?.replace("jpeg", "jpg") || "bin";
+        const name = a.fileName || `file.${ext}`;
         const form = new FormData();
-        form.append("file", file);
-        const res = await fetch("/api/upload", { method: "POST", body: form });
-        if (!res.ok) {
-          const errText = await res.text().catch(() => "");
-          console.error("[Upload] failed:", res.status, errText, a.fileName);
-          return null;
-        }
-        const { url } = await res.json();
-        console.log("[Upload]", a.fileName, "→", url);
-        return url as string;
+        form.append("reqtype", "fileupload");
+        form.append("time", "72h");
+        form.append("fileToUpload", new File([buf], name, { type: a.mimeType }));
+        const res = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", {
+          method: "POST",
+          body: form,
+        });
+        if (!res.ok) return null;
+        return (await res.text()).trim();
       })
     );
     for (const r of results) {
@@ -1467,13 +1467,12 @@ export default function Home() {
   }, []);
 
   const lastCommandRef = useRef<string | null>(null);
-  const cmdRunIdMapRef = useRef<Map<string, string>>(new Map());
 
   const sendMessage = useCallback(async (text: string, attachments?: ImageAttachment[]) => {
     console.log("[sendMessage]", { text: text.slice(0, 50), attachments: attachments?.length ?? 0 });
     const isSlashCommand = text.trim().startsWith("/");
     lastCommandRef.current = isSlashCommand ? text.trim().split(/\s/)[0].toLowerCase() : null;
-    requestNotificationPermission();
+    void requestNotificationPermission();
     pinnedToBottomRef.current = true;
 
     // Show user message immediately with local previews
@@ -1545,7 +1544,7 @@ export default function Home() {
         try { window.localStorage.setItem("lmstudio-messages", JSON.stringify(prev)); } catch { }
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            lmStudioHandlerRef.current?.sendMessage(prev);
+            void lmStudioHandlerRef.current?.sendMessage(prev);
           });
         });
         return prev;
@@ -1587,16 +1586,17 @@ export default function Home() {
       }
       return;
     }
-    sendMessage(text, attachments);
+    void sendMessage(text, attachments);
   }, [isRunActive, sendMessage]);
 
   const thinkingLabel = isRunActive && lastCommandRef.current === "/compact" ? "Compacting" : undefined;
 
   // Dynamic tab title — show "Thinking…" while run is active
   useEffect(() => {
+    if (isDetached) return;
     if (!isRunActive) { document.title = "MobileClaw"; return; }
     document.title = lastCommandRef.current === "/compact" ? "Compacting… — MobileClaw" : "Thinking… — MobileClaw";
-  }, [isRunActive]);
+  }, [isRunActive, isDetached]);
 
   // Persist run-active state so "Thinking..." shows immediately after refresh
   useEffect(() => {
@@ -1681,13 +1681,13 @@ export default function Home() {
         while (result.length > 0) {
           const prev = result[result.length - 1];
           if (prev.role !== "assistant" || !Array.isArray(prev.content)) break;
-          const prevParts = prev.content as ContentPart[];
+          const prevParts = prev.content;
           absorbed.unshift(...prevParts);
           if (!absorbedReasoning && prev.reasoning) absorbedReasoning = prev.reasoning;
           result.pop();
         }
         if (absorbed.length > 0) {
-          const thisParts = Array.isArray(msg.content) ? (msg.content as ContentPart[]) : [{ type: "text" as const, text: msgText }];
+          const thisParts = Array.isArray(msg.content) ? (msg.content) : [{ type: "text" as const, text: msgText }];
           result.push({
             ...msg,
             content: [...absorbed, ...thisParts],
@@ -1703,37 +1703,44 @@ export default function Home() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  return (
-    <div ref={appRef} className="relative flex flex-col overflow-hidden bg-background" style={{ height: "100dvh" }}>
-      <SetupDialog
-        onConnect={(config) => {
-          setShowSetup(false);
-          handleConnect(config);
-        }}
-        onClose={openclawUrl || isDemoMode || backendMode !== "openclaw" ? () => setShowSetup(false) : undefined}
-        visible={showSetup}
-        connectionError={connectionError}
-        isDemoMode={isDemoMode}
-      />
+  const bottomPad = pinnedSubagent ? (isDetached ? "12rem" : "16rem")
+    : queuedMessage ? (isDetached ? "9rem" : "13rem")
+    : (isDetached ? "6rem" : "10rem");
 
-      <ChatHeader
-        currentModel={currentModel}
-        theme={theme}
-        toggleTheme={toggleTheme}
-        connectionState={connectionState}
-        backendMode={backendMode}
-        isDemoMode={isDemoMode}
-        onOpenSetup={() => setShowSetup(true)}
-      />
+  const chatWidget = (
+    <div ref={appRef} className="relative flex flex-col overflow-hidden bg-background" style={{ height: isDetached ? "100%" : "100dvh" }}>
+      {!isDetached && (
+        <>
+          <SetupDialog
+            onConnect={(config) => {
+              setShowSetup(false);
+              handleConnect(config);
+            }}
+            onClose={openclawUrl || isDemoMode || backendMode !== "openclaw" ? () => setShowSetup(false) : undefined}
+            visible={showSetup}
+            connectionError={connectionError}
+            isDemoMode={isDemoMode}
+          />
+          <ChatHeader
+            currentModel={currentModel}
+            theme={theme}
+            toggleTheme={toggleTheme}
+            connectionState={connectionState}
+            backendMode={backendMode}
+            isDemoMode={isDemoMode}
+            onOpenSetup={() => setShowSetup(true)}
+          />
+        </>
+      )}
 
       <div ref={pullContentRef} className="flex flex-1 flex-col min-h-0">
         <main
           ref={scrollRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto overflow-x-hidden pt-14"
+          className={`flex-1 overflow-y-auto overflow-x-hidden ${isDetached ? "" : "pt-14"}`}
           style={{ overscrollBehavior: "none" }}
         >
-          <div className={`mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: pinnedSubagent ? "16rem" : queuedMessage ? "13rem" : "10rem" }}>
+          <div className={`mx-auto flex w-full ${isDetached ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
             {displayMessages.map((msg, idx) => {
               const side = getMessageSide(msg.role);
               const prevSide = idx > 0 ? getMessageSide(displayMessages[idx - 1].role) : null;
@@ -1774,16 +1781,18 @@ export default function Home() {
           </div>
         </main>
         {/* Pull-to-refresh spinner */}
-        <div
-          ref={pullSpinnerRef}
-          className="flex h-0 items-center justify-center gap-2 overflow-visible"
-          style={{ opacity: 0, transform: "translateY(calc(-3dvh - 23px))" }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground" style={{ animation: "none" }}>
-            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-          </svg>
-          <span className="text-sm leading-none">🦞</span>
-        </div>
+        {!isDetached && (
+          <div
+            ref={pullSpinnerRef}
+            className="flex h-0 items-center justify-center gap-2 overflow-visible"
+            style={{ opacity: 0, transform: "translateY(calc(-3dvh - 23px))" }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground" style={{ animation: "none" }}>
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            <span className="text-sm leading-none">🦞</span>
+          </div>
+        )}
       </div>
 
       {/* Floating quote button */}
@@ -1810,7 +1819,7 @@ export default function Home() {
       {/* Floating morphing bar */}
       <div
         ref={floatingBarRef}
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 pb-[3dvh] md:px-6 md:pb-[3dvh] animate-[fadeIn_400ms_ease-out]"
+        className={`pointer-events-none ${isDetached ? "absolute" : "fixed"} inset-x-0 bottom-0 z-20 flex justify-center ${isDetached ? "px-3 pb-3" : "px-3 pb-[3dvh] md:px-6 md:pb-[3dvh]"} animate-[fadeIn_400ms_ease-out]`}
       >
         <div ref={morphRef} className="pointer-events-auto w-full" style={{ maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--lp, 0))), calc(200px + (42rem - 200px) * (1 - var(--lp, 0))))" } as React.CSSProperties}>
           {pinnedSubagent && (
@@ -1860,4 +1869,16 @@ export default function Home() {
       </div>
     </div>
   );
+
+  if (isDetached) {
+    return (
+      <div className="flex items-center justify-center bg-muted" style={{ width: "100vw", height: "100dvh" }}>
+        <div className="rounded-2xl overflow-hidden shadow-xl border border-border/60" style={{ width: "420px", height: "640px", maxWidth: "calc(100vw - 2rem)", maxHeight: "calc(100dvh - 2rem)" }}>
+          {chatWidget}
+        </div>
+      </div>
+    );
+  }
+
+  return chatWidget;
 }

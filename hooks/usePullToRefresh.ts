@@ -51,7 +51,7 @@ export function usePullToRefresh({
       spinner.style.transition = animate ? "opacity 0.3s ease" : "none";
       spinner.style.opacity = dist > 0 ? String(Math.min(dist / (PULL_THRESHOLD * 0.5), 1)) : "0";
       const svg = spinner.querySelector("svg");
-      if (svg) (svg as HTMLElement).style.animation = dist > 0 ? "spin 1s linear infinite" : "none";
+      if (svg) svg.style.animation = dist > 0 ? "spin 1s linear infinite" : "none";
     }
   }, []);
   setPullTransformRef.current = setPullTransform;
@@ -102,7 +102,7 @@ export function usePullToRefresh({
     // Reset stroke-dasharray so the spinner looks normal when not in hold mode
     const spinner = pullSpinnerRef.current;
     if (spinner) {
-      const path = spinner.querySelector("svg path") as SVGElement | null;
+      const path = spinner.querySelector<SVGElement>("svg path");
       if (path) {
         path.style.strokeDasharray = "";
         path.style.strokeDashoffset = "";

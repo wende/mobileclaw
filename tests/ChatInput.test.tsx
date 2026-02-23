@@ -53,10 +53,10 @@ describe("ChatInput", () => {
     const user = userEvent.setup();
     render(<ChatInput {...defaultProps} />);
 
-    const textarea = screen.getByPlaceholderText("Send a message...") as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText("Send a message...");
     await user.type(textarea, "hello{Enter}");
 
-    expect(textarea.value).toBe("");
+    expect((textarea as HTMLTextAreaElement).value).toBe("");
   });
 
   it("shows command suggestions when typing /", async () => {
