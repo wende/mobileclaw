@@ -1,4 +1,4 @@
-export type ContentPartType = "text" | "tool_call" | "toolCall" | "thinking" | "image" | "image_url";
+export type ContentPartType = "text" | "tool_call" | "toolCall" | "thinking" | "image" | "image_url" | "file";
 export type MessageRole = "user" | "assistant" | "system" | "tool" | "toolResult" | "tool_result";
 
 export interface ContentPart {
@@ -13,6 +13,9 @@ export interface ContentPart {
   resultError?: boolean;
   source?: Record<string, unknown>;
   image_url?: { url?: string };
+  file_url?: string;
+  file_name?: string;
+  file_mime?: string;
   subagentSessionKey?: string;
 }
 

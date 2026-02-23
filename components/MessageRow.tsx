@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import type { ContentPart, Message } from "@/types/chat";
-import { getTextFromContent, getImages, thinkingPreview } from "@/lib/messageUtils";
+import { getTextFromContent, getImages, getFiles, thinkingPreview } from "@/lib/messageUtils";
 import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine } from "@/lib/constants";
 import { useExpandablePanel } from "@/hooks/useExpandablePanel";
 import { SlideContent } from "@/components/SlideContent";
@@ -12,6 +12,52 @@ import { ToolCallPill } from "@/components/ToolCallPill";
 import { ImageThumbnails } from "@/components/ImageThumbnails";
 import { SmoothGrow } from "@/components/SmoothGrow";
 import type { SubagentStore } from "@/hooks/useSubagentStore";
+
+// ── File Thumbnails ──────────────────────────────────────────────────────────
+
+function fileExt(name?: string): string {
+  if (!name) return "";
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot + 1).toUpperCase() : "";
+}
+
+function FileThumbnails({ files }: { files: ContentPart[] }) {
+  if (files.length === 0) return null;
+  return (
+    <div className="mt-1.5 flex gap-1.5 flex-wrap">
+      {files.map((f, i) => {
+        const ext = fileExt(f.file_name);
+        const uploading = !f.file_url;
+        const el = (
+          <div
+            key={i}
+            className={`flex items-center gap-2 rounded-lg border border-primary-foreground/15 bg-primary-foreground/10 px-2.5 py-1.5 ${uploading ? "opacity-60" : ""}`}
+          >
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-foreground/15">
+              {ext ? (
+                <span className="text-[10px] font-bold leading-none text-primary-foreground/80">{ext.slice(0, 4)}</span>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-foreground/70">
+                  <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" />
+                </svg>
+              )}
+            </div>
+            <span className="max-w-[140px] truncate text-xs font-medium text-primary-foreground/90">{f.file_name || "file"}</span>
+            {uploading && (
+              <svg width="12" height="12" viewBox="0 0 24 24" className="animate-spin text-primary-foreground/50 shrink-0">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+              </svg>
+            )}
+          </div>
+        );
+        if (f.file_url) {
+          return <a key={i} href={f.file_url} target="_blank" rel="noopener noreferrer" className="no-underline">{el}</a>;
+        }
+        return el;
+      })}
+    </div>
+  );
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -424,6 +470,7 @@ function ContextPill({ summary, iconEl, text }: { summary: string; iconEl: React
 export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCallId, onPin, onUnpin }: { message: Message; isStreaming: boolean; subagentStore?: SubagentStore; pinnedToolCallId?: string | null; onPin?: (info: { toolCallId: string | null; childSessionKey: string | null; taskName: string; model: string | null }) => void; onUnpin?: () => void }) {
   const text = getTextFromContent(message.content);
   const images = getImages(message.content);
+  const files = getFiles(message.content);
 
   if (message.role === "toolResult" || message.role === "tool_result" || message.role === "tool") {
     return null;
@@ -545,6 +592,7 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
               </div>
             )}
             <ImageThumbnails images={images} />
+            <FileThumbnails files={files} />
           </>
         ) : (
           /* Single-pass rendering: all parts in content array order for correct chronology */

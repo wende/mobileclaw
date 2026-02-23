@@ -34,6 +34,11 @@ export function getImages(content: ContentPart[] | string | null): ContentPart[]
   return content.filter(isImagePart);
 }
 
+export function getFiles(content: ContentPart[] | string | null): ContentPart[] {
+  if (!content || typeof content === "string") return [];
+  return content.filter((p) => p.type === "file");
+}
+
 export function getMessageSide(role: MessageRole): "left" | "right" | "center" {
   if (role === "user") return "right";
   if (role === "assistant" || role === "toolResult" || role === "tool_result") return "left";

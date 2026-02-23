@@ -179,10 +179,94 @@ export function useScrollManager(
     return () => cancelAnimationFrame(id);
   }, [isStreamingRef]);
 
-  // Unpin auto-scroll when user actively scrolls up (wheel or touch)
+  // Unpin auto-scroll when user actively scrolls up (wheel or touch),
+  // and apply elastic bounce when scrolling past the bottom.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+
+    // ── Bottom bounce state ──────────────────────────────────────────
+    let bounceTouchStartY = 0;
+    let isBouncing = false;
+    let bounceOffset = 0;
+    let bounceRafId: number | null = null;
+
+    // Wheel bounce: accumulated overscroll + decay timer
+    let wheelAccum = 0;
+    let wheelDecayRaf: number | null = null;
+
+    const applyBounce = (offset: number) => {
+      const content = el.firstElementChild as HTMLElement | null;
+      if (!content) return;
+      if (offset === 0) {
+        content.style.transform = "";
+        content.style.transition = "";
+      } else {
+        content.style.transition = "none";
+        content.style.transform = `translateY(${offset}px)`;
+      }
+    };
+
+    const springBack = () => {
+      if (bounceRafId) cancelAnimationFrame(bounceRafId);
+      const content = el.firstElementChild as HTMLElement | null;
+      if (!content) return;
+      content.style.transition = "transform 0.45s cubic-bezier(0.25, 1, 0.5, 1)";
+      content.style.transform = "";
+      bounceOffset = 0;
+      isBouncing = false;
+      bounceRafId = null;
+    };
+
+    const isAtBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight < 2;
+
+    // ── Touch bounce ─────────────────────────────────────────────────
+    const onBounceStart = (e: TouchEvent) => {
+      if (isAtBottom()) {
+        bounceTouchStartY = e.touches[0].clientY;
+        const content = el.firstElementChild as HTMLElement | null;
+        if (content) {
+          content.style.transition = "none";
+          content.style.transform = "";
+        }
+      }
+    };
+
+    const onBounceMove = (e: TouchEvent) => {
+      if (!isAtBottom() && !isBouncing) return;
+      const dy = bounceTouchStartY - e.touches[0].clientY;
+      if (dy > 0 && isAtBottom()) {
+        isBouncing = true;
+        const raw = dy * 0.35;
+        bounceOffset = -(raw / (1 + raw / 200));
+        applyBounce(bounceOffset);
+      } else if (isBouncing && dy <= 0) {
+        bounceOffset = 0;
+        applyBounce(0);
+        isBouncing = false;
+      }
+    };
+
+    const onBounceEnd = () => {
+      if (isBouncing) springBack();
+    };
+
+    // ── Wheel bounce (desktop) ───────────────────────────────────────
+    const wheelDecayTick = () => {
+      wheelAccum *= 0.75;
+      if (Math.abs(wheelAccum) < 0.5) {
+        wheelAccum = 0;
+        springBack();
+        wheelDecayRaf = null;
+        return;
+      }
+      const raw = wheelAccum * 0.35;
+      bounceOffset = -(raw / (1 + raw / 200));
+      applyBounce(bounceOffset);
+      wheelDecayRaf = requestAnimationFrame(wheelDecayTick);
+    };
+
+    // ── Existing scroll/unpin logic ──────────────────────────────────
     const onTouchEnd = () => {
       if (isStreamingRef.current) {
         const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -192,6 +276,19 @@ export function useScrollManager(
     const onWheel = (e: WheelEvent) => {
       if (e.deltaY < 0 && isStreamingRef.current) {
         pinnedToBottomRef.current = false;
+      }
+      // Bounce on wheel scroll past bottom
+      if (e.deltaY > 0 && isAtBottom()) {
+        isBouncing = true;
+        wheelAccum += e.deltaY;
+        // Cap accumulation so the bounce feels bounded
+        wheelAccum = Math.min(wheelAccum, 300);
+        const raw = wheelAccum * 0.35;
+        bounceOffset = -(raw / (1 + raw / 200));
+        applyBounce(bounceOffset);
+        // Restart decay — each new wheel event resets the timer
+        if (wheelDecayRaf) cancelAnimationFrame(wheelDecayRaf);
+        wheelDecayRaf = requestAnimationFrame(wheelDecayTick);
       }
     };
     let lastScrollTop = el.scrollTop;
@@ -204,15 +301,27 @@ export function useScrollManager(
       }
       lastScrollTop = el.scrollTop;
     };
-    el.addEventListener("touchend", onTouchEnd, { passive: true });
-    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+    // Combine bounce + unpin touch handlers
+    const onCombinedTouchStart = (e: TouchEvent) => onBounceStart(e);
+    const onCombinedTouchMove = (e: TouchEvent) => onBounceMove(e);
+    const onCombinedTouchEnd = () => { onBounceEnd(); onTouchEnd(); };
+
+    el.addEventListener("touchstart", onCombinedTouchStart, { passive: true });
+    el.addEventListener("touchmove", onCombinedTouchMove, { passive: true });
+    el.addEventListener("touchend", onCombinedTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onCombinedTouchEnd, { passive: true });
     el.addEventListener("wheel", onWheel, { passive: true });
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      el.removeEventListener("touchend", onTouchEnd);
-      el.removeEventListener("touchcancel", onTouchEnd);
+      el.removeEventListener("touchstart", onCombinedTouchStart);
+      el.removeEventListener("touchmove", onCombinedTouchMove);
+      el.removeEventListener("touchend", onCombinedTouchEnd);
+      el.removeEventListener("touchcancel", onCombinedTouchEnd);
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("scroll", onScroll);
+      if (bounceRafId) cancelAnimationFrame(bounceRafId);
+      if (wheelDecayRaf) cancelAnimationFrame(wheelDecayRaf);
     };
   }, [isStreamingRef]);
 

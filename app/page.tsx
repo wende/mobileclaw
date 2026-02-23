@@ -1457,6 +1457,9 @@ export default function Home() {
         return (await res.text()).trim();
       })
     );
+    for (const r of results) {
+      if (r.status === "rejected") console.error("[Upload] rejected:", r.reason);
+    }
     return results
       .filter((r): r is PromiseFulfilledResult<string | null> => r.status === "fulfilled")
       .map((r) => r.value)
@@ -1473,16 +1476,20 @@ export default function Home() {
     pinnedToBottomRef.current = true;
 
     // Show user message immediately with local previews
-    const contentParts: ContentPart[] = [{ type: "text", text }];
+    const contentParts: ContentPart[] = [];
+    if (text) contentParts.push({ type: "text", text });
     if (attachments?.length) {
       for (const a of attachments) {
         if (a.mimeType.startsWith("image/")) {
           contentParts.push({ type: "image_url", image_url: { url: `data:${a.mimeType};base64,${a.content}` } });
+        } else {
+          contentParts.push({ type: "file", file_name: a.fileName, file_mime: a.mimeType });
         }
       }
     }
 
-    const userMsg: Message = { role: "user", content: contentParts, id: `u-${Date.now()}`, timestamp: Date.now(), isHidden: isSlashCommand };
+    const userMsgId = `u-${Date.now()}`;
+    const userMsg: Message = { role: "user", content: contentParts, id: userMsgId, timestamp: Date.now(), isHidden: isSlashCommand };
     setSentAnimId(userMsg.id!);
 
     if (isSlashCommand) {
@@ -1496,22 +1503,32 @@ export default function Home() {
 
     // Upload attachments to litterbox (temporary hosting, 72h expiry) and
     // include the public URLs in the message text so the agent can fetch them.
-    // Also send as native `attachments` for vision-capable models.
     let messageText = text;
-    let nativeAttachments: { mimeType: string; fileName: string; content: string }[] | undefined;
     if (attachments?.length) {
       const urls = await uploadFiles(attachments);
       if (urls.length > 0) {
-        const urlLines = urls.map((url) => url).join("\n");
+        const urlLines = urls.join("\n");
         messageText = text ? `${text}\n\n${urlLines}` : urlLines;
+        // Update file parts with their upload URLs
+        setMessages((prev) => prev.map((m) => {
+          if (m.id !== userMsgId) return m;
+          const parts = m.content as ContentPart[];
+          let urlIdx = 0;
+          const updated = parts.map((p) => {
+            if (p.type === "file" && urlIdx < urls.length) {
+              return { ...p, file_url: urls[urlIdx++] };
+            }
+            return p;
+          });
+          return { ...m, content: updated };
+        }));
+      } else {
+        console.error("[Upload] all uploads failed for", attachments.length, "file(s)");
       }
-      // Also send as native attachments for models with vision support
-      nativeAttachments = attachments.map((a) => ({
-        mimeType: a.mimeType,
-        fileName: a.fileName,
-        content: a.content,
-      }));
     }
+
+    // Bail if we ended up with nothing to send (e.g. no text and upload failed)
+    if (!messageText) return;
 
     // Demo mode
     if (isDemoMode || backendMode === "demo") {
@@ -1553,7 +1570,6 @@ export default function Home() {
         message: messageText,
         deliver: true,
         idempotencyKey: runId,
-        ...(nativeAttachments?.length ? { attachments: nativeAttachments } : {}),
       },
     });
 

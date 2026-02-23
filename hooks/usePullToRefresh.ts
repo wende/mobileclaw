@@ -10,7 +10,8 @@ interface PullToRefreshOptions {
 
 /**
  * Pull-up-to-refresh gesture handling with direct DOM transforms.
- * Returns refs for the pull content wrapper and spinner, plus the refreshing state.
+ * Requires holding past threshold for 1 second before triggering.
+ * The lobster wobbles during the hold period.
  */
 export function usePullToRefresh({
   scrollRef,
@@ -19,6 +20,7 @@ export function usePullToRefresh({
   sessionKeyRef,
 }: PullToRefreshOptions) {
   const PULL_THRESHOLD = 60;
+  const HOLD_DURATION = 1000;
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
   refreshingRef.current = refreshing;
@@ -31,6 +33,12 @@ export function usePullToRefresh({
   const pullContentRef = useRef<HTMLDivElement>(null);
   const pullSpinnerRef = useRef<HTMLDivElement>(null);
   const setPullTransformRef = useRef<(dist: number, animate: boolean) => void>(() => {});
+
+  // Hold timer state
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdStartRef = useRef<number>(0);
+  const holdLockedRef = useRef(false);
+  const holdRafRef = useRef<number | null>(null);
 
   const setPullTransform = useCallback((dist: number, animate: boolean) => {
     const wrapper = pullContentRef.current;
@@ -47,6 +55,60 @@ export function usePullToRefresh({
     }
   }, []);
   setPullTransformRef.current = setPullTransform;
+
+  /** Set the wobble animation on the lobster emoji. */
+  const setLobsterWobble = useCallback((active: boolean) => {
+    const spinner = pullSpinnerRef.current;
+    if (!spinner) return;
+    const lobster = spinner.querySelector("span");
+    if (!lobster) return;
+    if (active) {
+      (lobster as HTMLElement).style.animation = "lobsterWobble 300ms ease-in-out infinite";
+      (lobster as HTMLElement).style.display = "inline-block";
+    } else {
+      (lobster as HTMLElement).style.animation = "none";
+    }
+  }, []);
+
+  /** Update the progress ring around the spinner to show hold progress. */
+  const updateHoldProgress = useCallback((progress: number) => {
+    const spinner = pullSpinnerRef.current;
+    if (!spinner) return;
+    const svg = spinner.querySelector("svg");
+    if (!svg) return;
+    const path = svg.querySelector("path");
+    if (!path) return;
+    // Use stroke-dasharray/offset to show progress on the arc
+    // The arc path length is approximately 51.8 (270° of r=9 circle ≈ 3/4 * 2π * 9)
+    const arcLen = 42.4; // actual rendered length of the 270° arc
+    const dashOffset = arcLen * (1 - progress);
+    (path as SVGElement).style.strokeDasharray = `${arcLen}`;
+    (path as SVGElement).style.strokeDashoffset = `${dashOffset}`;
+  }, []);
+
+  const clearHoldState = useCallback(() => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (holdRafRef.current) {
+      cancelAnimationFrame(holdRafRef.current);
+      holdRafRef.current = null;
+    }
+    holdStartRef.current = 0;
+    holdLockedRef.current = false;
+    setLobsterWobble(false);
+    updateHoldProgress(0);
+    // Reset stroke-dasharray so the spinner looks normal when not in hold mode
+    const spinner = pullSpinnerRef.current;
+    if (spinner) {
+      const path = spinner.querySelector("svg path") as SVGElement | null;
+      if (path) {
+        path.style.strokeDasharray = "";
+        path.style.strokeDashoffset = "";
+      }
+    }
+  }, [setLobsterWobble, updateHoldProgress]);
 
   const doRefresh = useCallback(() => {
     setRefreshing(true);
@@ -82,8 +144,7 @@ export function usePullToRefresh({
     }, remaining);
   }, []);
 
-  // Reset pull state when app resumes from background (touchend may not fire
-  // if the app was backgrounded mid-gesture, leaving a residual transform).
+  // Reset pull state when app resumes from background
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible" && !refreshingRef.current) {
@@ -91,11 +152,12 @@ export function usePullToRefresh({
         isPullingRef.current = false;
         pullDistanceRef.current = 0;
         setPullTransform(0, false);
+        clearHoldState();
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [setPullTransform]);
+  }, [setPullTransform, clearHoldState]);
 
   // Touch handlers — direct DOM transforms, no React re-renders
   useEffect(() => {
@@ -113,12 +175,51 @@ export function usePullToRefresh({
       }
     };
 
+    /** Animate the hold progress ring via rAF. */
+    const animateHoldProgress = () => {
+      if (!holdStartRef.current || holdLockedRef.current) return;
+      const elapsed = Date.now() - holdStartRef.current;
+      const progress = Math.min(elapsed / HOLD_DURATION, 1);
+      updateHoldProgress(progress);
+      if (progress < 1) {
+        holdRafRef.current = requestAnimationFrame(animateHoldProgress);
+      }
+    };
+
+    /** Start the hold timer when pull exceeds threshold. */
+    const startHoldTimer = () => {
+      if (holdTimerRef.current || holdLockedRef.current) return;
+      holdStartRef.current = Date.now();
+      setLobsterWobble(true);
+      // Start progress animation
+      holdRafRef.current = requestAnimationFrame(animateHoldProgress);
+      holdTimerRef.current = setTimeout(() => {
+        holdLockedRef.current = true;
+        holdTimerRef.current = null;
+        if (holdRafRef.current) {
+          cancelAnimationFrame(holdRafRef.current);
+          holdRafRef.current = null;
+        }
+        updateHoldProgress(1);
+        navigator.vibrate?.(15);
+        // Lock in — trigger refresh immediately
+        setLobsterWobble(false);
+        doRefresh();
+        // Clean up pull state
+        pullStartYRef.current = null;
+        isPullingRef.current = false;
+        pullDistanceRef.current = 0;
+      }, HOLD_DURATION);
+    };
+
     const onTouchMove = (e: TouchEvent) => {
       if (pullStartYRef.current === null || refreshingRef.current) return;
+      if (holdLockedRef.current) return;
       if (!isAtBottom() && !isPullingRef.current) {
         pullStartYRef.current = null;
         pullDistanceRef.current = 0;
         setPullTransform(0, false);
+        clearHoldState();
         return;
       }
       const deltaY = pullStartYRef.current - e.touches[0].clientY;
@@ -129,15 +230,28 @@ export function usePullToRefresh({
           ? raw
           : PULL_THRESHOLD + (raw - PULL_THRESHOLD) * 0.15;
         pullDistanceRef.current = dist;
-        if (dist >= PULL_THRESHOLD && !didVibrateRef.current) {
-          didVibrateRef.current = true;
-          navigator.vibrate?.(10);
+
+        if (dist >= PULL_THRESHOLD) {
+          if (!didVibrateRef.current) {
+            didVibrateRef.current = true;
+            navigator.vibrate?.(10);
+          }
+          startHoldTimer();
+        } else {
+          // Dropped below threshold — cancel hold
+          if (holdTimerRef.current) {
+            clearHoldState();
+          }
         }
+
         setPullTransform(dist, false);
         e.preventDefault();
       } else {
         pullDistanceRef.current = 0;
         setPullTransform(0, false);
+        if (holdTimerRef.current) {
+          clearHoldState();
+        }
       }
     };
 
@@ -145,13 +259,18 @@ export function usePullToRefresh({
       if (pullStartYRef.current === null) return;
       pullStartYRef.current = null;
       const wasPulling = isPullingRef.current;
-      const dist = pullDistanceRef.current;
       isPullingRef.current = false;
       pullDistanceRef.current = 0;
 
-      if (wasPulling && dist >= PULL_THRESHOLD) {
-        doRefresh();
-      } else {
+      // If hold already locked in (refresh triggered), nothing to do
+      if (holdLockedRef.current) {
+        clearHoldState();
+        return;
+      }
+
+      // Released before hold completed — snap back
+      clearHoldState();
+      if (wasPulling) {
         setPullTransform(0, true);
       }
     };
@@ -163,8 +282,10 @@ export function usePullToRefresh({
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+      if (holdRafRef.current) cancelAnimationFrame(holdRafRef.current);
     };
-  }, [scrollRef, doRefresh, setPullTransform]);
+  }, [scrollRef, doRefresh, setPullTransform, clearHoldState, setLobsterWobble, updateHoldProgress]);
 
   return {
     pullContentRef,

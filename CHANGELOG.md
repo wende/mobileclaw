@@ -5,6 +5,8 @@ All notable changes to MobileClaw are documented in this file.
 ## 2026-02-23
 
 ### Added
+- Pull-to-refresh hold gesture — requires 1-second hold past threshold before triggering refresh; lobster wobbles during hold with a progress ring on the spinner SVG
+- Elastic bottom bounce — rubber-band overscroll effect when scrolling past the bottom (touch and mouse wheel), springs back smoothly on release
 - Command response pills — slash commands render as expandable pills with spinner and auto-expand animation
 - `CommandResponsePill` component with CSS-only `gridSlideOpen` animation (no JS timing needed)
 - `isCommandResponse` and `isHidden` flags on `Message` type for slash command UX
