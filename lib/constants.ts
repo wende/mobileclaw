@@ -2,6 +2,12 @@
 export const HEARTBEAT_MARKER = "HEARTBEAT_OK";
 export const NO_REPLY_MARKER = "NO_REPLY";
 
+/** Returns true only if HEARTBEAT_OK appears on a line by itself (nothing else on that line). */
+const HEARTBEAT_OWN_LINE_RE = new RegExp(`^${HEARTBEAT_MARKER}$`, "m");
+export function hasHeartbeatOnOwnLine(text: string): boolean {
+  return HEARTBEAT_OWN_LINE_RE.test(text);
+}
+
 /** Returns true only if `marker` appears in `text` outside of double-quoted strings. */
 export function hasUnquotedMarker(text: string, marker: string): boolean {
   let i = 0;
