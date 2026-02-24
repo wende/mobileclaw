@@ -27,6 +27,9 @@ import type { ConfigParseResult } from "@/lib/parseBackendModels";
 import { logChatEvent, logAgentEvent } from "@/lib/debugLog";
 import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
+import { TurnstileGate } from "@/components/TurnstileGate";
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null;
 
 import { ChatInput, type ChatInputHandle } from "@/components/ChatInput";
 import { SetupDialog } from "@/components/SetupDialog";
@@ -311,6 +314,18 @@ export default function Home() {
     // Skip notification for silent injected messages
     if (hasHeartbeatOnOwnLine(preview) || hasUnquotedMarker(preview, NO_REPLY_MARKER)) return;
     notifyMessageComplete(preview);
+  }, []);
+
+  // ── Turnstile gate ─────────────────────────────────────────────────────────
+  const [turnstileVerified, setTurnstileVerified] = useState(!TURNSTILE_SITE_KEY);
+  const [turnstileChecked, setTurnstileChecked] = useState(!TURNSTILE_SITE_KEY);
+
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY) return;
+    try {
+      if (sessionStorage.getItem("turnstile-verified") === "1") setTurnstileVerified(true);
+    } catch {}
+    setTurnstileChecked(true);
   }, []);
 
   // ── Keyboard layout (iOS Safari) ───────────────────────────────────────────
@@ -1151,6 +1166,9 @@ export default function Home() {
     if (getSearchParam("upload") === "false") {
       setUploadDisabled(true);
     }
+    if (getSearchParam("upload") === "false") {
+      setUploadDisabled(true);
+    }
     if (getSearchParam("demo") !== null) {
       setIsDemoMode(true);
       setBackendMode("demo");
@@ -1708,6 +1726,19 @@ export default function Home() {
   }, [messages]);
 
   // ── Render ────────────────────────────────────────────────────────────────
+
+  if (!turnstileChecked) return null;
+  if (!turnstileVerified && TURNSTILE_SITE_KEY) {
+    return (
+      <TurnstileGate
+        siteKey={TURNSTILE_SITE_KEY}
+        onVerified={() => {
+          try { sessionStorage.setItem("turnstile-verified", "1"); } catch {}
+          setTurnstileVerified(true);
+        }}
+      />
+    );
+  }
 
   const inputZoneHeight = "calc(1.5dvh + 3.5rem)";
   const bottomPad = pinnedSubagent ? (isDetached ? "10rem" : "16rem")

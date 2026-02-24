@@ -16,3 +16,4 @@ test-results/
 playwright-report/
 blob-report/
 logs.jsonl
+.vercel
