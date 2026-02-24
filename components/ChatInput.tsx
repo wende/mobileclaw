@@ -32,6 +32,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   hasQueued?: boolean;
   onAbort?: () => void;
   lastUserMessage?: string;
+  uploadDisabled?: boolean;
 }>(function ChatInput({
   onSend,
   scrollPhase = "input",
@@ -46,6 +47,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   hasQueued = false,
   onAbort,
   lastUserMessage = "",
+  uploadDisabled = false,
 }, forwardedRef) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -387,16 +389,17 @@ export const ChatInput = forwardRef<ChatInputHandle, {
       {/* Image picker button — fades & collapses */}
       <button
         type="button"
-        onClick={() => fileInputRef.current?.click()}
-        className="mb-1 flex shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-[opacity] duration-200 hover:bg-accent hover:text-foreground overflow-hidden"
+        onClick={uploadDisabled ? undefined : () => fileInputRef.current?.click()}
+        className={`mb-1 flex shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-[opacity] duration-200 overflow-hidden${uploadDisabled ? " opacity-30 cursor-not-allowed" : " hover:bg-accent hover:text-foreground"}`}
         style={{
-          opacity: "max(0, 1 - var(--sp, 0) * 2.5)",
+          opacity: uploadDisabled ? 0.3 : "max(0, 1 - var(--sp, 0) * 2.5)",
           width: "calc(40px * (1 - var(--lp, 0)))",
           height: "calc(40px * (1 - var(--lp, 0)))",
           minWidth: 0,
           pointerEvents: isPill ? "none" : "auto",
         } as React.CSSProperties}
         aria-label="Attach file"
+        disabled={uploadDisabled}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />

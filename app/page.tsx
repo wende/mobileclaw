@@ -136,6 +136,7 @@ export default function Home() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [isDetached, setIsDetached] = useState(false);
   const isDetachedRef = useRef(false);
+  const [uploadDisabled, setUploadDisabled] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
@@ -1145,6 +1146,9 @@ export default function Home() {
       setIsDetached(true);
       isDetachedRef.current = true;
     }
+    if (getSearchParam("upload") === "false") {
+      setUploadDisabled(true);
+    }
     if (getSearchParam("demo") !== null) {
       setIsDemoMode(true);
       setBackendMode("demo");
@@ -1703,10 +1707,11 @@ export default function Home() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const bottomPad = pinnedSubagent ? "16rem" : queuedMessage ? "13rem" : "10rem";
+  const inputZoneHeight = isDetached ? "calc(1.5dvh + 3.5rem)" : "calc(3dvh + 4rem)";
+  const bottomPad = pinnedSubagent ? "10rem" : queuedMessage ? "7rem" : "4rem";
 
   const chatWidget = (
-    <div ref={appRef} className="relative flex flex-col overflow-hidden bg-background" style={{ height: "100dvh" }}>
+    <div ref={appRef} className={`relative flex flex-col overflow-hidden ${isDetached ? "" : "bg-muted"}`} style={{ height: "100dvh" }}>
       {!isDetached && (
         <>
           <SetupDialog
@@ -1731,11 +1736,11 @@ export default function Home() {
         </>
       )}
 
-      <div ref={pullContentRef} className="flex flex-1 flex-col min-h-0">
+      <div ref={pullContentRef} className={`flex flex-1 flex-col min-h-0 ${isDetached ? "px-2 pt-2" : ""}`}>
         <main
           ref={scrollRef}
           onScroll={handleScroll}
-          className={`flex-1 overflow-y-auto overflow-x-hidden ${isDetached ? "" : "pt-14"}`}
+          className={`flex-1 overflow-y-auto overflow-x-hidden bg-background ${isDetached ? "rounded-2xl" : "pt-14"}`}
           style={{ overscrollBehavior: "none" }}
         >
           <div className={`mx-auto flex w-full ${isDetached ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
@@ -1778,6 +1783,8 @@ export default function Home() {
             <div ref={bottomRef} />
           </div>
         </main>
+        {/* Spacer — pushes main's bg-background up so the input bar floats on bg-muted */}
+        <div style={{ height: inputZoneHeight, flexShrink: 0 }} />
         {/* Pull-to-refresh spinner */}
         {!isDetached && (
           <div
@@ -1862,6 +1869,7 @@ export default function Home() {
               }
               return "";
             })()}
+            uploadDisabled={uploadDisabled}
           />
         </div>
       </div>
