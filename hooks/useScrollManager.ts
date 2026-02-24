@@ -194,6 +194,8 @@ export function useScrollManager(
     // Wheel bounce: accumulated overscroll + decay timer
     let wheelAccum = 0;
     let wheelDecayRaf: number | null = null;
+    // Momentum bounce: delayed spring-back timer
+    let momentumTimer: ReturnType<typeof setTimeout> | null = null;
 
     const applyBounce = (offset: number) => {
       const content = el.firstElementChild as HTMLElement | null;
@@ -211,12 +213,21 @@ export function useScrollManager(
       if (bounceRafId) cancelAnimationFrame(bounceRafId);
       const content = el.firstElementChild as HTMLElement | null;
       if (!content) return;
-      content.style.transition = "transform 0.45s cubic-bezier(0.25, 1, 0.5, 1)";
+      // Match pull-to-refresh snap-back: same duration + easing
+      content.style.transition = "transform 0.45s cubic-bezier(0.22, 0.68, 0.35, 1)";
       content.style.transform = "";
       bounceOffset = 0;
       isBouncing = false;
       bounceRafId = null;
     };
+
+    // Rubber-band curve matching pull-to-refresh: linear up to threshold,
+    // then heavy diminishing returns past it.
+    const BOUNCE_THRESHOLD = 60;
+    const rubberBand = (raw: number) =>
+      raw < BOUNCE_THRESHOLD
+        ? raw
+        : BOUNCE_THRESHOLD + (raw - BOUNCE_THRESHOLD) * 0.15;
 
     const isAtBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight < 2;
 
@@ -237,8 +248,9 @@ export function useScrollManager(
       const dy = bounceTouchStartY - e.touches[0].clientY;
       if (dy > 0 && isAtBottom()) {
         isBouncing = true;
-        const raw = dy * 0.35;
-        bounceOffset = -(raw / (1 + raw / 200));
+        // Same multiplier + rubber-band curve as pull-to-refresh
+        const raw = dy * 0.4;
+        bounceOffset = -rubberBand(raw);
         applyBounce(bounceOffset);
       } else if (isBouncing && dy <= 0) {
         bounceOffset = 0;
@@ -260,8 +272,7 @@ export function useScrollManager(
         wheelDecayRaf = null;
         return;
       }
-      const raw = wheelAccum * 0.35;
-      bounceOffset = -(raw / (1 + raw / 200));
+      bounceOffset = -rubberBand(wheelAccum * 0.4);
       applyBounce(bounceOffset);
       wheelDecayRaf = requestAnimationFrame(wheelDecayTick);
     };
@@ -286,10 +297,8 @@ export function useScrollManager(
       if (e.deltaY > 0 && isAtBottom()) {
         isBouncing = true;
         wheelAccum += e.deltaY;
-        // Cap accumulation so the bounce feels bounded
-        wheelAccum = Math.min(wheelAccum, 300);
-        const raw = wheelAccum * 0.35;
-        bounceOffset = -(raw / (1 + raw / 200));
+        wheelAccum = Math.min(wheelAccum, 400);
+        bounceOffset = -rubberBand(wheelAccum * 0.4);
         applyBounce(bounceOffset);
         // Restart decay — each new wheel event resets the timer
         if (wheelDecayRaf) cancelAnimationFrame(wheelDecayRaf);
@@ -308,11 +317,18 @@ export function useScrollManager(
 
       if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing) {
         // Arrived at bottom with momentum — apply rubber-band bounce
-        const raw = Math.min(velocity * 60, 50);
+        // Scale velocity to a generous displacement matching pull-to-refresh feel
+        const raw = Math.min(velocity * 150, 120);
         isBouncing = true;
-        bounceOffset = -(raw / (1 + raw / 200));
+        bounceOffset = -rubberBand(raw);
         applyBounce(bounceOffset);
-        requestAnimationFrame(() => springBack());
+        // Hold the displaced position briefly, then spring back
+        // (mirrors pull-to-refresh's visual hold before snap-back)
+        if (momentumTimer) clearTimeout(momentumTimer);
+        momentumTimer = setTimeout(() => {
+          momentumTimer = null;
+          springBack();
+        }, 60);
       }
 
       wasAtBottomLast = atBottom;
@@ -349,6 +365,7 @@ export function useScrollManager(
       el.removeEventListener("scroll", onScroll);
       if (bounceRafId) cancelAnimationFrame(bounceRafId);
       if (wheelDecayRaf) cancelAnimationFrame(wheelDecayRaf);
+      if (momentumTimer) clearTimeout(momentumTimer);
     };
   }, [isStreamingRef]);
 
