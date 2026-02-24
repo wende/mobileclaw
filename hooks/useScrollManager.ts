@@ -117,6 +117,7 @@ export function useScrollManager(
       lastClientHeightRef.current = currentHeight;
 
       if (heightChanged && pinnedToBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
         setMorphTarget(0);
         return;
       }
