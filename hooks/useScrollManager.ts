@@ -266,6 +266,11 @@ export function useScrollManager(
       wheelDecayRaf = requestAnimationFrame(wheelDecayTick);
     };
 
+    // ── Momentum bounce (scroll-event based, catches inertial scroll) ──
+    let prevScrollTop = el.scrollTop;
+    let prevScrollTime = performance.now();
+    let wasAtBottomLast = isAtBottom();
+
     // ── Existing scroll/unpin logic ──────────────────────────────────
     const onTouchEnd = () => {
       if (isStreamingRef.current) {
@@ -293,13 +298,35 @@ export function useScrollManager(
     };
     let lastScrollTop = el.scrollTop;
     const onScroll = () => {
-      if (isStreamingRef.current && el.scrollTop < lastScrollTop - 3) {
-        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+      // ── Momentum bounce: detect arrival at bottom with velocity ──
+      const now = performance.now();
+      const currentScrollTop = el.scrollTop;
+      const dt = now - prevScrollTime;
+      // Velocity in px/ms (positive = scrolling down). Ignore stale gaps > 200ms.
+      const velocity = dt > 0 && dt < 200 ? (currentScrollTop - prevScrollTop) / dt : 0;
+      const atBottom = isAtBottom();
+
+      if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing) {
+        // Arrived at bottom with momentum — apply rubber-band bounce
+        const raw = Math.min(velocity * 60, 50);
+        isBouncing = true;
+        bounceOffset = -(raw / (1 + raw / 200));
+        applyBounce(bounceOffset);
+        requestAnimationFrame(() => springBack());
+      }
+
+      wasAtBottomLast = atBottom;
+      prevScrollTop = currentScrollTop;
+      prevScrollTime = now;
+
+      // ── Unpin during streaming if user scrolls up ──
+      if (isStreamingRef.current && currentScrollTop < lastScrollTop - 3) {
+        const dist = el.scrollHeight - currentScrollTop - el.clientHeight;
         if (dist > 150) {
           pinnedToBottomRef.current = false;
         }
       }
-      lastScrollTop = el.scrollTop;
+      lastScrollTop = currentScrollTop;
     };
 
     // Combine bounce + unpin touch handlers
