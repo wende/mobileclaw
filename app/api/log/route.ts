@@ -10,6 +10,6 @@ export async function POST(req: NextRequest) {
     await appendFile(LOG_PATH, JSON.stringify(entry) + "\n");
     return NextResponse.json({ ok: true });
   } catch {
-    return NextResponse.json({ ok: false }, { status: 500 });
+    return NextResponse.json({ ok: false });
   }
 }
