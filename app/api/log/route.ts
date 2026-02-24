@@ -5,6 +5,7 @@ import { join } from "path";
 const LOG_PATH = join(process.cwd(), "logs.jsonl");
 
 export async function POST(req: NextRequest) {
+  if (process.env.NODE_ENV !== "development") return NextResponse.json({ ok: true });
   try {
     const entry = await req.json();
     await appendFile(LOG_PATH, JSON.stringify(entry) + "\n");
