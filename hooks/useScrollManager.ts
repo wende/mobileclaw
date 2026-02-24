@@ -18,6 +18,9 @@ export function useScrollManager(
   const pinnedToBottomRef = useRef(true);
   const hasScrolledInitialRef = useRef(false);
 
+  // Track container height to detect keyboard open/close (vs user scroll)
+  const lastClientHeightRef = useRef(0);
+
   // Lerp state for smooth morph animation at constant speed
   const morphCurrentSp = useRef(0);
   const morphTargetSp = useRef(0);
@@ -101,6 +104,23 @@ export function useScrollManager(
       scrollRafId.current = null;
       const el = scrollRef.current;
       if (!el) return;
+
+      // Detect container resize (keyboard open/close, viewport change).
+      // When clientHeight changes while pinned to bottom, the stale scrollTop
+      // makes distanceFromBottom spike — but it's not a real user scroll.
+      // Let the browser handle the scroll adjustment naturally; just keep
+      // the morph locked at 0 so the input bar doesn't glitch.
+      // (Third-party keyboards like SwiftKey resize in multiple discrete steps,
+      // so this can fire several times during a single keyboard animation.)
+      const currentHeight = el.clientHeight;
+      const heightChanged = Math.abs(currentHeight - lastClientHeightRef.current) > 2;
+      lastClientHeightRef.current = currentHeight;
+
+      if (heightChanged && pinnedToBottomRef.current) {
+        setMorphTarget(0);
+        return;
+      }
+
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
 
       // During streaming, don't update pinning from scroll position —
@@ -151,43 +171,6 @@ export function useScrollManager(
       }
     });
     ro.observe(content);
-    return () => ro.disconnect();
-  }, []);
-
-  // ResizeObserver on the scroll container itself: handles viewport changes
-  // (keyboard open/close on mobile). When the container height changes, scrollTop
-  // is momentarily stale, causing distanceFromBottom to spike. handleScroll then
-  // mis-interprets this as "user scrolled away" and morphs toward pill mode,
-  // creating a visible overshoot before the browser corrects scrollTop.
-  // Fix: when the container resizes while pinned, snap scroll + morph immediately.
-  useEffect(() => {
-    const el = scrollRef.current;
-    const morph = morphRef.current;
-    if (!el) return;
-
-    const ro = new ResizeObserver(() => {
-      if (!pinnedToBottomRef.current) return;
-      // Snap scroll to bottom before handleScroll can see the stale position
-      if (el.scrollHeight > el.clientHeight) {
-        el.scrollTop = el.scrollHeight;
-      }
-      // Force morph to input mode immediately — cancel any in-flight lerp
-      if (morph) {
-        morphTargetSp.current = 0;
-        morphCurrentSp.current = 0;
-        if (morphLerpRafId.current != null) {
-          cancelAnimationFrame(morphLerpRafId.current);
-          morphLerpRafId.current = null;
-        }
-        morph.style.setProperty("--sp", "0");
-        morph.style.setProperty("--lp", "0");
-        if (scrollPhaseRef.current !== "input") {
-          scrollPhaseRef.current = "input";
-          setScrollPhase("input");
-        }
-      }
-    });
-    ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
