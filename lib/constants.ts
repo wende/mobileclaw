@@ -2,10 +2,12 @@
 export const HEARTBEAT_MARKER = "HEARTBEAT_OK";
 export const NO_REPLY_MARKER = "NO_REPLY";
 
-/** Returns true only if HEARTBEAT_OK appears on a line by itself (nothing else on that line). */
-const HEARTBEAT_OWN_LINE_RE = new RegExp(`^${HEARTBEAT_MARKER}$`, "m");
+/** Returns true if any line, after stripping non-letter/underscore characters, equals HEARTBEAT_OK.
+ * This handles cases where the model wraps the marker in formatting (e.g. **HEARTBEAT_OK**). */
 export function hasHeartbeatOnOwnLine(text: string): boolean {
-  return HEARTBEAT_OWN_LINE_RE.test(text);
+  return text.split("\n").some(
+    (line) => line.replace(/[^A-Za-z_]/g, "") === HEARTBEAT_MARKER
+  );
 }
 
 /** Returns true only if `marker` appears in `text` outside of double-quoted strings. */

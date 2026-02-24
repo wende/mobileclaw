@@ -1870,15 +1870,5 @@ export default function Home() {
     </div>
   );
 
-  if (isDetached) {
-    return (
-      <div className="flex items-center justify-center bg-muted" style={{ width: "100vw", height: "100dvh" }}>
-        <div className="rounded-2xl overflow-hidden shadow-xl border border-border/60" style={{ width: "420px", height: "640px", maxWidth: "calc(100vw - 2rem)", maxHeight: "calc(100dvh - 2rem)" }}>
-          {chatWidget}
-        </div>
-      </div>
-    );
-  }
-
   return chatWidget;
 }

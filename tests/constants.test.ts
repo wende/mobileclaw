@@ -18,10 +18,15 @@ describe("hasHeartbeatOnOwnLine", () => {
     expect(hasHeartbeatOnOwnLine("send HEARTBEAT_OK now")).toBe(false);
   });
 
-  it("does not match HEARTBEAT_OK with surrounding whitespace on the line", () => {
-    // Trailing/leading spaces on the same line should NOT match
-    expect(hasHeartbeatOnOwnLine("  HEARTBEAT_OK")).toBe(false);
-    expect(hasHeartbeatOnOwnLine("HEARTBEAT_OK  ")).toBe(false);
+  it("matches HEARTBEAT_OK with surrounding whitespace (stripped)", () => {
+    expect(hasHeartbeatOnOwnLine("  HEARTBEAT_OK")).toBe(true);
+    expect(hasHeartbeatOnOwnLine("HEARTBEAT_OK  ")).toBe(true);
+  });
+
+  it("matches HEARTBEAT_OK wrapped in markdown formatting", () => {
+    expect(hasHeartbeatOnOwnLine("**HEARTBEAT_OK**")).toBe(true);
+    expect(hasHeartbeatOnOwnLine("*HEARTBEAT_OK*")).toBe(true);
+    expect(hasHeartbeatOnOwnLine("some text\n**HEARTBEAT_OK**\nmore text")).toBe(true);
   });
 
   it("does not match partial occurrences", () => {
