@@ -154,6 +154,43 @@ export function useScrollManager(
     return () => ro.disconnect();
   }, []);
 
+  // ResizeObserver on the scroll container itself: handles viewport changes
+  // (keyboard open/close on mobile). When the container height changes, scrollTop
+  // is momentarily stale, causing distanceFromBottom to spike. handleScroll then
+  // mis-interprets this as "user scrolled away" and morphs toward pill mode,
+  // creating a visible overshoot before the browser corrects scrollTop.
+  // Fix: when the container resizes while pinned, snap scroll + morph immediately.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const morph = morphRef.current;
+    if (!el) return;
+
+    const ro = new ResizeObserver(() => {
+      if (!pinnedToBottomRef.current) return;
+      // Snap scroll to bottom before handleScroll can see the stale position
+      if (el.scrollHeight > el.clientHeight) {
+        el.scrollTop = el.scrollHeight;
+      }
+      // Force morph to input mode immediately — cancel any in-flight lerp
+      if (morph) {
+        morphTargetSp.current = 0;
+        morphCurrentSp.current = 0;
+        if (morphLerpRafId.current != null) {
+          cancelAnimationFrame(morphLerpRafId.current);
+          morphLerpRafId.current = null;
+        }
+        morph.style.setProperty("--sp", "0");
+        morph.style.setProperty("--lp", "0");
+        if (scrollPhaseRef.current !== "input") {
+          scrollPhaseRef.current = "input";
+          setScrollPhase("input");
+        }
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // rAF loop: during streaming, continuously pin scroll to bottom.
   // SmoothGrow uses explicit height + CSS transition which delays scrollHeight
   // updates by ~150ms. The ResizeObserver on the content div only fires once
