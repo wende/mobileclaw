@@ -26,6 +26,7 @@ function preview(s: unknown, max = 60): string | undefined {
 }
 
 function send(entry: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "development") return;
   // Fire-and-forget — never block UI
   fetch("/api/log", {
     method: "POST",
