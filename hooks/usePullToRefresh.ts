@@ -6,6 +6,7 @@ interface PullToRefreshOptions {
   backendMode: BackendMode;
   sendWS: (msg: { type: string; [key: string]: unknown }) => void;
   sessionKeyRef: React.RefObject<string>;
+  enabled?: boolean;
 }
 
 /**
@@ -18,6 +19,7 @@ export function usePullToRefresh({
   backendMode,
   sendWS,
   sessionKeyRef,
+  enabled = true,
 }: PullToRefreshOptions) {
   const PULL_THRESHOLD = 60;
   const HOLD_DURATION = 1000;
@@ -146,6 +148,7 @@ export function usePullToRefresh({
 
   // Reset pull state when app resumes from background
   useEffect(() => {
+    if (!enabled) return;
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible" && !refreshingRef.current) {
         pullStartYRef.current = null;
@@ -157,10 +160,11 @@ export function usePullToRefresh({
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [setPullTransform, clearHoldState]);
+  }, [enabled, setPullTransform, clearHoldState]);
 
   // Touch handlers — direct DOM transforms, no React re-renders
   useEffect(() => {
+    if (!enabled) return;
     const el = scrollRef.current;
     if (!el) return;
 
@@ -285,7 +289,7 @@ export function usePullToRefresh({
       if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
       if (holdRafRef.current) cancelAnimationFrame(holdRafRef.current);
     };
-  }, [scrollRef, doRefresh, setPullTransform, clearHoldState, setLobsterWobble, updateHoldProgress]);
+  }, [enabled, scrollRef, doRefresh, setPullTransform, clearHoldState, setLobsterWobble, updateHoldProgress]);
 
   return {
     pullContentRef,

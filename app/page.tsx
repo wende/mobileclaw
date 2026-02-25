@@ -157,6 +157,7 @@ export default function Home() {
 
   // Restore pinned subagent from sessionStorage after hydration
   useEffect(() => {
+    if (isNativeRef.current) return;
     try {
       const saved = sessionStorage.getItem("pinned-subagent");
       if (saved) setPinnedSubagent(JSON.parse(saved));
@@ -317,7 +318,7 @@ export default function Home() {
   }, []);
 
   // ── Keyboard layout (iOS Safari) ───────────────────────────────────────────
-  useKeyboardLayout(appRef, floatingBarRef, bottomRef);
+  useKeyboardLayout(appRef, floatingBarRef, bottomRef, !isNativeRef.current);
 
   // ── Pull-to-refresh ─────────────────────────────────────────────────────────
   /** Send a typed message over the WebSocket (avoids double-cast). */
@@ -328,7 +329,7 @@ export default function Home() {
   const {
     pullContentRef, pullSpinnerRef, isPullingRef: _isPullingRef,
     onHistoryReceived,
-  } = usePullToRefresh({ scrollRef, backendMode, sendWS, sessionKeyRef });
+  } = usePullToRefresh({ scrollRef, backendMode, sendWS, sessionKeyRef, enabled: !isNativeRef.current });
 
   // ── WebSocket sub-handlers ─────────────────────────────────────────────────
 
@@ -1115,7 +1116,7 @@ export default function Home() {
     },
     onInitialConnectFail: () => {
       setConnectionError("Could not reach server");
-      if (!isDetachedRef.current) setShowSetup(true);
+      if (!isDetachedRef.current && !isNativeRef.current) setShowSetup(true);
     },
     onClose: () => {
       if (historyPollRef.current) { clearInterval(historyPollRef.current); historyPollRef.current = null; }

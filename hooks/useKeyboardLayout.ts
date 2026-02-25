@@ -8,10 +8,12 @@ export function useKeyboardLayout(
   appRef: React.RefObject<HTMLDivElement | null>,
   floatingBarRef: React.RefObject<HTMLDivElement | null>,
   bottomRef: React.RefObject<HTMLDivElement | null>,
+  enabled = true,
 ) {
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   useEffect(() => {
+    if (!enabled) return;
     const vv = window.visualViewport;
 
     // Lock the container to the initial full-screen height
@@ -32,18 +34,19 @@ export function useKeyboardLayout(
     return () => {
       vv?.removeEventListener("resize", onViewportResize);
     };
-  }, [appRef, floatingBarRef]);
+  }, [enabled, appRef, floatingBarRef]);
 
   // When the keyboard opens, scroll messages to bottom (once)
   const prevKeyboardOffsetRef = useRef(0);
   useEffect(() => {
+    if (!enabled) return;
     const wasOpen = prevKeyboardOffsetRef.current > 0;
     const isOpen = keyboardOffset > 0;
     prevKeyboardOffsetRef.current = keyboardOffset;
     if (isOpen && !wasOpen) {
       bottomRef.current?.scrollIntoView({ behavior: "instant" });
     }
-  }, [keyboardOffset, bottomRef]);
+  }, [enabled, keyboardOffset, bottomRef]);
 
   return { keyboardOffset };
 }
