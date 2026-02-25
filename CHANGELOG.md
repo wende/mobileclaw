@@ -2,6 +2,94 @@
 
 All notable changes to MobileClaw are documented in this file.
 
+## iOS Native App (ios branch)
+
+### Native iOS App — SwiftUI + WKWebView hybrid
+
+Full native iOS app (3,400 lines of Swift) that wraps the MobileClaw webapp in a WKWebView. The webapp acts as a pure message rendering surface while Swift handles all native chrome, backend connections, and platform integration.
+
+#### Architecture
+
+- **Hybrid rendering**: WKWebView renders messages via the existing React webapp; SwiftUI overlays provide native input bar, header, setup dialog, and all interactive chrome
+- **Two-way bridge**: Swift → Web via `evaluateJavaScript` (`window.__bridge.receive(msg)`), Web → Swift via `window.webkit.messageHandlers.bridge.postMessage(msg)`
+- **Native mode detection**: `window.__nativeMode = true` injected via `WKUserScript` at document start — works with both `file://` (bundled) and `http://` (dev server) loading
+- **Webapp hides its own chrome** in native mode: header, input bar, setup dialog, scroll-to-bottom pill, gradients, pull-to-refresh, keyboard layout hook, and bounce effects are all disabled via `isNativeMode()` checks and `body.native` / `html.native-loading` CSS classes
+
+#### Native Views (SwiftUI)
+
+- **`RootView`** — main composition: WKWebView + overlaid native chrome, backend lifecycle management, link/image interception via bridge
+- **`NativeChatInput`** — morphing input bar that transitions between full textarea and scroll-to-bottom pill based on scroll position (driven by `--sp` CSS variable posted from webapp); auto-growing text editor with 5-line max; send/stop/queue button states
+- **`NativeChatHeader`** — connection status indicator with model name display; animated dot (green/yellow/red) for connected/connecting/error states
+- **`NativeSetupDialog`** — full backend configuration as an overlay card with spring animations; OpenClaw (URL + token), LM Studio (URL + model picker with live fetch), Demo mode; persists settings to `UserDefaults`
+- **`NativeCommandSheet`** — slash command picker presented as a bottom sheet
+- **`NativeQueuePill`** — shows queued message text when user types while agent is running; dismiss button restores text to input
+- **`NativeImageLightbox`** — full-screen image overlay with async loading and tap-to-dismiss
+- **`NativeSubagentPanel`** — pinnable subagent activity panel (stub for live feed)
+- **`FadingBlurView`** — `UIVisualEffectView` wrapper with directional gradient mask for top/bottom content fades
+- **`ChatWebView`** — `UIViewRepresentable` wrapping `WKWebView` with keyboard inset management, pull-up-to-refresh via bottom overscroll detection, and `WKNavigationDelegate`
+
+#### Backend Connections (Swift-native)
+
+- **`WebSocketManager`** — `URLSessionWebSocketTask`-based connection with exponential backoff reconnect (1s → 2s → 4s → 8s → 16s → 30s cap); ping/pong keepalive; clean disconnect on deinit
+- **`OpenClawProtocol`** — full OpenClaw WebSocket protocol implementation: `connect.challenge` auth flow with Ed25519 device identity signing, `chat.send`/`chat.abort`/`chat.history` methods, `event:chat` (delta/final/aborted/error) and `event:agent` (lifecycle/content/reasoning/tool) stream handling; forwards all events to webapp via bridge
+- **`DemoModeHandler`** — client-side demo with keyword-triggered responses (weather, code, think, error, research, agent, tool, help, long); simulates streaming with `Task.sleep` delays; mock history with example messages
+- **`DeviceIdentity`** — Ed25519 key pair generation and Keychain storage; builds and signs auth payloads for OpenClaw device authentication; keys persist across app launches
+- **`KeychainHelper`** — thin wrapper around Security framework for Keychain read/write/delete
+
+#### Bridge Messages (Swift → Web)
+
+- `stream:start`, `stream:content-delta`, `stream:reasoning-delta`, `stream:tool-start`, `stream:tool-result`, `stream:end`, `stream:error` — full streaming protocol
+- `messages:history` — loads message history from OpenClaw and forwards as JSON array
+- `scroll:toBottom` — triggers scroll after history load
+- `thinking:show` — shows thinking indicator when sending a message
+- `scroll:position` (Web → Swift) — scroll distance from bottom drives input morph animation
+- `link:tap`, `image:tap` (Web → Swift) — intercepts taps to open in native Safari/lightbox
+- `text:selected`, `text:deselected` (Web → Swift) — quote-reply gesture
+- `subagent:pin`, `subagent:unpin` (Web → Swift) — subagent panel management
+
+#### Keyboard Handling
+
+- Native `keyboardWillChangeFrame` / `keyboardWillHide` notifications on `WKWebView.scrollView`
+- Animates content inset and scroll offset in sync with keyboard using UIKit animation curves
+- Handles rapid-fire third-party keyboard resizes (SwiftKey) — snaps without animation if resize occurs within 150ms of previous
+
+#### Bundled Webapp (Standalone Operation)
+
+- **Static export**: `NEXT_EXPORT=1` enables `output: 'export'` + `assetPrefix: './'` in `next.config.mjs` for relative asset paths compatible with `file://` loading
+- **`build:ios` script** in `package.json`: runs `NEXT_EXPORT=1 next build`
+- **`ios/build-web.sh`**: moves API routes aside (incompatible with static export), cleans `.next` cache, runs export, copies `out/` to `ios/MobileClaw/Resources/web/`, restores API routes via trap
+- **Bundle-first loading**: both DEBUG and RELEASE try bundled webapp first; DEBUG falls back to dev server when bundle absent (allows hot reload during development)
+- **XcodeGen config**: `ios/project.yml` includes web resources as optional folder reference — project builds even before first export
+- **Service worker disabled** in native mode (SW registration fails from `file://`)
+
+#### Webapp Adaptations for Native Mode
+
+- `lib/nativeBridge.ts` — bridge API: `isNativeMode()`, `registerBridgeHandler()`, `postToNative()`, scroll/text/link/image/subagent helpers
+- `app/page.tsx` — native mode path: skips WebSocket/LM Studio/Demo initialization, registers bridge handler, processes `messages:history` / `stream:*` / `scroll:toBottom` / `thinking:show` events from Swift
+- `app/page.tsx` — `/commands` filtering in native bridge handler (prevents cross-client history pollution from webapp's silent `/commands` fetch)
+- `app/layout.tsx` — `html.native-loading` class added before React hydrates to prevent web chrome flash; service worker registration guarded
+- `app/globals.css` — `html.native-loading body { opacity: 0 }` prevents flash; `body.native` removes background, overscroll, scrollbar, and safe-area insets
+- `hooks/useKeyboardLayout.ts` — disabled in native mode (Swift handles keyboard insets)
+- `hooks/usePullToRefresh.ts` — disabled in native mode (native `UIScrollViewDelegate` handles pull-up-to-refresh)
+- `hooks/useScrollManager.ts` — posts scroll position to Swift via bridge in native mode; disables JS bounce effects
+- `components/MessageRow.tsx` — `useNativeClickInterceptor` hook intercepts link clicks and image taps, forwarding them to Swift for native handling (Safari sheet, lightbox)
+
+#### OpenClaw Protocol (Swift-side processing)
+
+- `/commands` history entries filtered out before forwarding to webapp (both user `/commands` messages and standalone gateway-injected command list responses)
+- `model: "gateway-injected"` messages converted to `stopReason: "injected"` for proper InjectedPill rendering in the webapp
+- Session key extracted from `hello-ok` snapshot for multi-session support
+- Subagent events filtered by session key (only main session forwarded)
+
+#### Project Setup
+
+- **XcodeGen**: `ios/project.yml` generates Xcode project; iOS 17.0 deployment target, Swift 6.0, iPhone-only
+- **App icon**: custom AppIcon and Logo assets
+- **Info.plist**: allows arbitrary network loads (for local dev servers and LAN connections)
+- **`.gitignore`**: excludes `out/`, `ios/MobileClaw/Resources/web/`, Xcode derived data
+
+---
+
 ## 2026-02-25
 
 ### Added
