@@ -281,7 +281,7 @@ export function useScrollManager(
     let wheelAccum = 0;
     let wheelDecayRaf: number | null = null;
     // Momentum bounce: delayed spring-back timer
-    let momentumTimer: ReturnType<typeof setTimeout> | null = null;
+    const momentumTimer: ReturnType<typeof setTimeout> | null = null;
 
     const applyBounce = (offset: number) => {
       const content = el.firstElementChild as HTMLElement | null;
