@@ -181,7 +181,7 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
                     {message?.reasoning && !hasThinkingParts && <ThinkingPill text={message.reasoning} />}
                     {parts?.map((part, i) => {
                       if (part.type === "thinking") {
-                        return <ThinkingPill key={`thinking-${i}`} text={part.text || ""} />;
+                        return <ThinkingPill key={`thinking-${i}`} text={part.thinking || part.text || ""} />;
                       }
                       if (isToolCallPart(part)) {
                         return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status} result={part.result} resultError={part.resultError} toolCallId={part.toolCallId} subagentStore={part.name === SPAWN_TOOL_NAME ? subagentStore : undefined} />;
@@ -227,17 +227,18 @@ function extractLastSentence(text: string): string {
 }
 
 function ThinkingPill({ text }: { text: string }) {
-  const isEmpty = !text.trim();
+  if (!text.trim()) return null;
+
   const lineCount = text.split("\n").length;
-  const isShort = !isEmpty && lineCount < 10;
+  const isShort = lineCount < 10;
 
   const [mounted, setMounted] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   // Initialize from props so history-restored thinking blocks render at full height immediately
   // (avoids a delayed height increase that causes scroll bounce on refresh)
-  const [sentence, setSentence] = useState(() => isEmpty ? "" : extractLastSentence(text));
-  const [visible, setVisible] = useState(() => !isEmpty && !!extractLastSentence(text));
+  const [sentence, setSentence] = useState(() => extractLastSentence(text));
+  const [visible, setVisible] = useState(() => !!extractLastSentence(text));
   const lastSentenceRef = useRef(sentence);
 
   // Slide in on mount
@@ -247,7 +248,6 @@ function ThinkingPill({ text }: { text: string }) {
   }, []);
 
   useEffect(() => {
-    if (isEmpty) return;
     // Extract the last complete sentence (ends with a period)
     const matches = text.match(/[^.]*\./g);
     if (!matches) return;
@@ -262,7 +262,7 @@ function ThinkingPill({ text }: { text: string }) {
       }, 180);
       return () => clearTimeout(t);
     }
-  }, [text, isEmpty]);
+  }, [text]);
 
   // Short thinking: render as plain faded text with slide animation
   if (isShort) {
@@ -285,29 +285,16 @@ function ThinkingPill({ text }: { text: string }) {
         >
           <div className="flex items-center whitespace-nowrap">
             {BRAIN_ICON}
-            {isEmpty ? (
-              <span className="inline-flex items-center gap-0.5">
-                <span>Thinking</span>
-                <span className="inline-flex w-4">
-                  <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
-                  <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
-                  <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
-                </span>
-              </span>
-            ) : (
-              <span>{thinkingPreview(text)}</span>
-            )}
-            {!isEmpty && (
-              <svg
-                width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                className="ml-auto shrink-0 opacity-40 transition-transform duration-200"
-                style={{ transform: expanded ? "rotate(0deg)" : "rotate(-90deg)" }}
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            )}
+            <span>{thinkingPreview(text)}</span>
+            <svg
+              width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              className="ml-auto shrink-0 opacity-40 transition-transform duration-200"
+              style={{ transform: expanded ? "rotate(0deg)" : "rotate(-90deg)" }}
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
           </div>
-          {!isEmpty && sentence && !expanded && (
+          {sentence && !expanded && (
             <div className="mt-1 max-w-[300px] overflow-hidden text-left">
               <div
                 className="text-[11px] leading-tight text-muted-foreground/40 truncate font-normal transition-opacity duration-200"
@@ -318,13 +305,11 @@ function ThinkingPill({ text }: { text: string }) {
             </div>
           )}
         </button>
-        {!isEmpty && (
-          <SlideContent open={expanded}>
-            <p className="px-3 pb-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words overflow-hidden">
-              {text}
-            </p>
-          </SlideContent>
-        )}
+        <SlideContent open={expanded}>
+          <p className="px-3 pb-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words overflow-hidden">
+            {text}
+          </p>
+        </SlideContent>
       </div>
     </SlideContent>
   );
@@ -644,7 +629,7 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
             {message.reasoning && !hasThinkingParts && <ThinkingPill text={message.reasoning} />}
             {Array.isArray(message.content) ? (message.content).map((part, i) => {
               if (part.type === "thinking") {
-                return <ThinkingPill key={`thinking-${i}`} text={part.text || ""} />;
+                return <ThinkingPill key={`thinking-${i}`} text={part.thinking || part.text || ""} />;
               }
               if (isToolCallPart(part)) {
                 const isSpawn = part.name === SPAWN_TOOL_NAME;
