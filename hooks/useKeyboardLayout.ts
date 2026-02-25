@@ -19,11 +19,13 @@ export function useKeyboardLayout(
       appRef.current.style.height = `${window.innerHeight}px`;
     }
 
-    const onViewportResize = () => {
+    let debounceTimer = 0;
+
+    const applyResize = () => {
       if (!vv) return;
       const offset = Math.round(window.innerHeight - vv.height);
       console.log(
-        "[keyboard] vv.height:", vv.height,
+        "[keyboard] apply vv.height:", vv.height,
         "| innerHeight:", window.innerHeight,
         "| keyboard ~", offset,
         "| vv.offsetTop:", vv.offsetTop,
@@ -40,9 +42,18 @@ export function useKeyboardLayout(
       setKeyboardOffset((prev) => (prev === offset ? prev : offset));
     };
 
+    const onViewportResize = () => {
+      // Debounce: third-party keyboards (SwiftKey) fire multiple rapid
+      // resize events, overshooting then settling. Wait for them to
+      // stabilize before reacting.
+      clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(applyResize, 120);
+    };
+
     vv?.addEventListener("resize", onViewportResize);
     return () => {
       vv?.removeEventListener("resize", onViewportResize);
+      clearTimeout(debounceTimer);
     };
   }, [appRef, floatingBarRef]);
 
