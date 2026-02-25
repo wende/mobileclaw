@@ -16,6 +16,8 @@ export interface UseWebSocketOptions {
   onError?: (error: Event) => void;
   /** Called only when the very first connection attempt fails (server unreachable). */
   onInitialConnectFail?: () => void;
+  /** Called on each retry during initial connection (before established). */
+  onInitialRetrying?: (attempt: number) => void;
   /** Called when entering reconnect mode after a drop. */
   onReconnecting?: (attempt: number, delay: number) => void;
   /** Called when a reconnect attempt succeeds (WS re-opens after a drop). */
@@ -23,6 +25,8 @@ export interface UseWebSocketOptions {
 }
 
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]; // escalating backoff
+const INITIAL_RETRY_INTERVAL = 1500; // fixed interval for cold-start retries
+const INITIAL_RETRY_MAX = 20; // ~30s total
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
@@ -38,6 +42,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   // connection that opened at the TCP/WS level but was rejected by the server
   // (wrong auth, bad protocol, etc.) will NOT trigger a reconnect loop.
   const everEstablishedRef = useRef(false);
+  // Tracks retry attempts for the initial connection (cold-start scenario)
+  const initialRetryAttemptRef = useRef(0);
+  const initialRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -47,6 +54,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
+    }
+    if (initialRetryTimerRef.current) {
+      clearTimeout(initialRetryTimerRef.current);
+      initialRetryTimerRef.current = null;
     }
   }, []);
 
@@ -71,6 +82,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         console.log("[WS] Connection opened" + (wasReconnecting ? " (reconnected)" : ""));
         setConnectionState("connected");
         reconnectAttemptRef.current = 0;
+        initialRetryAttemptRef.current = 0;
         optionsRef.current.onOpen?.();
         if (wasReconnecting) {
           optionsRef.current.onReconnected?.();
@@ -87,14 +99,26 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
           return;
         }
 
-        // Only auto-reconnect if the connection was fully established
-        // (consumer called markEstablished after protocol handshake).
-        // Otherwise treat it as an initial connect failure — no retry loop.
+        // Connection was never fully established (protocol handshake didn't
+        // complete). Retry with a fixed interval to handle cold-start delays
+        // (e.g. fly.io machine waking up). Only give up after max retries.
         if (!everEstablishedRef.current) {
-          console.log("[WS] Connection never established — not reconnecting");
-          urlRef.current = null;
-          setConnectionState("disconnected");
-          optionsRef.current.onInitialConnectFail?.();
+          const attempt = initialRetryAttemptRef.current;
+          if (attempt < INITIAL_RETRY_MAX && urlRef.current) {
+            initialRetryAttemptRef.current = attempt + 1;
+            console.log(`[WS] Initial connect failed — retrying in ${INITIAL_RETRY_INTERVAL}ms (attempt ${attempt + 1}/${INITIAL_RETRY_MAX})`);
+            setConnectionState("connecting");
+            optionsRef.current.onInitialRetrying?.(attempt + 1);
+            initialRetryTimerRef.current = setTimeout(() => {
+              if (urlRef.current) connectInternal(urlRef.current);
+            }, INITIAL_RETRY_INTERVAL);
+          } else {
+            console.log("[WS] Initial connect failed — retries exhausted");
+            urlRef.current = null;
+            initialRetryAttemptRef.current = 0;
+            setConnectionState("disconnected");
+            optionsRef.current.onInitialConnectFail?.();
+          }
           return;
         }
 
@@ -152,6 +176,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     reconnectingRef.current = false;
     urlRef.current = url;
     reconnectAttemptRef.current = 0;
+    initialRetryAttemptRef.current = 0;
     connectInternal(url);
   }, [connectInternal, clearReconnectTimer]);
 

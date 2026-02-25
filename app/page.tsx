@@ -141,6 +141,7 @@ export default function Home() {
   const isDetachedRef = useRef(false);
   const [uploadDisabled, setUploadDisabled] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [isInitialConnecting, setIsInitialConnecting] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
   // ── Theme ───────────────────────────────────────────────────────────────────
@@ -729,6 +730,7 @@ export default function Home() {
     // If pull-to-refresh was active, bounce back
     onHistoryReceived();
     setHistoryLoaded(true);
+    setIsInitialConnecting(false);
   }, [onHistoryReceived, requestHistory, sendWS, subagentStore]);
 
   /** Handle chat events (delta/final/aborted/error). */
@@ -1126,8 +1128,12 @@ export default function Home() {
       setConnectionError("Connection error");
     },
     onInitialConnectFail: () => {
+      setIsInitialConnecting(false);
       setConnectionError("Could not reach server");
       if (!isDetachedRef.current) setShowSetup(true);
+    },
+    onInitialRetrying: () => {
+      setIsInitialConnecting(true);
     },
     onClose: () => {
       if (historyPollRef.current) { clearInterval(historyPollRef.current); historyPollRef.current = null; }
@@ -1368,6 +1374,7 @@ export default function Home() {
       gatewayTokenRef.current = getSearchParam("token");
       setBackendMode("openclaw");
       setOpenclawUrl(embedUrl);
+      setIsInitialConnecting(true);
       connect(toWsUrl(embedUrl));
       return;
     }
@@ -1405,6 +1412,7 @@ export default function Home() {
         gatewayTokenRef.current = savedToken ?? null;
         setBackendMode("openclaw");
         setOpenclawUrl(savedUrl);
+        setIsInitialConnecting(true);
         connect(toWsUrl(savedUrl));
       } else {
         if (!detached) setShowSetup(true);
@@ -1457,6 +1465,7 @@ export default function Home() {
     lmStudioConfigRef.current = null;
     lmStudioHandlerRef.current = null;
     setOpenclawUrl(config.url);
+    setIsInitialConnecting(true);
     connect(toWsUrl(config.url));
   }, [connect, disconnect, resetThinkingState]);
 
@@ -1747,6 +1756,17 @@ export default function Home() {
 
   const chatWidget = (
     <div ref={appRef} className={`relative flex flex-col overflow-hidden ${isDetached ? "" : "bg-background"}`} style={{ height: "100dvh" }}>
+      {isInitialConnecting && (
+        <div
+          className={`absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 ${isDetached ? "" : "bg-background"}`}
+          style={{ animation: "fadeIn 300ms ease-out 600ms both" }}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground" style={{ animation: "spin 1s linear infinite" }}>
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+          <span className="text-sm text-muted-foreground">Starting up&hellip;</span>
+        </div>
+      )}
       {!isDetached && (
         <>
           <SetupDialog
@@ -1755,7 +1775,7 @@ export default function Home() {
               handleConnect(config);
             }}
             onClose={openclawUrl || isDemoMode || backendMode !== "openclaw" ? () => setShowSetup(false) : undefined}
-            visible={showSetup}
+            visible={showSetup && !isInitialConnecting}
             connectionError={connectionError}
             isDemoMode={isDemoMode}
           />
