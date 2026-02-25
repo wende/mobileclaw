@@ -25,6 +25,10 @@ ios/MobileClaw.xcodeproj/project.xcworkspace/xcuserdata/
 ios/build/
 *.xcuserstate
 
+# Next.js static export
+out/
+ios/MobileClaw/Resources/web/
+
 # Claude worktrees
 .claude/worktrees/
 worktrees

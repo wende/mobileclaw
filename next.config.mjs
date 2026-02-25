@@ -8,6 +8,8 @@ const getGitSha = () => {
   }
 };
 
+const isExport = process.env.NEXT_EXPORT === '1';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   devIndicators: false,
@@ -17,6 +19,7 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_GIT_SHA: getGitSha(),
   },
+  ...(isExport && { output: 'export', assetPrefix: './' }),
 }
 
 export default nextConfig

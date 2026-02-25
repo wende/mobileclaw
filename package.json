@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:ios": "NEXT_EXPORT=1 next build",
     "start": "next start",
     "prod": "lsof -ti:3000 | xargs kill -9 2>/dev/null; next build && next start",
     "lint": "eslint .",

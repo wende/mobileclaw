@@ -14,7 +14,8 @@ let handler: BridgeHandler | null = null;
 /** Check if we're running inside the native iOS shell. */
 export function isNativeMode(): boolean {
   if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("native") !== null;
+  return new URLSearchParams(window.location.search).get("native") !== null
+    || (window as any).__nativeMode === true;
 }
 
 /** Register a handler for messages from Swift. */

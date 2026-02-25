@@ -9,18 +9,7 @@ struct NativeChatHeader: View {
         HStack(spacing: 12) {
             // Logo / setup button
             Button(action: onOpenSetup) {
-                Image("Logo")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 34, height: 34)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 36, height: 36)
-                            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
-                    )
-                    .clipShape(Circle())
+                logoView(size: 36, imageSize: 34)
             }
 
             Spacer()
@@ -40,6 +29,31 @@ struct NativeChatHeader: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private func logoView(size: CGFloat, imageSize: CGFloat) -> some View {
+        if #available(iOS 26.0, *) {
+            Image("Logo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: imageSize, height: imageSize)
+                .frame(width: size, height: size)
+                .glassEffect(.regular, in: .circle)
+        } else {
+            Image("Logo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: imageSize, height: imageSize)
+                .frame(width: size, height: size)
+                .background(
+                    Circle()
+                        .fill(.white)
+                        .frame(width: size, height: size)
+                        .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                )
+                .clipShape(Circle())
+        }
     }
 
     private var statusColor: Color {

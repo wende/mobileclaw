@@ -13,6 +13,14 @@ struct ChatWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.userContentController.add(bridge, name: "bridge")
+
+        let nativeModeScript = WKUserScript(
+            source: "window.__nativeMode = true;",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(nativeModeScript)
+
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
 
@@ -40,14 +48,17 @@ struct ChatWebView: UIViewRepresentable {
         bridge.webView = webView
         context.coordinator.webView = webView
 
-        let urlString: String
-        #if DEBUG
-        urlString = devServerURL
-        #else
+        // Try bundled webapp first (built by ios/build-web.sh)
         if let bundleURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "web") {
             webView.loadFileURL(bundleURL, allowingReadAccessTo: bundleURL.deletingLastPathComponent())
             return webView
         }
+
+        // Fall back to dev server in DEBUG, localhost in RELEASE
+        let urlString: String
+        #if DEBUG
+        urlString = devServerURL
+        #else
         urlString = "http://localhost:3000?native"
         #endif
 

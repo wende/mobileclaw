@@ -1317,7 +1317,7 @@ export default function Home() {
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
     }
-    if (getSearchParam("native") !== null) {
+    if (getSearchParam("native") !== null || (window as any).__nativeMode) {
       setIsNative(true);
       isNativeRef.current = true;
       document.body.classList.add("native");

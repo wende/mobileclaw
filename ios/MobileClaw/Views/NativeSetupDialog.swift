@@ -149,17 +149,7 @@ struct NativeSetupDialog: View {
                     onConnect(ConnectionConfig(mode: .demo, url: "", token: nil, model: nil))
                 }
             } label: {
-                Image("Logo")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 46, height: 46)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        Circle()
-                            .fill(Color(.secondarySystemBackground))
-                            .strokeBorder(Color(.separator).opacity(0.3), lineWidth: 0.5)
-                    )
-                    .clipShape(Circle())
+                setupLogoView
                     .scaleEffect(logoScale)
                     .shadow(color: phase == .closing ? Color.primary.opacity(0.15) : .clear, radius: 10)
             }
@@ -422,6 +412,32 @@ struct NativeSetupDialog: View {
                         .strokeBorder(Color(.separator).opacity(0.3), lineWidth: 0.5)
                 )
             }
+        }
+    }
+
+    // MARK: - Logo
+
+    @ViewBuilder
+    private var setupLogoView: some View {
+        if #available(iOS 26.0, *) {
+            Image("Logo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 46, height: 46)
+                .frame(width: 48, height: 48)
+                .glassEffect(.regular, in: .circle)
+        } else {
+            Image("Logo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 46, height: 46)
+                .frame(width: 48, height: 48)
+                .background(
+                    Circle()
+                        .fill(Color(.secondarySystemBackground))
+                        .strokeBorder(Color(.separator).opacity(0.3), lineWidth: 0.5)
+                )
+                .clipShape(Circle())
         }
     }
 

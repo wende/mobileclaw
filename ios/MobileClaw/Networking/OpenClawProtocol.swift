@@ -167,7 +167,16 @@ final class OpenClawProtocol {
     private func handleHistoryResponse(_ payload: [String: Any]) {
         guard let rawMessages = payload["messages"] as? [[String: Any]] else { return }
 
-        guard let data = try? JSONSerialization.data(withJSONObject: rawMessages),
+        // Set stopReason: "injected" on gateway-injected messages so the webapp renders them as pills
+        let processedMessages = rawMessages.map { msg -> [String: Any] in
+            var m = msg
+            if m["model"] as? String == "gateway-injected" {
+                m["stopReason"] = "injected"
+            }
+            return m
+        }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: processedMessages),
               let json = String(data: data, encoding: .utf8) else { return }
 
         if bridge.isReady {

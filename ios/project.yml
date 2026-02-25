@@ -11,7 +11,13 @@ targets:
     type: application
     platform: iOS
     sources:
-      - MobileClaw
+      - path: MobileClaw
+        excludes:
+          - Resources/web
+      - path: MobileClaw/Resources/web
+        optional: true
+        buildPhase: resources
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mobileclaw.app
