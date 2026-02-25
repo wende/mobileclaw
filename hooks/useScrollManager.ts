@@ -23,6 +23,9 @@ export function useScrollManager(
   const pinLockUntilRef = useRef(0); // timestamp — don't unpin until after this
   const hasScrolledInitialRef = useRef(false);
 
+  // Track container height to detect keyboard open/close (vs user scroll)
+  const lastClientHeightRef = useRef(0);
+
   // Lerp state for smooth morph animation at constant speed
   const morphCurrentSp = useRef(0);
   const morphTargetSp = useRef(0);
@@ -106,6 +109,24 @@ export function useScrollManager(
       scrollRafId.current = null;
       const el = scrollRef.current;
       if (!el) return;
+
+      // Detect container resize (keyboard open/close, viewport change).
+      // When clientHeight changes while pinned to bottom, the stale scrollTop
+      // makes distanceFromBottom spike — but it's not a real user scroll.
+      // Let the browser handle the scroll adjustment naturally; just keep
+      // the morph locked at 0 so the input bar doesn't glitch.
+      // (Third-party keyboards like SwiftKey resize in multiple discrete steps,
+      // so this can fire several times during a single keyboard animation.)
+      const currentHeight = el.clientHeight;
+      const heightChanged = Math.abs(currentHeight - lastClientHeightRef.current) > 2;
+      lastClientHeightRef.current = currentHeight;
+
+      if (heightChanged && pinnedToBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+        setMorphTarget(0);
+        return;
+      }
+
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
 
       // During streaming or pin-lock window, don't unpin from scroll position —
@@ -203,6 +224,8 @@ export function useScrollManager(
     // Wheel bounce: accumulated overscroll + decay timer
     let wheelAccum = 0;
     let wheelDecayRaf: number | null = null;
+    // Momentum bounce: delayed spring-back timer
+    let momentumTimer: ReturnType<typeof setTimeout> | null = null;
 
     const applyBounce = (offset: number) => {
       const content = el.firstElementChild as HTMLElement | null;
@@ -220,12 +243,21 @@ export function useScrollManager(
       if (bounceRafId) cancelAnimationFrame(bounceRafId);
       const content = el.firstElementChild as HTMLElement | null;
       if (!content) return;
-      content.style.transition = "transform 0.45s cubic-bezier(0.25, 1, 0.5, 1)";
+      // Match pull-to-refresh snap-back: same duration + easing
+      content.style.transition = "transform 0.45s cubic-bezier(0.22, 0.68, 0.35, 1)";
       content.style.transform = "";
       bounceOffset = 0;
       isBouncing = false;
       bounceRafId = null;
     };
+
+    // Rubber-band curve matching pull-to-refresh: linear up to threshold,
+    // then heavy diminishing returns past it.
+    const BOUNCE_THRESHOLD = 60;
+    const rubberBand = (raw: number) =>
+      raw < BOUNCE_THRESHOLD
+        ? raw
+        : BOUNCE_THRESHOLD + (raw - BOUNCE_THRESHOLD) * 0.15;
 
     const isAtBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight < 2;
 
@@ -250,8 +282,9 @@ export function useScrollManager(
       const dy = bounceTouchStartY - e.touches[0].clientY;
       if (dy > 0 && isAtBottom()) {
         isBouncing = true;
-        const raw = dy * 0.35;
-        bounceOffset = -(raw / (1 + raw / 200));
+        // Same multiplier + rubber-band curve as pull-to-refresh
+        const raw = dy * 0.4;
+        bounceOffset = -rubberBand(raw);
         applyBounce(bounceOffset);
       } else if (isBouncing && dy <= 0) {
         bounceOffset = 0;
@@ -273,11 +306,15 @@ export function useScrollManager(
         wheelDecayRaf = null;
         return;
       }
-      const raw = wheelAccum * 0.35;
-      bounceOffset = -(raw / (1 + raw / 200));
+      bounceOffset = -rubberBand(wheelAccum * 0.4);
       applyBounce(bounceOffset);
       wheelDecayRaf = requestAnimationFrame(wheelDecayTick);
     };
+
+    // ── Momentum bounce (scroll-event based, catches inertial scroll) ──
+    let prevScrollTop = el.scrollTop;
+    let prevScrollTime = performance.now();
+    let wasAtBottomLast = isAtBottom();
 
     // ── Existing scroll/unpin logic ──────────────────────────────────
     const onTouchEnd = () => {
@@ -294,10 +331,8 @@ export function useScrollManager(
       if (e.deltaY > 0 && isAtBottom()) {
         isBouncing = true;
         wheelAccum += e.deltaY;
-        // Cap accumulation so the bounce feels bounded
-        wheelAccum = Math.min(wheelAccum, 300);
-        const raw = wheelAccum * 0.35;
-        bounceOffset = -(raw / (1 + raw / 200));
+        wheelAccum = Math.min(wheelAccum, 400);
+        bounceOffset = -rubberBand(wheelAccum * 0.4);
         applyBounce(bounceOffset);
         // Restart decay — each new wheel event resets the timer
         if (wheelDecayRaf) cancelAnimationFrame(wheelDecayRaf);
@@ -306,13 +341,42 @@ export function useScrollManager(
     };
     let lastScrollTop = el.scrollTop;
     const onScroll = () => {
-      if (isStreamingRef.current && el.scrollTop < lastScrollTop - 3) {
-        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+      // ── Momentum bounce: detect arrival at bottom with velocity ──
+      const now = performance.now();
+      const currentScrollTop = el.scrollTop;
+      const dt = now - prevScrollTime;
+      // Velocity in px/ms (positive = scrolling down). Ignore stale gaps > 200ms.
+      const velocity = dt > 0 && dt < 200 ? (currentScrollTop - prevScrollTop) / dt : 0;
+      const atBottom = isAtBottom();
+
+      if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing) {
+        // Arrived at bottom with momentum — apply rubber-band bounce
+        // Scale velocity to a generous displacement matching pull-to-refresh feel
+        const raw = Math.min(velocity * 150, 120);
+        isBouncing = true;
+        bounceOffset = -rubberBand(raw);
+        applyBounce(bounceOffset);
+        // Hold the displaced position briefly, then spring back
+        // (mirrors pull-to-refresh's visual hold before snap-back)
+        if (momentumTimer) clearTimeout(momentumTimer);
+        momentumTimer = setTimeout(() => {
+          momentumTimer = null;
+          springBack();
+        }, 60);
+      }
+
+      wasAtBottomLast = atBottom;
+      prevScrollTop = currentScrollTop;
+      prevScrollTime = now;
+
+      // ── Unpin during streaming if user scrolls up ──
+      if (isStreamingRef.current && currentScrollTop < lastScrollTop - 3) {
+        const dist = el.scrollHeight - currentScrollTop - el.clientHeight;
         if (dist > 150) {
           pinnedToBottomRef.current = false;
         }
       }
-      lastScrollTop = el.scrollTop;
+      lastScrollTop = currentScrollTop;
     };
 
     // Combine bounce + unpin touch handlers
@@ -344,6 +408,7 @@ export function useScrollManager(
       el.removeEventListener("scroll", onScroll);
       if (bounceRafId) cancelAnimationFrame(bounceRafId);
       if (wheelDecayRaf) cancelAnimationFrame(wheelDecayRaf);
+      if (momentumTimer) clearTimeout(momentumTimer);
     };
   }, [isStreamingRef]);
 

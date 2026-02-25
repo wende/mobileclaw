@@ -73,6 +73,15 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Detect mobile: SVG feImage data URIs + feDisplacementMap don't work
+  // on mobile browsers (WebKit/Blink), so we fall back to CSS-only glass.
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
+  useEffect(() => {
+    setIsMobileDevice(
+      navigator.maxTouchPoints > 0 && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)
+    );
+  }, []);
+
   // Measure pill element so feImage covers its full width
   const glassPillRef = useRef<HTMLDivElement>(null);
   const [filterDims, setFilterDims] = useState({ w: 200, h: 46 });
@@ -504,8 +513,12 @@ export const ChatInput = forwardRef<ChatInputHandle, {
           maxHeight: "calc(200px - 154px * var(--lp, 0))",
           cursor: isPill ? "pointer" : "text",
           background: isPill ? "oklch(from var(--card) l c h / 0.30)" : "oklch(from var(--card) l c h / calc(0.9 - 0.5 * var(--sp, 0)))",
-          backdropFilter: isPill ? 'url("#filter_liquidGlassPill")' : undefined,
-          WebkitBackdropFilter: isPill ? 'url("#filter_liquidGlassPill")' : undefined,
+          backdropFilter: isPill
+            ? (isMobileDevice ? "blur(12px) saturate(1.8)" : 'url("#filter_liquidGlassPill")')
+            : undefined,
+          WebkitBackdropFilter: isPill
+            ? (isMobileDevice ? "blur(12px) saturate(1.8)" : 'url("#filter_liquidGlassPill")')
+            : undefined,
           border: isPill ? "1px solid oklch(from var(--foreground) l c h / 0.15)" : undefined,
           boxShadow: isPill ? "0 6px 8px rgba(0,0,0,0.15)" : undefined,
         } as React.CSSProperties}
