@@ -102,13 +102,14 @@ export default function Home() {
   const isStreamingRef = useRef(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sentAnimId, setSentAnimId] = useState<string | null>(null);
+  const isNativeRef = useRef(false);
 
   // Sync ref immediately so scroll/wheel handlers see the correct value
   // without waiting for React's async render cycle.
   const {
     scrollRef, bottomRef, morphRef, scrollPhase, pinnedToBottomRef, pinLockUntilRef,
     handleScroll, scrollToBottom, updateGraceForStreamingChange,
-  } = useScrollManager(messages, isStreamingRef);
+  } = useScrollManager(messages, isStreamingRef, isNativeRef);
 
   const setIsStreaming = useCallback((value: boolean) => {
     const wasStreaming = isStreamingRef.current;
@@ -141,7 +142,6 @@ export default function Home() {
   const [isDetached, setIsDetached] = useState(false);
   const isDetachedRef = useRef(false);
   const [isNative, setIsNative] = useState(false);
-  const isNativeRef = useRef(false);
   const [uploadDisabled, setUploadDisabled] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
@@ -1957,7 +1957,7 @@ export default function Home() {
             }
           }}
           className={`flex-1 overflow-y-auto overflow-x-hidden ${isNative ? "" : "bg-background"} ${isDetached ? "rounded-2xl" : "pt-14"}`}
-          style={{ overscrollBehavior: "none", ...(isDetached ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
+          style={{ ...(isNative ? {} : { overscrollBehavior: "none" as const }), ...(isDetached ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
         >
           <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
             {displayMessages.map((msg, idx) => {

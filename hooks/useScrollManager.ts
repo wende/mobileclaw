@@ -12,6 +12,7 @@ export const PIN_LOCK_MS = 500;
 export function useScrollManager(
   messages: Message[],
   isStreamingRef: React.RefObject<boolean>,
+  isNativeRef?: React.RefObject<boolean>,
 ) {
   const [scrollPhase, setScrollPhase] = useState<"input" | "pill">("input");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -285,9 +286,12 @@ export function useScrollManager(
     // ── Touch tracking ────────────────────────────────────────────────
     let touchStartY = 0; // always captured, for unpin detection
 
-    // ── Touch bounce ─────────────────────────────────────────────────
+    // ── Touch bounce (skipped in native — WebKit handles rubber-band) ──
+    const native = !!isNativeRef?.current;
+
     const onBounceStart = (e: TouchEvent) => {
       touchStartY = e.touches[0].clientY;
+      if (native) return;
       if (isAtBottom()) {
         bounceTouchStartY = e.touches[0].clientY;
         const content = el.firstElementChild as HTMLElement | null;
@@ -299,6 +303,7 @@ export function useScrollManager(
     };
 
     const onBounceMove = (e: TouchEvent) => {
+      if (native) return;
       if (!isAtBottom() && !isBouncing) return;
       const dy = bounceTouchStartY - e.touches[0].clientY;
       if (dy > 0 && isAtBottom()) {
@@ -348,8 +353,8 @@ export function useScrollManager(
       if (e.deltaY < 0 && isStreamingRef.current) {
         pinnedToBottomRef.current = false;
       }
-      // Bounce on wheel scroll past bottom
-      if (e.deltaY > 0 && isAtBottom()) {
+      // Bounce on wheel scroll past bottom (skipped in native)
+      if (!native && e.deltaY > 0 && isAtBottom()) {
         isBouncing = true;
         wheelAccum += e.deltaY;
         wheelAccum = Math.min(wheelAccum, 400);
@@ -370,7 +375,7 @@ export function useScrollManager(
       const velocity = dt > 0 && dt < 200 ? (currentScrollTop - prevScrollTop) / dt : 0;
       const atBottom = isAtBottom();
 
-      if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing && Date.now() > pinLockUntilRef.current && !isStreamingRef.current) {
+      if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing && Date.now() > pinLockUntilRef.current && !isStreamingRef.current && !isNativeRef?.current) {
         // Arrived at bottom with momentum — apply rubber-band bounce
         // Scale velocity to a generous displacement matching pull-to-refresh feel
         const raw = Math.min(velocity * 150, 120);
