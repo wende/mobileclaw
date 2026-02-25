@@ -117,6 +117,7 @@ struct NativeChatInput: View {
                     .focused($isFocused)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
+                    .contentShape(Rectangle().inset(by: -10))
                     .opacity(1 - sp)
                     .allowsHitTesting(sp < 0.4)
                     .onSubmit { submit() }

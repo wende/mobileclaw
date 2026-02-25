@@ -95,13 +95,17 @@ struct RootView: View {
                 onOpenSetup: { appState.showSetup = true }
             )
         }
-        .sheet(isPresented: $state.showSetup) {
+        .overlay {
             NativeSetupDialog(
                 onConnect: { config in
                     appState.showSetup = false
                     handleConnect(config: config)
-                }
+                },
+                onClose: { appState.showSetup = false },
+                visible: appState.showSetup,
+                connectionError: appState.connectionError
             )
+            .ignoresSafeArea()
         }
         .sheet(isPresented: $state.showCommands) {
             NativeCommandSheet(
