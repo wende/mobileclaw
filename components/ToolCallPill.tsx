@@ -127,7 +127,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
   const hasStatusIcon = status === "running" || resultError;
 
   return (
-    <div className={`w-fit max-w-full rounded-lg border ${resultError ? "border-destructive/30 bg-destructive/5" : "border-border bg-secondary"}`}>
+    <div className={`w-fit max-w-full rounded-none border font-mono ${resultError ? "border-destructive/30 bg-destructive/5" : "border-border"}`}>
       <button
         type="button"
         onClick={hasContent ? () => setOpen((v) => !v) : undefined}
@@ -140,7 +140,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
       </button>
       {hasContent && (
         <SlideContent open={open}>
-          <div className="overflow-hidden text-xs text-muted-foreground">
+          <div className="overflow-hidden text-xs leading-[1.5] text-muted-foreground">
             {args && !isRead && !isGateway && (
               <div className="border-t border-border px-3 py-2">
                 {(() => {
@@ -278,7 +278,7 @@ function SpawnPill({
 
   return (
     <div
-      className={`w-full rounded-lg border overflow-hidden relative ${resultError ? "border-destructive/30" : "border-border"}`}
+      className={`w-full rounded-none border overflow-hidden relative ${resultError ? "border-destructive/30" : "border-border"}`}
       {...handlers}
     >
       {/* Swipe action indicator (behind content) */}
@@ -292,7 +292,7 @@ function SpawnPill({
       )}
       {/* Sliding content */}
       <div
-        className={`rounded-[inherit] ${resultError ? "bg-destructive/5" : "bg-secondary"}`}
+        className={`rounded-[inherit] font-mono ${resultError ? "bg-destructive/5" : ""}`}
         style={{
           transform: offset !== 0 ? `translateX(${offset}px)` : undefined,
           transition: animating ? "transform 200ms ease-out" : "none",

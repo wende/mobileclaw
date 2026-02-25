@@ -1,3 +1,7 @@
+@import '@fontsource/google-sans-flex/latin-400.css';
+@import '@fontsource/google-sans-flex/latin-500.css';
+@import '@fontsource/google-sans-flex/latin-600.css';
+@import '@fontsource/google-sans-flex/latin-700.css';
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
@@ -5,12 +9,12 @@
 
 :root {
   --background: oklch(0.985 0 0);
-  --foreground: oklch(0.145 0 0);
+  --foreground: oklch(0.164 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.164 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.164 0 0);
+  --primary: oklch(0.164 0 0);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.96 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -78,7 +82,7 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-geist-sans), 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Google Sans Flex', var(--font-geist-sans), 'Geist', ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), 'Geist Mono', ui-monospace, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);

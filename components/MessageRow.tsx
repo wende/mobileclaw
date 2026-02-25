@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import type { ContentPart, Message } from "@/types/chat";
-import { getTextFromContent, getImages, getFiles, thinkingPreview } from "@/lib/messageUtils";
+import { getTextFromContent, getImages, getFiles } from "@/lib/messageUtils";
 import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine } from "@/lib/constants";
 import { useExpandablePanel } from "@/hooks/useExpandablePanel";
 import { SlideContent } from "@/components/SlideContent";
@@ -152,7 +152,7 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
 
   return (
     <div className="flex -mt-1.5">
-      <div ref={outerRef} onTransitionEnd={handleTransitionEnd} className="max-w-[85%] w-fit rounded-lg border border-border bg-card overflow-hidden transition-[width] duration-200 ease-out">
+      <div ref={outerRef} onTransitionEnd={handleTransitionEnd} className="max-w-[85%] w-fit rounded border border-border bg-card overflow-hidden transition-[width] duration-200 ease-out">
         <button
           type="button"
           onClick={toggle}
@@ -174,7 +174,7 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
             style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
           >
             <div className="overflow-hidden min-h-0">
-              <div ref={contentRef} className="border-t border-border px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+              <div ref={contentRef} className="border-t border-border px-3 py-2 text-xs leading-[1.75rem] text-muted-foreground">
                 {hasRichContent ? (
                   <div className="flex flex-col gap-1.5">
                     {message?.reasoning && !hasThinkingParts && <ThinkingPill text={message.reasoning} />}
@@ -187,7 +187,7 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
                       }
                       if (part.type === "text" && part.text) {
                         return (
-                          <div key={`text-${i}`} className="text-sm leading-relaxed break-words overflow-hidden whitespace-pre-wrap">
+                          <div key={`text-${i}`} className="text-sm leading-[1.75rem] break-words overflow-hidden whitespace-pre-wrap">
                             <MarkdownContent text={part.text} />
                           </div>
                         );
@@ -211,123 +211,72 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
 
 // ── ThinkingPill ─────────────────────────────────────────────────────────────
 
-const BRAIN_ICON = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline-block shrink-0 opacity-50 mr-1.5 align-[-1px]">
-    <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
-    <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
-    <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
-  </svg>
-);
-
-function extractLastSentence(text: string): string {
-  const matches = text.match(/[^.]*\./g);
-  if (!matches) return "";
-  return matches[matches.length - 1].trim();
-}
+const THINKING_COLLAPSE_THRESHOLD = 5;
 
 function ThinkingPill({ text }: { text: string }) {
   const isEmpty = !text.trim();
-  const lineCount = text.split("\n").length;
-  const isShort = !isEmpty && lineCount < 10;
-
-  // When text is already present on first render (history restore / refresh),
-  // skip the slide animation and render at full height immediately.
-  // Only animate the slide-in for the empty "Thinking..." placeholder.
   const [mounted, setMounted] = useState(() => !isEmpty);
   const [expanded, setExpanded] = useState(false);
+  const lineCount = text.split("\n").length;
+  const needsClamp = !isEmpty && lineCount >= THINKING_COLLAPSE_THRESHOLD;
 
-  // Initialize from props so history-restored thinking blocks render at full height immediately
-  // (avoids a delayed height increase that causes scroll bounce on refresh)
-  const [sentence, setSentence] = useState(() => isEmpty ? "" : extractLastSentence(text));
-  const [visible, setVisible] = useState(() => !isEmpty && !!extractLastSentence(text));
-  const lastSentenceRef = useRef(sentence);
-
-  // Slide in on mount (only fires when starting empty — "Thinking..." placeholder)
   useEffect(() => {
     if (mounted) return;
     const raf = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  useEffect(() => {
-    if (isEmpty) return;
-    // Extract the last complete sentence (ends with a period)
-    const matches = text.match(/[^.]*\./g);
-    if (!matches) return;
-    const last = matches[matches.length - 1].trim();
-    if (last && last !== lastSentenceRef.current) {
-      lastSentenceRef.current = last;
-      // Fade out, swap, fade in
-      setVisible(false);
-      const t = setTimeout(() => {
-        setSentence(last);
-        setVisible(true);
-      }, 180);
-      return () => clearTimeout(t);
-    }
-  }, [text, isEmpty]);
-
-  // Short thinking: render as plain faded text with slide animation
-  if (isShort) {
+  if (isEmpty) {
     return (
       <SlideContent open={mounted}>
-        <p className="text-xs leading-relaxed text-muted-foreground/50 whitespace-pre-wrap break-words overflow-hidden">
+        <p className="text-xs leading-[1.5] text-muted-foreground/50">
+          <span className="inline-flex items-center gap-0.5">
+            <span>Thinking</span>
+            <span className="inline-flex w-4">
+              <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
+              <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
+              <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
+            </span>
+          </span>
+        </p>
+      </SlideContent>
+    );
+  }
+
+  if (!needsClamp) {
+    return (
+      <SlideContent open={mounted}>
+        <p className="text-xs leading-[1.5] text-muted-foreground/50 whitespace-pre-wrap break-words overflow-hidden">
           {text}
         </p>
       </SlideContent>
     );
   }
 
+  const firstLine = text.split("\n")[0];
+
   return (
     <SlideContent open={mounted}>
-      <div className="w-fit max-w-full rounded-lg border border-border bg-secondary">
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="w-full rounded-[inherit] cursor-pointer px-3 py-1.5 text-xs font-medium text-muted-foreground"
-        >
-          <div className="flex items-center whitespace-nowrap">
-            {BRAIN_ICON}
-            {isEmpty ? (
-              <span className="inline-flex items-center gap-0.5">
-                <span>Thinking</span>
-                <span className="inline-flex w-4">
-                  <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
-                  <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
-                  <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
-                </span>
-              </span>
-            ) : (
-              <span>{thinkingPreview(text)}</span>
-            )}
-            {!isEmpty && (
-              <svg
-                width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                className="ml-auto shrink-0 opacity-40 transition-transform duration-200"
-                style={{ transform: expanded ? "rotate(0deg)" : "rotate(-90deg)" }}
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            )}
-          </div>
-          {!isEmpty && sentence && !expanded && (
-            <div className="mt-1 max-w-[300px] overflow-hidden text-left">
-              <div
-                className="text-xs leading-tight text-muted-foreground/40 truncate font-normal transition-opacity duration-200"
-                style={{ opacity: visible ? 1 : 0 }}
-              >
-                {sentence}
-              </div>
-            </div>
-          )}
-        </button>
-        {!isEmpty && (
-          <SlideContent open={expanded}>
-            <p className="px-3 pb-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words overflow-hidden">
-              {text}
-            </p>
-          </SlideContent>
-        )}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setExpanded((v) => !v)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded((v) => !v); } }}
+        className="text-xs leading-[1.5] text-muted-foreground/50 cursor-pointer"
+      >
+        <div className="flex items-center gap-1">
+          <span className="truncate break-words overflow-hidden">{firstLine}</span>
+          <svg
+            width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+            className="shrink-0 opacity-60 transition-transform duration-200"
+            style={{ transform: expanded ? "rotate(0deg)" : "rotate(-90deg)" }}
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </div>
+        <SlideContent open={expanded}>
+          <p className="whitespace-pre-wrap break-words overflow-hidden">{text}</p>
+        </SlideContent>
       </div>
     </SlideContent>
   );
@@ -422,7 +371,7 @@ function CommandResponsePill({ text, isStreaming }: { text: string; isStreaming?
           }
         >
           <div className="min-h-0">
-            <div className="border-t border-border px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground/80">
+            <div className="border-t border-border px-3 py-2 text-xs leading-[1.75rem] whitespace-pre-wrap break-words text-foreground/80">
               {text}
             </div>
           </div>
@@ -437,7 +386,7 @@ function ContextPill({ summary, iconEl, text }: { summary: string; iconEl: React
 
   return (
     <div className="flex flex-row-reverse">
-      <div ref={outerRef} onTransitionEnd={handleTransitionEnd} className="max-w-[85%] md:max-w-[75%] w-fit rounded-2xl rounded-br-md bg-primary overflow-hidden transition-[width] duration-200 ease-out">
+      <div ref={outerRef} onTransitionEnd={handleTransitionEnd} className="max-w-[85%] md:max-w-[75%] w-fit rounded border border-border bg-primary overflow-hidden transition-[width] duration-200 ease-out">
         <button
           onClick={toggle}
           className="cursor-pointer rounded-[inherit] w-full px-3 py-1.5 text-xs font-medium text-primary-foreground/70 flex items-center gap-1.5"
@@ -458,7 +407,7 @@ function ContextPill({ summary, iconEl, text }: { summary: string; iconEl: React
             style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
           >
             <div className="overflow-hidden min-h-0">
-              <div ref={contentRef} className="border-t border-primary-foreground/15 px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words text-primary-foreground/70">
+              <div ref={contentRef} className="border-t border-primary-foreground/15 px-3 py-2 text-xs leading-[1.75rem] whitespace-pre-wrap break-words text-primary-foreground/70">
                 {text}
               </div>
             </div>
@@ -539,7 +488,7 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
     const errorText = text || "Unknown error";
     return (
       <div className="flex justify-center py-2">
-        <div className="max-w-[85%] rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs leading-relaxed text-destructive-foreground whitespace-pre-wrap break-words">
+        <div className="max-w-[85%] rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs leading-[1.75rem] text-destructive-foreground whitespace-pre-wrap break-words">
           {errorText}
         </div>
       </div>
@@ -554,7 +503,7 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
   if (message.role === "system") {
     return text ? (
       <div className="flex justify-center py-2">
-        <div className="max-w-[85%] rounded-lg bg-secondary px-4 py-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words">
+        <div className="max-w-[85%] rounded-lg bg-secondary px-4 py-2 text-xs leading-[1.75rem] text-muted-foreground whitespace-pre-wrap break-words">
           <MarkdownContent text={text} />
         </div>
       </div>
@@ -587,11 +536,11 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
 
   return (
     <div data-message-role={message.role} className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
-      <div className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground" : ""} ${hasSpawnTool ? "w-[85%] md:w-[75%]" : ""}`}>
+      <div className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "rounded-2xl rounded-tr-[1px] rounded-br-lg bg-primary px-4 py-2.5 text-primary-foreground" : ""} ${hasSpawnTool ? "w-[85%] md:w-[75%]" : ""}`}>
         {isUser ? (
           <>
             {text && (
-              <div className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+              <div className="text-sm leading-[1.75rem] break-words whitespace-pre-wrap">
                 <UserTextWithQuotes text={text} />
               </div>
             )}
@@ -625,7 +574,7 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
                       <ThinkingPill text={extractedThinking} />
                     )}
                     {cleanText && (
-                      <div className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
+                      <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
                         {showCursor ? (
                           <StreamingText text={cleanText} isStreaming={isStreaming} />
                         ) : (
@@ -649,7 +598,7 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
                     <ThinkingPill text={extractedThinking} />
                   )}
                   {cleanText && (
-                    <div className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
+                    <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
                       {isStreaming ? (
                         <StreamingText text={cleanText} isStreaming={isStreaming} />
                       ) : (

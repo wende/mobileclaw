@@ -32,6 +32,7 @@ import { TurnstileGate } from "@/components/TurnstileGate";
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null;
 
 import { ChatInput, type ChatInputHandle } from "@/components/ChatInput";
+import { parseServerCommands, ALL_COMMANDS, type Command } from "@/components/CommandSheet";
 import { SetupDialog } from "@/components/SetupDialog";
 import { ChatHeader } from "@/components/ChatHeader";
 import { useThinkingState } from "@/hooks/useThinkingState";
@@ -132,6 +133,9 @@ export default function Home() {
   const [availableModels, setAvailableModels] = useState<ModelChoice[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const modelsRequestedRef = useRef(false);
+  const [serverCommands, setServerCommands] = useState<Command[]>([]);
+  const commandsFetchActiveRef = useRef(false);
+  const commandsFetchBufferRef = useRef("");
   const appRef = useRef<HTMLDivElement>(null);
   const floatingBarRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -370,6 +374,23 @@ export default function Home() {
     sendWS({ type: "req", id: `models-catalog-${ts}`, method: "models.list", params: {} });
   }, [sendWS, backendMode]);
 
+  /** Silently send /commands to fetch the full command list from the server. */
+  const requestServerCommands = useCallback(() => {
+    if (backendMode !== "openclaw") return;
+    commandsFetchActiveRef.current = true;
+    commandsFetchBufferRef.current = "";
+    sendWS({
+      type: "req",
+      id: `cmdfetch-${Date.now()}`,
+      method: "chat.send",
+      params: {
+        sessionKey: sessionKeyRef.current,
+        message: "/commands",
+        deliver: true,
+      },
+    });
+  }, [sendWS, backendMode]);
+
   /** Ensure a streaming assistant message exists for `runId`, creating one if needed. */
   const ensureStreamingMessage = useCallback((
     prev: Message[],
@@ -458,6 +479,7 @@ export default function Home() {
     modelsCatalogRef.current = null;
     setModelsLoading(false);
     setAvailableModels([]);
+    setServerCommands([]);
     const server = resPayload.server as Record<string, unknown> | undefined;
     if (server) setServerInfo(server);
     sessionIdRef.current = (server as Record<string, string> | undefined)?.connId ?? null;
@@ -467,7 +489,8 @@ export default function Home() {
     const sessionKey = sessionDefaults?.mainSessionKey || sessionDefaults?.mainKey || "main";
     sessionKeyRef.current = sessionKey;
     requestHistory();
-  }, [requestHistory]);
+    requestServerCommands();
+  }, [requestHistory, requestServerCommands]);
 
   /** Handle chat.history response — parse, merge tool results, update state. */
   const handleHistoryResponse = useCallback((resPayload: Record<string, unknown>) => {
@@ -735,6 +758,29 @@ export default function Home() {
   /** Handle chat events (delta/final/aborted/error). */
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
     logChatEvent(payload);
+    // Silent /commands fetch — intercept response before it reaches the UI
+    if (commandsFetchActiveRef.current && payload.sessionKey === sessionKeyRef.current) {
+      if (payload.state === "delta" && payload.message) {
+        const text = typeof payload.message.content === "string"
+          ? payload.message.content
+          : getTextFromContent(payload.message.content);
+        commandsFetchBufferRef.current += text;
+      }
+      if (payload.state === "final") {
+        const parsed = parseServerCommands(commandsFetchBufferRef.current);
+        const coreNames = new Set(ALL_COMMANDS.map(c => c.name));
+        const extra = parsed.filter(c => !coreNames.has(c.name));
+        setServerCommands(extra);
+        try { localStorage.setItem("mc-server-commands", JSON.stringify(extra)); } catch {}
+        commandsFetchActiveRef.current = false;
+        commandsFetchBufferRef.current = "";
+      }
+      if (payload.state === "error" || payload.state === "aborted") {
+        commandsFetchActiveRef.current = false;
+        commandsFetchBufferRef.current = "";
+      }
+      return;
+    }
     // Route subagent session events to the subagent store
     if (payload.sessionKey !== sessionKeyRef.current) {
       if (payload.state === "final" || payload.state === "aborted" || payload.state === "error") {
@@ -1406,6 +1452,10 @@ export default function Home() {
         gatewayTokenRef.current = savedToken ?? null;
         setBackendMode("openclaw");
         setOpenclawUrl(savedUrl);
+        try {
+          const cached = localStorage.getItem("mc-server-commands");
+          if (cached) setServerCommands(JSON.parse(cached));
+        } catch {}
         connect(toWsUrl(savedUrl));
       } else {
         if (!detached) setShowSetup(true);
@@ -1495,6 +1545,8 @@ export default function Home() {
 
   const sendMessage = useCallback(async (text: string, attachments?: ImageAttachment[]) => {
     console.log("[sendMessage]", { text: text.slice(0, 50), attachments: attachments?.length ?? 0 });
+    // Cancel any in-flight /commands fetch so its response doesn't intercept this message's events
+    commandsFetchActiveRef.current = false;
     const isSlashCommand = text.trim().startsWith("/");
     lastCommandRef.current = isSlashCommand ? text.trim().split(/\s/)[0].toLowerCase() : null;
     if (!isDetachedRef.current) void requestNotificationPermission();
@@ -1894,6 +1946,7 @@ export default function Home() {
             modelsLoading={modelsLoading}
             onFetchModels={fetchModels}
             backendMode={backendMode}
+            serverCommands={serverCommands}
             quoteText={quoteText}
             onClearQuote={() => setQuoteText(null)}
             isRunActive={isRunActive}

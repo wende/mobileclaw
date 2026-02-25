@@ -34,7 +34,7 @@ export function CodeBlock({ lang, code }: { lang?: string; code: string }) {
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre className="overflow-hidden whitespace-pre-wrap break-all p-3 text-xs leading-relaxed"><code>{code}</code></pre>
+      <pre className="overflow-hidden whitespace-pre-wrap break-all p-3 text-xs leading-[1.75rem]"><code>{code}</code></pre>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
+import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, useMemo } from "react";
 import { ALL_COMMANDS, type Command } from "@/components/CommandSheet";
 import maps from "@/maps.json";
 import { ImageLightbox } from "@/components/ImageLightbox";
@@ -27,6 +27,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   modelsLoading?: boolean;
   onFetchModels?: () => void;
   backendMode?: "openclaw" | "lmstudio" | "demo";
+  serverCommands?: Command[];
   quoteText?: string | null;
   onClearQuote?: () => void;
   isRunActive?: boolean;
@@ -42,6 +43,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   modelsLoading = false,
   onFetchModels,
   backendMode = "openclaw",
+  serverCommands = [],
   quoteText = null,
   onClearQuote,
   isRunActive = false,
@@ -220,12 +222,18 @@ export const ChatInput = forwardRef<ChatInputHandle, {
         }))
     : [];
 
+  // Merge core + server commands for autocomplete
+  const allCommands = useMemo(
+    () => [...ALL_COMMANDS, ...serverCommands],
+    [serverCommands]
+  );
+
   // Compute matching commands when value starts with /
   const commandSuggestions = (() => {
     const trimmed = value.trimStart();
     if (!trimmed.startsWith("/") || trimmed.includes(" ")) return [];
     const prefix = trimmed.toLowerCase();
-    return ALL_COMMANDS.filter(
+    return allCommands.filter(
       (cmd) =>
         cmd.name.toLowerCase().startsWith(prefix) ||
         cmd.aliases?.some((a) => a.toLowerCase().startsWith(prefix))
@@ -630,7 +638,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
             }}
             placeholder={isRunActive ? (hasQueued ? "Replace queued message..." : "Queue a message...") : "Send a message..."}
             rows={1}
-            className="block w-full resize-none bg-transparent text-base md:text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
+            className="block w-full resize-none bg-transparent text-base md:text-sm leading-[1.75rem] text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
         </div>
       </div>
