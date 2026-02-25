@@ -333,7 +333,7 @@ export default function Home() {
   }, []);
 
   // ── Keyboard layout (iOS Safari) ───────────────────────────────────────────
-  useKeyboardLayout(appRef, floatingBarRef, bottomRef, !isNativeRef.current);
+  useKeyboardLayout(appRef, floatingBarRef, bottomRef, !isNative);
 
   // ── Pull-to-refresh ─────────────────────────────────────────────────────────
   /** Send a typed message over the WebSocket (avoids double-cast). */
@@ -344,7 +344,7 @@ export default function Home() {
   const {
     pullContentRef, pullSpinnerRef, isPullingRef: _isPullingRef,
     onHistoryReceived,
-  } = usePullToRefresh({ scrollRef, backendMode, sendWS, sessionKeyRef, enabled: !isNativeRef.current });
+  } = usePullToRefresh({ scrollRef, backendMode, sendWS, sessionKeyRef, enabled: !isNative });
 
   // ── WebSocket sub-handlers ─────────────────────────────────────────────────
 
@@ -1322,6 +1322,7 @@ export default function Home() {
       document.body.classList.add("native");
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
+      document.documentElement.classList.remove("native-loading");
       // Register bridge handler for messages from Swift
       registerBridgeHandler((msg: BridgeMessage) => {
         handleNativeBridgeMessage(msg);

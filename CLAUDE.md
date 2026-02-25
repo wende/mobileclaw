@@ -128,6 +128,10 @@ MobileClaw supports three backend modes, selectable in the setup dialog:
 - Safe try/catch wrapper for iOS PWA edge cases
 - See `lib/notifications.ts`
 
+## iOS App
+
+MobileClaw has a native iOS app that wraps the webapp in a WKWebView. See [`ios/CLAUDE.md`](ios/CLAUDE.md) for details.
+
 ## WebSocket Protocol (OpenClaw)
 
 MobileClaw connects to OpenClaw's gateway WebSocket. Protocol frames:

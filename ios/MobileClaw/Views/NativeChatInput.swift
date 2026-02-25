@@ -88,7 +88,7 @@ struct NativeChatInput: View {
                 } label: {
                     Image(systemName: "paperclip")
                         .font(.system(size: 17))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color(.label).opacity(0.6))
                         .frame(width: sideSize, height: sideSize)
                         .background(
                             Circle()
@@ -128,10 +128,10 @@ struct NativeChatInput: View {
                         HStack(spacing: 5) {
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color(.label).opacity(0.85))
                             Text("Scroll to bottom")
                                 .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color(.label).opacity(0.85))
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)

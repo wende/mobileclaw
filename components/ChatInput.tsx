@@ -597,7 +597,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
         {/* Pill overlay */}
         <div
           className="absolute inset-0 flex items-center justify-center gap-2 whitespace-nowrap text-xs font-medium"
-          style={{ opacity: "var(--sp, 0)", pointerEvents: isPill ? "auto" : "none", color: "rgba(30,30,30,0.85)", filter: "drop-shadow(0 0 8px rgba(255,255,255,0.9))" } as React.CSSProperties}
+          style={{ opacity: "var(--sp, 0)", pointerEvents: isPill ? "auto" : "none", color: "oklch(from var(--foreground) l c h / 0.85)", filter: "drop-shadow(0 0 8px oklch(from var(--background) l c h / 0.9))" } as React.CSSProperties}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
             <path d="m7 13 5 5 5-5" /><path d="M12 18V6" />

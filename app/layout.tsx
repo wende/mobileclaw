@@ -38,6 +38,9 @@ const headScript = `
       document.documentElement.classList.add('dark');
     }
   } catch (e) {}
+  if (location.search.indexOf('native') !== -1) {
+    document.documentElement.classList.add('native-loading');
+  }
   if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
     window.addEventListener('load', function() {
       navigator.serviceWorker.register('/sw.js');

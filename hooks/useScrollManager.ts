@@ -136,6 +136,7 @@ export function useScrollManager(
         pinnedToBottomRef.current = distanceFromBottom < 80;
       } else if (isStreamingRef.current && !pinnedToBottomRef.current && distanceFromBottom < 80) {
         pinnedToBottomRef.current = true;
+        pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
       }
 
       // When streaming and pinned, lock morph to input mode (--sp = 0)
@@ -150,11 +151,30 @@ export function useScrollManager(
     });
   }, [isStreamingRef, setMorphTarget]);
 
+  /** Clear any stuck bounce transform on the content div. */
+  const clearBounceTransform = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const content = el.firstElementChild as HTMLElement | null;
+    if (content && content.style.transform) {
+      content.style.transition = "";
+      content.style.transform = "";
+    }
+  }, []);
+
   const scrollToBottom = useCallback(() => {
     pinnedToBottomRef.current = true;
     pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
+    clearBounceTransform();
+    const el = scrollRef.current;
+    if (el && isStreamingRef.current) {
+      // During streaming, snap directly — the rAF loop handles continuous scrolling.
+      // scrollIntoView({ behavior: "smooth" }) fights with the rAF loop.
+      el.scrollTop = el.scrollHeight;
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [clearBounceTransform, isStreamingRef]);
 
   // Auto-scroll: whenever messages change, snap to bottom if pinned.
   useLayoutEffect(() => {
@@ -164,8 +184,9 @@ export function useScrollManager(
     if (!hasScrolledInitialRef.current) {
       hasScrolledInitialRef.current = true;
     }
+    clearBounceTransform();
     el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [messages, clearBounceTransform]);
 
   // ResizeObserver: catch content-height changes when NOT streaming (e.g. images loading).
   useEffect(() => {
@@ -349,7 +370,7 @@ export function useScrollManager(
       const velocity = dt > 0 && dt < 200 ? (currentScrollTop - prevScrollTop) / dt : 0;
       const atBottom = isAtBottom();
 
-      if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing) {
+      if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing && Date.now() > pinLockUntilRef.current && !isStreamingRef.current) {
         // Arrived at bottom with momentum — apply rubber-band bounce
         // Scale velocity to a generous displacement matching pull-to-refresh feel
         const raw = Math.min(velocity * 150, 120);
@@ -409,6 +430,9 @@ export function useScrollManager(
       if (bounceRafId) cancelAnimationFrame(bounceRafId);
       if (wheelDecayRaf) cancelAnimationFrame(wheelDecayRaf);
       if (momentumTimer) clearTimeout(momentumTimer);
+      // Clear any stuck bounce transform
+      const content = el.firstElementChild as HTMLElement | null;
+      if (content) { content.style.transition = ""; content.style.transform = ""; }
     };
   }, [isStreamingRef]);
 

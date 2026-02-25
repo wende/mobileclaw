@@ -189,6 +189,11 @@
   &::-webkit-scrollbar { display: none; }
 }
 
+/* Hide body until React hydrates in native mode — prevents web chrome flash */
+html.native-loading body {
+  opacity: 0 !important;
+}
+
 /* Native mode — body class added by JS when ?native param is present */
 body.native {
   background: transparent !important;
