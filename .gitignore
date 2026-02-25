@@ -17,3 +17,4 @@ playwright-report/
 blob-report/
 logs.jsonl
 .vercel
+worktrees
