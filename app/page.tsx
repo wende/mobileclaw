@@ -32,7 +32,7 @@ import { ChatInput, type ChatInputHandle } from "@/components/ChatInput";
 import { SetupDialog } from "@/components/SetupDialog";
 import { ChatHeader } from "@/components/ChatHeader";
 import { useThinkingState } from "@/hooks/useThinkingState";
-import { useScrollManager } from "@/hooks/useScrollManager";
+import { useScrollManager, PIN_LOCK_MS } from "@/hooks/useScrollManager";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { useKeyboardLayout } from "@/hooks/useKeyboardLayout";
 import { useTheme } from "@/hooks/useTheme";
@@ -103,7 +103,7 @@ export default function Home() {
   // Sync ref immediately so scroll/wheel handlers see the correct value
   // without waiting for React's async render cycle.
   const {
-    scrollRef, bottomRef, morphRef, scrollPhase, pinnedToBottomRef,
+    scrollRef, bottomRef, morphRef, scrollPhase, pinnedToBottomRef, pinLockUntilRef,
     handleScroll, scrollToBottom, updateGraceForStreamingChange,
   } = useScrollManager(messages, isStreamingRef);
 
@@ -1152,6 +1152,8 @@ export default function Home() {
       }
       case "messages:append": {
         const newMsg = msg.payload as Message;
+        pinnedToBottomRef.current = true;
+        pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
         setMessages((prev) => [...prev, newMsg]);
         break;
       }
@@ -1167,6 +1169,8 @@ export default function Home() {
         break;
       case "stream:start": {
         const { runId, ts } = msg.payload as { runId: string; ts: number };
+        pinnedToBottomRef.current = true;
+        pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
         setIsStreaming(true);
         setStreamingId(runId);
         setAwaitingResponse(true);
@@ -1254,6 +1258,8 @@ export default function Home() {
         break;
       }
       case "thinking:show":
+        pinnedToBottomRef.current = true;
+        pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
         setAwaitingResponse(true);
         setThinkingStartTime(Date.now());
         break;
@@ -1640,6 +1646,7 @@ export default function Home() {
     lastCommandRef.current = isSlashCommand ? text.trim().split(/\s/)[0].toLowerCase() : null;
     void requestNotificationPermission();
     pinnedToBottomRef.current = true;
+    pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
 
     // Show user message immediately with local previews
     const contentParts: ContentPart[] = [];
@@ -1870,7 +1877,7 @@ export default function Home() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   const inputZoneHeight = "calc(1.5dvh + 3.5rem)";
-  const bottomPad = isNative ? "5rem"
+  const bottomPad = isNative ? "8rem"
     : pinnedSubagent ? (isDetached ? "10rem" : "16rem")
     : queuedMessage ? (isDetached ? "7rem" : "13rem")
     : (isDetached ? "4rem" : "10rem");
@@ -1955,7 +1962,7 @@ export default function Home() {
                 </React.Fragment>
               );
             })}
-            <ThinkingIndicator visible={isRunActive} startTime={thinkingStartTime ?? undefined} label={thinkingLabel} />
+            <ThinkingIndicator visible={awaitingResponse} startTime={thinkingStartTime ?? undefined} label={thinkingLabel} />
             <div ref={bottomRef} />
           </div>
         </main>

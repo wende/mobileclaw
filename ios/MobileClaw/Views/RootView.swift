@@ -6,6 +6,7 @@ struct RootView: View {
     @State private var bridge = WebViewBridge()
     @State private var wsManager: WebSocketManager?
     @State private var protocol_: OpenClawProtocol?
+    @State private var demoHandler: DemoModeHandler?
     @State private var safariURL: URL?
 
     var body: some View {
@@ -14,6 +15,46 @@ struct RootView: View {
         ZStack(alignment: .bottom) {
             ChatWebView(bridge: bridge)
                 .ignoresSafeArea(.container)
+
+            // Top fade: blur + gradient below header
+            VStack {
+                ZStack {
+                    FadingBlurView(direction: .topToBottom)
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color(.systemBackground), location: 0),
+                            .init(color: Color(.systemBackground).opacity(0.5), location: 0.4),
+                            .init(color: Color(.systemBackground).opacity(0), location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .frame(height: 120)
+                Spacer()
+            }
+            .ignoresSafeArea(.container)
+            .allowsHitTesting(false)
+
+            // Bottom fade: blur + gradient above input
+            VStack {
+                Spacer()
+                ZStack {
+                    FadingBlurView(direction: .bottomToTop)
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color(.systemBackground).opacity(0), location: 0),
+                            .init(color: Color(.systemBackground).opacity(0.5), location: 0.6),
+                            .init(color: Color(.systemBackground), location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .frame(height: 80)
+            }
+            .ignoresSafeArea(.container)
+            .allowsHitTesting(false)
 
             VStack(spacing: 0) {
                 if let pinned = appState.pinnedSubagent {
@@ -37,8 +78,10 @@ struct RootView: View {
                 NativeChatInput(
                     onSend: { text, attachments in handleSend(text: text, attachments: attachments) },
                     onAbort: { handleAbort() },
+                    onScrollToBottom: { bridge.send(.scrollToBottom) },
                     isRunActive: appState.isRunActive,
                     hasQueued: appState.queuedMessage != nil,
+                    scrollDistance: appState.scrollDistanceFromBottom,
                     quoteText: $state.quoteText,
                     draft: $state.inputDraft
                 )
@@ -49,8 +92,7 @@ struct RootView: View {
             NativeChatHeader(
                 currentModel: appState.currentModel,
                 connectionState: appState.connectionState,
-                onOpenSetup: { appState.showSetup = true },
-                onToggleTheme: { toggleTheme() }
+                onOpenSetup: { appState.showSetup = true }
             )
         }
         .sheet(isPresented: $state.showSetup) {
@@ -91,7 +133,7 @@ struct RootView: View {
             appState.lightboxURL = url
         }
         bridge.onScrollPosition = { distance in
-            // Could drive a scroll-to-bottom pill
+            appState.scrollDistanceFromBottom = CGFloat(distance)
         }
         bridge.onTextSelected = { text in
             appState.quoteText = text
@@ -104,27 +146,81 @@ struct RootView: View {
             let isDark = UITraitCollection.current.userInterfaceStyle == .dark
             bridge.send(.themeSet(theme: isDark ? "dark" : "light"))
             // Flush any history that arrived before WebView was ready
-            protocol_?.flushPendingHistory()
+            if appState.backendMode == .demo {
+                demoHandler?.loadDemoHistory()
+            } else {
+                protocol_?.flushPendingHistory()
+            }
         }
     }
 
     // MARK: - Connection
 
     private func restoreConnection() {
+        let savedMode = UserDefaults.standard.string(forKey: "backend-mode") ?? "openclaw"
+
+        if savedMode == "demo" {
+            handleConnect(config: ConnectionConfig(mode: .demo, url: "", token: nil, model: nil))
+            return
+        }
+
         guard let savedURL = UserDefaults.standard.string(forKey: "gateway-url"),
               !savedURL.isEmpty else {
             appState.showSetup = true
             return
         }
-        let token = KeychainHelper.load(key: "gateway-token")
-        let config = ConnectionConfig(mode: .openclaw, url: savedURL, token: token, model: nil)
-        handleConnect(config: config)
+
+        if savedMode == "lmstudio" {
+            let model = UserDefaults.standard.string(forKey: "lmstudio-model")
+            let apiKey = KeychainHelper.load(key: "lmstudio-apikey")
+            let config = ConnectionConfig(mode: .lmstudio, url: savedURL, token: apiKey, model: model)
+            handleConnect(config: config)
+        } else {
+            let token = KeychainHelper.load(key: "gateway-token")
+            let config = ConnectionConfig(mode: .openclaw, url: savedURL, token: token, model: nil)
+            handleConnect(config: config)
+        }
     }
 
     private func handleConnect(config: ConnectionConfig) {
+        // Tear down previous connections
+        wsManager = nil
+        protocol_ = nil
+        demoHandler = nil
         appState.connectionError = nil
+        appState.backendMode = config.mode
 
-        // Save config
+        UserDefaults.standard.set(config.mode.rawValue, forKey: "backend-mode")
+
+        switch config.mode {
+        case .demo:
+            handleDemoConnect()
+        case .openclaw:
+            handleOpenClawConnect(config: config)
+        case .lmstudio:
+            handleLMStudioConnect(config: config)
+        }
+    }
+
+    // MARK: - Demo Mode
+
+    private func handleDemoConnect() {
+        appState.connectionState = .connected
+        appState.currentModel = "claude-sonnet-4-5 (demo)"
+        bridge.send(.connectionState(.connected))
+
+        let handler = DemoModeHandler(bridge: bridge, appState: appState)
+        demoHandler = handler
+
+        // History will be loaded when WebView is ready (via onWebViewReady)
+        if bridge.isReady {
+            handler.loadDemoHistory()
+        }
+    }
+
+    // MARK: - OpenClaw
+
+    private func handleOpenClawConnect(config: ConnectionConfig) {
         UserDefaults.standard.set(config.url, forKey: "gateway-url")
         if let token = config.token {
             KeychainHelper.save(key: "gateway-token", value: token)
@@ -135,20 +231,17 @@ struct RootView: View {
         let wsURL = toWSURL(config.url)
         print("[RootView] Connecting to: \(wsURL)")
 
-        // Create protocol handler and connect
         let proto = OpenClawProtocol(bridge: bridge, appState: appState)
         protocol_ = proto
 
         let manager = WebSocketManager(
             url: wsURL,
             onMessage: { data in
-                print("[RootView] WS message received: \(data.count) bytes")
                 Task { @MainActor in
                     proto.handleMessage(data)
                 }
             },
             onStateChange: { state in
-                print("[RootView] Connection state: \(state)")
                 Task { @MainActor in
                     appState.connectionState = state
                     bridge.send(.connectionState(state))
@@ -156,14 +249,21 @@ struct RootView: View {
             }
         )
         wsManager = manager
-        proto.sendMessage = { msg in
-            print("[RootView] Sending WS: \(String(msg.prefix(100)))")
-            manager.send(msg)
-        }
+        proto.sendMessage = { msg in manager.send(msg) }
         proto.markEstablished = { manager.markEstablished() }
         proto.token = config.token
 
         manager.connect()
+    }
+
+    // MARK: - LM Studio (placeholder)
+
+    private func handleLMStudioConnect(config: ConnectionConfig) {
+        // TODO: Implement LM Studio HTTP/SSE connection
+        appState.connectionState = .connected
+        appState.currentModel = config.model ?? "unknown"
+        bridge.send(.connectionState(.connected))
+        print("[RootView] LM Studio mode — not yet implemented")
     }
 
     private func toWSURL(_ url: String) -> String {
@@ -183,12 +283,6 @@ struct RootView: View {
             return
         }
 
-        guard let proto = protocol_ else { return }
-
-        appState.isRunActive = true
-        appState.isStreaming = true
-        bridge.send(.thinkingShow)
-
         // Add optimistic user message
         let userMsg = ChatMessage(
             role: .user,
@@ -198,7 +292,14 @@ struct RootView: View {
         )
         bridge.send(.messagesAppend(userMsg))
 
-        proto.sendChatMessage(text: text)
+        if appState.backendMode == .demo {
+            demoHandler?.sendMessage(text: text)
+        } else if let proto = protocol_ {
+            appState.isRunActive = true
+            appState.isStreaming = true
+            bridge.send(.thinkingShow)
+            proto.sendChatMessage(text: text)
+        }
     }
 
     private func handleAbort() {
@@ -206,21 +307,15 @@ struct RootView: View {
             appState.inputDraft = queued.text
             appState.queuedMessage = nil
         }
-        protocol_?.sendAbort()
+
+        if appState.backendMode == .demo {
+            demoHandler?.stop()
+        } else {
+            protocol_?.sendAbort()
+        }
         appState.isRunActive = false
         appState.isStreaming = false
         bridge.send(.streamEnd)
-    }
-
-    // MARK: - Theme
-
-    private func toggleTheme() {
-        // Toggle between light and dark
-        let isDark = UITraitCollection.current.userInterfaceStyle == .dark
-        let newTheme = isDark ? "light" : "dark"
-        bridge.send(.themeSet(theme: newTheme))
-        // Note: To actually change the app's appearance, would need to override
-        // UIWindow's overrideUserInterfaceStyle
     }
 }
 

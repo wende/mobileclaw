@@ -4,33 +4,23 @@ struct NativeChatHeader: View {
     let currentModel: String?
     let connectionState: ConnectionState
     let onOpenSetup: () -> Void
-    let onToggleTheme: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             // Logo / setup button
             Button(action: onOpenSetup) {
-                Text("🦞")
-                    .font(.title2)
+                Image("Logo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 34, height: 34)
                     .frame(width: 36, height: 36)
                     .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(.regularMaterial)
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 36, height: 36)
+                            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
                     )
-            }
-
-            // Title + model
-            VStack(alignment: .leading, spacing: 1) {
-                Text("MobileClaw")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-
-                if let model = currentModel {
-                    Text(model)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                    .clipShape(Circle())
             }
 
             Spacer()
@@ -47,17 +37,9 @@ struct NativeChatHeader: View {
                             .modifier(PulseModifier())
                     }
                 }
-
-            // Theme toggle
-            Button(action: onToggleTheme) {
-                Image(systemName: "moon.circle")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
     }
 
     private var statusColor: Color {

@@ -1,6 +1,10 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import type { Message } from "@/types/chat";
 
+/** After pinning, ignore scroll-based unpin checks for this long (ms).
+ *  Prevents layout reflows from immediately unpinning after send. */
+export const PIN_LOCK_MS = 500;
+
 /**
  * Manages scroll tracking, auto-scroll pinning, morph bar animation,
  * and ResizeObserver-based content tracking.
@@ -16,6 +20,7 @@ export function useScrollManager(
   const scrollRafId = useRef<number | null>(null);
   const scrollPhaseRef = useRef<"input" | "pill">("input");
   const pinnedToBottomRef = useRef(true);
+  const pinLockUntilRef = useRef(0); // timestamp — don't unpin until after this
   const hasScrolledInitialRef = useRef(false);
 
   // Lerp state for smooth morph animation at constant speed
@@ -103,10 +108,13 @@ export function useScrollManager(
       if (!el) return;
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
 
-      // During streaming, don't update pinning from scroll position —
-      // only the wheel/touch handlers can unpin, and scrollToBottom re-pins.
-      if (!isStreamingRef.current && !scrollGraceRef.current) {
+      // During streaming or pin-lock window, don't unpin from scroll position —
+      // only the wheel/touch handlers can unpin. But DO allow re-pinning when
+      // the user scrolls back near the bottom during streaming.
+      if (!isStreamingRef.current && !scrollGraceRef.current && Date.now() > pinLockUntilRef.current) {
         pinnedToBottomRef.current = distanceFromBottom < 80;
+      } else if (isStreamingRef.current && !pinnedToBottomRef.current && distanceFromBottom < 80) {
+        pinnedToBottomRef.current = true;
       }
 
       // When streaming and pinned, lock morph to input mode (--sp = 0)
@@ -123,6 +131,7 @@ export function useScrollManager(
 
   const scrollToBottom = useCallback(() => {
     pinnedToBottomRef.current = true;
+    pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
@@ -220,8 +229,12 @@ export function useScrollManager(
 
     const isAtBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight < 2;
 
+    // ── Touch tracking ────────────────────────────────────────────────
+    let touchStartY = 0; // always captured, for unpin detection
+
     // ── Touch bounce ─────────────────────────────────────────────────
     const onBounceStart = (e: TouchEvent) => {
+      touchStartY = e.touches[0].clientY;
       if (isAtBottom()) {
         bounceTouchStartY = e.touches[0].clientY;
         const content = el.firstElementChild as HTMLElement | null;
@@ -304,7 +317,16 @@ export function useScrollManager(
 
     // Combine bounce + unpin touch handlers
     const onCombinedTouchStart = (e: TouchEvent) => onBounceStart(e);
-    const onCombinedTouchMove = (e: TouchEvent) => onBounceMove(e);
+    const onCombinedTouchMove = (e: TouchEvent) => {
+      onBounceMove(e);
+      // Unpin when user swipes up during streaming (finger moves down → clientY increases)
+      if (isStreamingRef.current && pinnedToBottomRef.current) {
+        const dy = e.touches[0].clientY - touchStartY;
+        if (dy > 15) {
+          pinnedToBottomRef.current = false;
+        }
+      }
+    };
     const onCombinedTouchEnd = () => { onBounceEnd(); onTouchEnd(); };
 
     el.addEventListener("touchstart", onCombinedTouchStart, { passive: true });
@@ -331,6 +353,7 @@ export function useScrollManager(
     morphRef,
     scrollPhase,
     pinnedToBottomRef,
+    pinLockUntilRef,
     scrollGraceRef,
     handleScroll,
     scrollToBottom,

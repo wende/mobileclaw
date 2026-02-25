@@ -16,10 +16,12 @@
 		3E827FC553F37C93F42FBBB5 /* NativeChatHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72FA83A36459C61E313C83AF /* NativeChatHeader.swift */; };
 		42B5697AFB05DB4F515B1A45 /* BridgeMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6CA14D749B18DC60338112D /* BridgeMessages.swift */; };
 		498D88717651377E48A2D715 /* NativeImageLightbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76069FE864EAED6CF12468F0 /* NativeImageLightbox.swift */; };
+		55D40E5D21FE591564D74A15 /* FadingBlurView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F95B5399FD9C16CC21D6DF0 /* FadingBlurView.swift */; };
 		5EAF386EBD6DF305EFE6C922 /* WebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF300920EC8B0EA590122AB /* WebViewBridge.swift */; };
 		6A5AA42B0F09D4200945B6EC /* MobileClawApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C98C26439C6001665E1D8151 /* MobileClawApp.swift */; };
 		7698631545C89C924054CFA4 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D7B99027A294C5E2AFDDA7 /* AppState.swift */; };
 		8E747EA86C36F28D773EEF43 /* WebSocketManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14C9515108FA6901183C480 /* WebSocketManager.swift */; };
+		A2C09B289DE32ED1C5FEA5F8 /* DemoModeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55BD4198E254E214A4711668 /* DemoModeHandler.swift */; };
 		AA4AAAE9EB05B2CCDCA9A6CF /* NativeCommandSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A06DF75FB4160937F86E3A /* NativeCommandSheet.swift */; };
 		CF636504806AA66EDA4540F1 /* NativeSubagentPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9449D33C9D8AD564BAE102F /* NativeSubagentPanel.swift */; };
 		D04ABCEC39DE83E7C0515D51 /* NativeSetupDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C90F05CAF98426227B6068C7 /* NativeSetupDialog.swift */; };
@@ -35,7 +37,9 @@
 		3BF300920EC8B0EA590122AB /* WebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewBridge.swift; sourceTree = "<group>"; };
 		4163307C6FADB868DD148C9E /* ChatWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWebView.swift; sourceTree = "<group>"; };
 		505123C69A94B32971C8366B /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		55BD4198E254E214A4711668 /* DemoModeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoModeHandler.swift; sourceTree = "<group>"; };
 		565180E6FAD79E9211BBE242 /* NativeChatInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatInput.swift; sourceTree = "<group>"; };
+		5F95B5399FD9C16CC21D6DF0 /* FadingBlurView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FadingBlurView.swift; sourceTree = "<group>"; };
 		72FA83A36459C61E313C83AF /* NativeChatHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatHeader.swift; sourceTree = "<group>"; };
 		76069FE864EAED6CF12468F0 /* NativeImageLightbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeImageLightbox.swift; sourceTree = "<group>"; };
 		7BEE03EB5CF9D50B0E4E4BCC /* DeviceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceIdentity.swift; sourceTree = "<group>"; };
@@ -66,6 +70,7 @@
 			isa = PBXGroup;
 			children = (
 				4163307C6FADB868DD148C9E /* ChatWebView.swift */,
+				5F95B5399FD9C16CC21D6DF0 /* FadingBlurView.swift */,
 				72FA83A36459C61E313C83AF /* NativeChatHeader.swift */,
 				565180E6FAD79E9211BBE242 /* NativeChatInput.swift */,
 				C8A06DF75FB4160937F86E3A /* NativeCommandSheet.swift */,
@@ -115,6 +120,7 @@
 		A365924F5078B4DEB8B93625 /* Networking */ = {
 			isa = PBXGroup;
 			children = (
+				55BD4198E254E214A4711668 /* DemoModeHandler.swift */,
 				7BEE03EB5CF9D50B0E4E4BCC /* DeviceIdentity.swift */,
 				505123C69A94B32971C8366B /* KeychainHelper.swift */,
 				7C20D87247DA53EEB12FFD65 /* OpenClawProtocol.swift */,
@@ -217,7 +223,9 @@
 				42B5697AFB05DB4F515B1A45 /* BridgeMessages.swift in Sources */,
 				EC6E391273ADB5B5ADD8F83E /* ChatMessage.swift in Sources */,
 				D17023B39483DF3F67774080 /* ChatWebView.swift in Sources */,
+				A2C09B289DE32ED1C5FEA5F8 /* DemoModeHandler.swift in Sources */,
 				209E46CB7C81B25DA2F398A2 /* DeviceIdentity.swift in Sources */,
+				55D40E5D21FE591564D74A15 /* FadingBlurView.swift in Sources */,
 				26B2EAB080F29600E2AFC7FF /* KeychainHelper.swift in Sources */,
 				6A5AA42B0F09D4200945B6EC /* MobileClawApp.swift in Sources */,
 				3E827FC553F37C93F42FBBB5 /* NativeChatHeader.swift in Sources */,

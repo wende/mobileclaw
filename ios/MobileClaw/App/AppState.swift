@@ -36,10 +36,13 @@ final class AppState {
     var sessionKey: String = "main"
     var sessionId: String?
 
-    // Input draft persistence
-    var inputDraft: String {
-        get { UserDefaults.standard.string(forKey: "inputDraft") ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: "inputDraft") }
+    // Scroll state — distance from bottom in points (drives input→pill morph)
+    var scrollDistanceFromBottom: CGFloat = 0
+
+    // Input draft — stored property so @Observable tracks changes in real time.
+    // Persisted to UserDefaults via didSet so it survives app restarts.
+    var inputDraft: String = UserDefaults.standard.string(forKey: "inputDraft") ?? "" {
+        didSet { UserDefaults.standard.set(inputDraft, forKey: "inputDraft") }
     }
 }
 

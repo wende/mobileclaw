@@ -23,10 +23,8 @@ struct ChatWebView: UIViewRepresentable {
         webView.scrollView.bounces = true
         webView.scrollView.alwaysBounceVertical = true
 
-        // Pull-to-refresh
-        let refreshControl = UIRefreshControl()
-        refreshControl.addTarget(context.coordinator, action: #selector(Coordinator.handleRefresh(_:)), for: .valueChanged)
-        webView.scrollView.refreshControl = refreshControl
+        // Pull-up-to-refresh: detect overscroll at bottom via delegate
+        webView.scrollView.delegate = context.coordinator
 
         webView.scrollView.keyboardDismissMode = .interactive
         webView.navigationDelegate = context.coordinator
@@ -64,10 +62,15 @@ struct ChatWebView: UIViewRepresentable {
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "bridge")
     }
 
-    class Coordinator: NSObject, WKNavigationDelegate {
+    class Coordinator: NSObject, WKNavigationDelegate, UIScrollViewDelegate {
         let bridge: WebViewBridge
         weak var webView: WKWebView?
         private var keyboardHeight: CGFloat = 0
+        private var lastKeyboardChangeTime: CFTimeInterval = 0
+
+        // Pull-up-to-refresh state
+        private var pullUpTriggered = false
+        private let pullUpThreshold: CGFloat = 80
 
         init(bridge: WebViewBridge) {
             self.bridge = bridge
@@ -80,10 +83,31 @@ struct ChatWebView: UIViewRepresentable {
             NotificationCenter.default.removeObserver(self)
         }
 
-        @objc func handleRefresh(_ sender: UIRefreshControl) {
-            bridge.isReady = false
-            webView?.reload()
+        // MARK: - Pull-up-to-refresh (bottom overscroll)
+
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            let contentHeight = scrollView.contentSize.height
+            let frameHeight = scrollView.frame.height
+            let offsetY = scrollView.contentOffset.y
+            let bottomInset = scrollView.contentInset.bottom
+
+            // How far past the bottom edge the user has dragged
+            let overscroll = offsetY - (contentHeight - frameHeight + bottomInset)
+
+            if overscroll > pullUpThreshold && !pullUpTriggered && scrollView.isDragging {
+                pullUpTriggered = true
+            }
         }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            if pullUpTriggered {
+                pullUpTriggered = false
+                bridge.isReady = false
+                webView?.reload()
+            }
+        }
+
+        // MARK: - Keyboard handling
 
         @objc private func keyboardWillChangeFrame(_ notification: Notification) {
             guard let webView,
@@ -96,28 +120,39 @@ struct ChatWebView: UIViewRepresentable {
             let delta = newKeyboardHeight - keyboardHeight
             guard abs(delta) > 1 else { return }
 
+            let now = CACurrentMediaTime()
+            let timeSinceLast = now - lastKeyboardChangeTime
+            lastKeyboardChangeTime = now
+
             let scrollView = webView.scrollView
             let currentOffset = scrollView.contentOffset.y
 
+            // Cancel any in-flight animations before starting new ones
+            scrollView.layer.removeAllAnimations()
+
             keyboardHeight = newKeyboardHeight
 
-            // Adjust content inset so scrollable area accounts for keyboard
             var insets = scrollView.contentInset
             insets.bottom = newKeyboardHeight
             scrollView.contentInset = insets
             scrollView.verticalScrollIndicatorInsets.bottom = newKeyboardHeight
 
-            // Shift scroll position by the keyboard delta to keep visible content in place
             let newOffset = max(0, currentOffset + delta)
 
-            UIView.animate(
-                withDuration: duration,
-                delay: 0,
-                options: UIView.AnimationOptions(rawValue: curve << 16),
-                animations: {
-                    scrollView.contentOffset = CGPoint(x: 0, y: newOffset)
-                }
-            )
+            // If keyboard resized again within 150ms (SwiftKey, third-party keyboards),
+            // snap immediately without animation to avoid fighting
+            if timeSinceLast < 0.15 {
+                scrollView.contentOffset = CGPoint(x: 0, y: newOffset)
+            } else {
+                UIView.animate(
+                    withDuration: duration,
+                    delay: 0,
+                    options: UIView.AnimationOptions(rawValue: curve << 16),
+                    animations: {
+                        scrollView.contentOffset = CGPoint(x: 0, y: newOffset)
+                    }
+                )
+            }
         }
 
         @objc private func keyboardWillHide(_ notification: Notification) {
@@ -129,7 +164,10 @@ struct ChatWebView: UIViewRepresentable {
             let currentOffset = scrollView.contentOffset.y
             let delta = keyboardHeight
 
+            scrollView.layer.removeAllAnimations()
+
             keyboardHeight = 0
+            lastKeyboardChangeTime = CACurrentMediaTime()
 
             var insets = scrollView.contentInset
             insets.bottom = 0
@@ -147,12 +185,10 @@ struct ChatWebView: UIViewRepresentable {
             )
         }
 
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            webView.scrollView.refreshControl?.endRefreshing()
-        }
+        // MARK: - Navigation delegate
 
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            webView.scrollView.refreshControl?.endRefreshing()
-        }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {}
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {}
     }
 }
