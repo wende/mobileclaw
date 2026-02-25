@@ -24,6 +24,11 @@ export function useScrollManager(
   const pinLockUntilRef = useRef(0); // timestamp — don't unpin until after this
   const hasScrolledInitialRef = useRef(false);
 
+  // Suppress morph during initial page load: expanding thinking blocks
+  // and rendering content causes transient scroll events where
+  // distanceFromBottom spikes briefly, making the input bar glitch.
+  const morphSuppressedRef = useRef(true);
+
   // Track container height to detect keyboard open/close (vs user scroll)
   const lastClientHeightRef = useRef(0);
 
@@ -53,6 +58,14 @@ export function useScrollManager(
         scrollGraceTimerRef.current = null;
       }
     }
+  }, []);
+
+  // Un-suppress morph after initial render settles
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      morphSuppressedRef.current = false;
+    }, 600);
+    return () => clearTimeout(timer);
   }, []);
 
   // Exponential lerp tick: each frame moves 20% of remaining distance to target.
@@ -128,6 +141,13 @@ export function useScrollManager(
         return;
       }
 
+      // During initial page load, expanding content (thinking blocks, images)
+      // causes transient scroll events — suppress morph to avoid glitch.
+      if (morphSuppressedRef.current) {
+        setMorphTarget(0);
+        return;
+      }
+
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
 
       // During streaming or pin-lock window, don't unpin from scroll position —
@@ -163,18 +183,55 @@ export function useScrollManager(
     }
   }, []);
 
+  // Flag to prevent ResizeObserver from snapping scrollTop mid-animation
+  const isAnimatingScrollRef = useRef(false);
+
   const scrollToBottom = useCallback(() => {
     pinnedToBottomRef.current = true;
     pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
     clearBounceTransform();
     const el = scrollRef.current;
-    if (el && isStreamingRef.current) {
-      // During streaming, snap directly — the rAF loop handles continuous scrolling.
-      // scrollIntoView({ behavior: "smooth" }) fights with the rAF loop.
+    if (!el) return;
+
+    const target = el.scrollHeight - el.clientHeight;
+    const start = el.scrollTop;
+    const distance = target - start;
+    if (distance <= 0) return;
+
+    // During streaming/grace the rAF loop pins us to bottom every frame,
+    // so just snap — a smooth animation would be overridden anyway.
+    if (isStreamingRef.current || scrollGraceRef.current) {
       el.scrollTop = el.scrollHeight;
-    } else {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      return;
     }
+
+    isAnimatingScrollRef.current = true;
+
+    // Adaptive duration: short scrolls feel snappy, long scrolls don't drag.
+    // sqrt(distance) * 18 gives ~180ms for 100px, ~360ms for 400px, capped at 420ms.
+    const duration = Math.min(Math.max(Math.sqrt(distance) * 18, 160), 420);
+    const startTime = performance.now();
+
+    // Ease-out quart: aggressive initial speed with a long tail — matches
+    // the deceleration feel of native iOS momentum scrolling.
+    const easeOut = (t: number) => 1 - Math.pow(1 - t, 4);
+
+    const animate = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      el.scrollTop = start + distance * easeOut(progress);
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        // Delay clearing by one frame so the final scroll events
+        // (which fire async) still see the flag and don't trigger
+        // the momentum bounce.
+        requestAnimationFrame(() => { isAnimatingScrollRef.current = false; });
+      }
+    };
+
+    requestAnimationFrame(animate);
   }, [clearBounceTransform, isStreamingRef]);
 
   // Auto-scroll: whenever messages change, snap to bottom if pinned.
@@ -197,6 +254,7 @@ export function useScrollManager(
     if (!content) return;
 
     const ro = new ResizeObserver(() => {
+      if (isAnimatingScrollRef.current) return;
       if ((pinnedToBottomRef.current || scrollGraceRef.current) && el.scrollHeight > el.clientHeight) {
         el.scrollTop = el.scrollHeight;
         pinnedToBottomRef.current = true;
@@ -247,7 +305,7 @@ export function useScrollManager(
     let wheelAccum = 0;
     let wheelDecayRaf: number | null = null;
     // Momentum bounce: delayed spring-back timer
-    let momentumTimer: ReturnType<typeof setTimeout> | null = null;
+    const momentumTimer: ReturnType<typeof setTimeout> | null = null;
 
     const applyBounce = (offset: number) => {
       const content = el.firstElementChild as HTMLElement | null;
@@ -375,20 +433,43 @@ export function useScrollManager(
       const velocity = dt > 0 && dt < 200 ? (currentScrollTop - prevScrollTop) / dt : 0;
       const atBottom = isAtBottom();
 
-      if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing && Date.now() > pinLockUntilRef.current && !isStreamingRef.current && !isNativeRef?.current) {
-        // Arrived at bottom with momentum — apply rubber-band bounce
+      if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing && Date.now() > pinLockUntilRef.current && !isStreamingRef.current && !isNativeRef?.current && !isAnimatingScrollRef.current && !morphSuppressedRef.current) {
+        // Arrived at bottom with momentum — smooth rAF-driven bounce
         // Scale velocity to a generous displacement matching pull-to-refresh feel
         const raw = Math.min(velocity * 150, 120);
+        const peak = -rubberBand(raw);
         isBouncing = true;
-        bounceOffset = -rubberBand(raw);
-        applyBounce(bounceOffset);
-        // Hold the displaced position briefly, then spring back
-        // (mirrors pull-to-refresh's visual hold before snap-back)
-        if (momentumTimer) clearTimeout(momentumTimer);
-        momentumTimer = setTimeout(() => {
-          momentumTimer = null;
-          springBack();
-        }, 60);
+        const content = el.firstElementChild as HTMLElement | null;
+        if (content) {
+          content.style.transition = "none";
+          const bounceStart = performance.now();
+          // Adaptive duration: small bounces are snappy, large ones slower
+          const duration = Math.min(200 + Math.abs(peak) * 3, 500);
+          const PEAK_FRAC = 0.25;
+          const easeOutCub = (t: number) => 1 - Math.pow(1 - t, 3);
+
+          const animateMomentumBounce = (ts: number) => {
+            const t = Math.min((ts - bounceStart) / duration, 1);
+            let offset: number;
+            if (t < PEAK_FRAC) {
+              offset = peak * easeOutCub(t / PEAK_FRAC);
+            } else {
+              offset = peak * (1 - easeOutCub((t - PEAK_FRAC) / (1 - PEAK_FRAC)));
+            }
+            content.style.transform = Math.abs(offset) > 0.5 ? `translateY(${offset.toFixed(1)}px)` : "";
+            if (t < 1) {
+              bounceRafId = requestAnimationFrame(animateMomentumBounce);
+            } else {
+              content.style.transform = "";
+              bounceOffset = 0;
+              isBouncing = false;
+              bounceRafId = null;
+            }
+          };
+
+          if (bounceRafId) cancelAnimationFrame(bounceRafId);
+          bounceRafId = requestAnimationFrame(animateMomentumBounce);
+        }
       }
 
       wasAtBottomLast = atBottom;

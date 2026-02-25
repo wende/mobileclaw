@@ -18,6 +18,7 @@ blob-report/
 logs.jsonl
 .vercel
 
+
 # Xcode
 ios/MobileClaw.xcodeproj/xcuserdata/
 ios/MobileClaw.xcodeproj/project.xcworkspace/xcuserdata/
@@ -26,4 +27,4 @@ ios/build/
 
 # Claude worktrees
 .claude/worktrees/
-worktrees/
+worktrees

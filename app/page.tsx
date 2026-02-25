@@ -308,6 +308,7 @@ export default function Home() {
   const messagesRef = useRef<Message[]>([]);
   messagesRef.current = messages;
   const notifyForRun = useCallback((runId: string | null) => {
+    if (isDetachedRef.current) return;
     const msg = messagesRef.current.find(
       (m) => m.id === runId && m.role === "assistant"
     );
@@ -1664,7 +1665,7 @@ export default function Home() {
     console.log("[sendMessage]", { text: text.slice(0, 50), attachments: attachments?.length ?? 0 });
     const isSlashCommand = text.trim().startsWith("/");
     lastCommandRef.current = isSlashCommand ? text.trim().split(/\s/)[0].toLowerCase() : null;
-    void requestNotificationPermission();
+    if (!isDetachedRef.current) void requestNotificationPermission();
     pinnedToBottomRef.current = true;
     pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
 

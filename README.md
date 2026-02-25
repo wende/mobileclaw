@@ -8,6 +8,8 @@ A mobile-first chat UI for [OpenClaw](https://github.com/openclaw/openclaw) and 
 
 **[Try the Live Demo](https://mobileclaw.vercel.app?demo)**
 
+**iOS App Soon™!**
+
 <br />
 
 <img src="docs/screenshots/hero-dark.png" alt="MobileClaw dark mode" width="280" />&nbsp;&nbsp;
@@ -66,14 +68,19 @@ Run local models with full chat UI support. Auto-fetches available models, parse
 <img src="docs/screenshots/feature-lmstudio.png" alt="LM Studio connection setup" width="320" />
 </div>
 
+### Embeddable Widget
+
+Drop MobileClaw into any page as an iframe. The `?detached` query param renders a compact, chromeless chat widget — no header, no setup dialog, no pull-to-refresh. Pass `?detached&url=wss://host&token=abc` to auto-connect to an OpenClaw backend without user setup.
+
 ### And More
 
 - **Command palette** — slide-up sheet with all OpenClaw slash commands, search and autocomplete
-- **Dark mode** — automatic theme switching via CSS custom properties
-- **Mobile-first** — optimized for iOS Safari with viewport fixes and smooth scroll animations
+- **Dark mode** — Linear-inspired palette with stepped grayscale elevation, off-white text, and desaturated accents
+- **Mobile-first** — optimized for iOS Safari with custom rAF-driven scroll animations, momentum bounce, keyboard-resize handling (including SwiftKey), and frosted-glass scroll-to-bottom pill
 - **Demo mode** — fully functional without a backend server
 - **File & image uploads** — attach any file type; uploaded via [Litterbox](https://litterbox.catbox.moe/) (temporary hosting, 72h expiry). Litterbox is a free community service — [consider donating](https://ko-fi.com/catboxmoe)
 - **Push notifications** — get notified when the agent finishes responding
+- **Bot protection** — optional Cloudflare Turnstile gate via `NEXT_PUBLIC_TURNSTILE_SITE_KEY` env var
 
 <br />
 
@@ -106,7 +113,8 @@ Connection settings persist across page reloads via localStorage.
 
 - **Next.js 16** — App Router, Turbopack
 - **Tailwind CSS v4** — OKLch color tokens, `@utility` custom utilities
-- **TypeScript** — type-safe WebSocket protocol handling
+- **TypeScript** — type-safe WebSocket protocol handling, enforced in build via `tsc`
+- **ESLint 9** — flat config with type-aware `typescript-eslint` rules
 - **Zero UI dependencies** — hand-rolled components with inline SVG icons
 
 ## License

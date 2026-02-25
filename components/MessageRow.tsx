@@ -232,7 +232,10 @@ function ThinkingPill({ text }: { text: string }) {
   const lineCount = text.split("\n").length;
   const isShort = lineCount < 10;
 
-  const [mounted, setMounted] = useState(false);
+  // When text is already present on first render (history restore / refresh),
+  // skip the slide animation and render at full height immediately.
+  // Only animate the slide-in for the empty "Thinking..." placeholder.
+  const [mounted, setMounted] = useState(() => !isEmpty);
   const [expanded, setExpanded] = useState(false);
 
   // Initialize from props so history-restored thinking blocks render at full height immediately
@@ -241,8 +244,9 @@ function ThinkingPill({ text }: { text: string }) {
   const [visible, setVisible] = useState(() => !!extractLastSentence(text));
   const lastSentenceRef = useRef(sentence);
 
-  // Slide in on mount
+  // Slide in on mount (only fires when starting empty — "Thinking..." placeholder)
   useEffect(() => {
+    if (mounted) return;
     const raf = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(raf);
   }, []);

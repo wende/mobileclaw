@@ -2,9 +2,53 @@
 
 All notable changes to MobileClaw are documented in this file.
 
+## 2026-02-25
+
+### Added
+- Linear-inspired dark mode palette — stepped grayscale elevation (Level 0 `#0F0F10` base → Level 1 `#151516` content → Level 2 `#1C1C1E` overlays → Level 3 `#242426` buttons), off-white body text (`#E2E2E2`) with `0.01em` letter-spacing, secondary text at `#8A8A8E`
+- Desaturated chart/accent colors ~15% in dark mode to reduce chromostereopsis
+
+### Fixed
+- Scroll-to-bottom pill redesigned for dark mode — pill background, border, text color, and drop shadow all switched from hardcoded `rgba()` values to CSS variable-based colors (`oklch(from var(--background) ...)`, `var(--foreground)`) so the pill adapts to both light and dark themes
+- Scroll-to-bottom pill on mobile — fall back to CSS-only frosted glass (`blur(12px) saturate(1.8)`) instead of SVG `feDisplacementMap` filter, which mobile WebKit/Blink don't support (#14)
+- Scroll-to-bottom animation — replace `scrollIntoView({ behavior: "smooth" })` with custom rAF-driven ease-out quart animation; adaptive duration (sqrt-scaled, 160–420ms) for native 120fps momentum feel; ResizeObserver gated during animation to prevent mid-flight `scrollTop` snaps
+- Mobile momentum bounce — inertial scrolling now triggers rubber-band bounce via velocity tracking in the scroll handler; rubber-band curve matches pull-to-refresh (linear to 60px threshold, 0.15x past it); smooth rAF-driven two-phase animation (ease to peak, ease back) replaces instant snap + setTimeout spring-back
+- Touch bounce strengthened — multiplier raised from 0.35 to 0.4, spring-back easing switched to PTR's `cubic-bezier(0.22, 0.68, 0.35, 1)`
+- Wheel bounce — uses same `rubberBand()` curve as touch/momentum, accumulation cap raised to 400
+- Keyboard-open morph overshoot — detect container height changes in `handleScroll` to keep morph locked at 0 during keyboard resize, works with third-party keyboards (SwiftKey multi-step resizes)
+- iOS keyboard offset — skip bogus `innerHeight` lag on iOS; rely on viewport resize instead of computing offset
+- SwiftKey keyboard overshoot — debounce viewport resize handler by 120ms so only the settled value applies
+- Morph bar glitch on refresh — suppress morph during initial 600ms after mount to prevent transient `distanceFromBottom` spikes from expanding thinking blocks
+- Thinking blocks render at full height on refresh instead of re-animating the slide-in expansion
+- Fade gradients switched from hardcoded `#FAFAFA` to `var(--background)` for dark mode compatibility
+
+### Changed
+- Ignore worktrees directory in `.gitignore`
+
+## 2026-02-24
+
+### Added
+- Cloudflare Turnstile gate for bot protection — challenges when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set, server-side verification via `/api/verify-turnstile`, cached in `sessionStorage`
+- `gen_maps.py` script and generated `maps.json`
+- Detached mode polish — full transparency for iframe embedding, drop shadow with directional bias, top/bottom fade gradients, rounded chat area, `upload=false` query param
+
+### Fixed
+- Detached mode input bar positioning and padding
+- Detached mode rendering without background wrapper (iframe provides container)
+- Heartbeat detection tolerant of markdown formatting (strips non-letter chars before comparing)
+- Turnstile script not re-injected if already loaded
+- Turnstile widget reset on re-renders — stabilize `onVerified` callback via ref
+- Log API returns 200 on write failure (no-op on read-only filesystems like Vercel)
+
+### Changed
+- Debug logging skipped on non-development builds (`debugLog.ts` + `/api/log`)
+- Removed upload API route (`/api/upload`)
+
 ## 2026-02-23
 
 ### Added
+- Detached mode for embedding chat widget in iframes (#12) — `?detached` query param hides header/setup/pull-to-refresh; supports `?detached&url=wss://host&token=abc` for auto-connect
+- ESLint 9 + typescript-eslint with type-aware rules; type checking enforced in build and CI
 - Pull-to-refresh hold gesture — requires 1-second hold past threshold before triggering refresh; lobster wobbles during hold with a progress ring on the spinner SVG
 - Elastic bottom bounce — rubber-band overscroll effect when scrolling past the bottom (touch and mouse wheel), springs back smoothly on release
 - Command response pills — slash commands render as expandable pills with spinner and auto-expand animation
@@ -24,6 +68,7 @@ All notable changes to MobileClaw are documented in this file.
 - Hidden slash command messages filtered from display loop (no stale timestamps)
 - Tool call parts normalized from server history (status, toolCallId, arguments)
 - HEARTBEAT_OK now requires its own line to trigger heartbeat handling (#9)
+- CI: specify pnpm version in `packageManager` field (required by `pnpm/action-setup@v4`)
 
 ### Changed
 - Command palette trimmed — reorganized into Session / Options / Status / Skills / More groups with fewer commands
