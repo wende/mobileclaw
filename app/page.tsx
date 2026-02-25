@@ -142,6 +142,7 @@ export default function Home() {
   const [uploadDisabled, setUploadDisabled] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [isInitialConnecting, setIsInitialConnecting] = useState(false);
+  const [initialConnectFailed, setInitialConnectFailed] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
   // ── Theme ───────────────────────────────────────────────────────────────────
@@ -731,6 +732,7 @@ export default function Home() {
     onHistoryReceived();
     setHistoryLoaded(true);
     setIsInitialConnecting(false);
+    setInitialConnectFailed(false);
   }, [onHistoryReceived, requestHistory, sendWS, subagentStore]);
 
   /** Handle chat events (delta/final/aborted/error). */
@@ -1128,7 +1130,7 @@ export default function Home() {
       setConnectionError("Connection error");
     },
     onInitialConnectFail: () => {
-      setIsInitialConnecting(false);
+      setInitialConnectFailed(true);
       setConnectionError("Could not reach server");
       if (!isDetachedRef.current) setShowSetup(true);
     },
@@ -1375,6 +1377,7 @@ export default function Home() {
       setBackendMode("openclaw");
       setOpenclawUrl(embedUrl);
       setIsInitialConnecting(true);
+      setInitialConnectFailed(false);
       connect(toWsUrl(embedUrl));
       return;
     }
@@ -1413,6 +1416,7 @@ export default function Home() {
         setBackendMode("openclaw");
         setOpenclawUrl(savedUrl);
         setIsInitialConnecting(true);
+        setInitialConnectFailed(false);
         connect(toWsUrl(savedUrl));
       } else {
         if (!detached) setShowSetup(true);
@@ -1466,6 +1470,7 @@ export default function Home() {
     lmStudioHandlerRef.current = null;
     setOpenclawUrl(config.url);
     setIsInitialConnecting(true);
+    setInitialConnectFailed(false);
     connect(toWsUrl(config.url));
   }, [connect, disconnect, resetThinkingState]);
 
@@ -1756,15 +1761,42 @@ export default function Home() {
 
   const chatWidget = (
     <div ref={appRef} className={`relative flex flex-col overflow-hidden ${isDetached ? "" : "bg-background"}`} style={{ height: "100dvh" }}>
-      {isInitialConnecting && (
+      {(isInitialConnecting || initialConnectFailed) && (
         <div
           className={`absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 ${isDetached ? "" : "bg-background"}`}
           style={{ animation: "fadeIn 300ms ease-out 600ms both" }}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground" style={{ animation: "spin 1s linear infinite" }}>
-            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-          </svg>
-          <span className="text-sm text-muted-foreground">Starting up&hellip;</span>
+          {initialConnectFailed ? (
+            <>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span className="text-sm text-muted-foreground">Could not reach server</span>
+              <button
+                type="button"
+                className="mt-1 rounded-lg bg-secondary px-4 py-1.5 text-sm font-medium text-foreground active:scale-95 transition-transform"
+                onClick={() => {
+                  if (openclawUrl) {
+                    setInitialConnectFailed(false);
+                    setIsInitialConnecting(true);
+                    setConnectionError(null);
+                    connect(toWsUrl(openclawUrl));
+                  }
+                }}
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground" style={{ animation: "spin 1s linear infinite" }}>
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+              <span className="text-sm text-muted-foreground">Starting up&hellip;</span>
+            </>
+          )}
         </div>
       )}
       {!isDetached && (
@@ -1775,7 +1807,7 @@ export default function Home() {
               handleConnect(config);
             }}
             onClose={openclawUrl || isDemoMode || backendMode !== "openclaw" ? () => setShowSetup(false) : undefined}
-            visible={showSetup && !isInitialConnecting}
+            visible={showSetup && !isInitialConnecting && !initialConnectFailed}
             connectionError={connectionError}
             isDemoMode={isDemoMode}
           />
