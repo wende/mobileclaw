@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import type { ContentPart, Message } from "@/types/chat";
 import { getTextFromContent, getImages, getFiles } from "@/lib/messageUtils";
 import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine } from "@/lib/constants";

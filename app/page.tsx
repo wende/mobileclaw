@@ -379,14 +379,16 @@ export default function Home() {
     if (backendMode !== "openclaw") return;
     commandsFetchActiveRef.current = true;
     commandsFetchBufferRef.current = "";
+    const ts = Date.now();
     sendWS({
       type: "req",
-      id: `cmdfetch-${Date.now()}`,
+      id: `cmdfetch-${ts}`,
       method: "chat.send",
       params: {
         sessionKey: sessionKeyRef.current,
         message: "/commands",
         deliver: true,
+        idempotencyKey: `cmdfetch-${ts}`,
       },
     });
   }, [sendWS, backendMode]);
@@ -606,7 +608,24 @@ export default function Home() {
       }
     }
 
-    const finalMessages = historyMessages.filter((m) => !m.id || !mergedIds.has(m.id));
+    // Filter out transient /commands exchanges (from silent server-command fetch)
+    const commandsIds = new Set<string>();
+    for (let i = 0; i < historyMessages.length; i++) {
+      const hm = historyMessages[i];
+      if (hm.role === "user") {
+        const text = getTextFromContent(hm.content).trim();
+        if (text === "/commands") {
+          if (hm.id) commandsIds.add(hm.id);
+          // Also remove the assistant response that immediately follows
+          if (i + 1 < historyMessages.length && historyMessages[i + 1].role === "assistant") {
+            const next = historyMessages[i + 1];
+            if (next.id) commandsIds.add(next.id);
+          }
+        }
+      }
+    }
+
+    const finalMessages = historyMessages.filter((m) => (!m.id || !mergedIds.has(m.id)) && !commandsIds.has(m.id!));
 
     // Extract model from history
     const lastAssistantRaw = rawMsgs.filter((m) => m.role === "assistant" && m.model).pop();
@@ -767,6 +786,13 @@ export default function Home() {
         commandsFetchBufferRef.current += text;
       }
       if (payload.state === "final") {
+        // Slash commands send no deltas — the full response is in the final event's message
+        if (payload.message) {
+          const text = typeof payload.message.content === "string"
+            ? payload.message.content
+            : getTextFromContent(payload.message.content);
+          commandsFetchBufferRef.current += text;
+        }
         const parsed = parseServerCommands(commandsFetchBufferRef.current);
         const coreNames = new Set(ALL_COMMANDS.map(c => c.name));
         const extra = parsed.filter(c => !coreNames.has(c.name));
@@ -1110,6 +1136,7 @@ export default function Home() {
         return;
       }
       if (msg.ok && msg.id?.startsWith("sessions-list-")) return;
+      if (msg.id?.startsWith("cmdfetch-")) return;
       if (msg.ok && msg.id?.startsWith("subhistory-") && resPayload?.messages) {
         const sessionKey = pendingSubhistoryRef.current.get(msg.id);
         pendingSubhistoryRef.current.delete(msg.id);
