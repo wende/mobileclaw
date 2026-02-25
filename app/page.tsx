@@ -32,6 +32,7 @@ import { TurnstileGate } from "@/components/TurnstileGate";
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null;
 
 import { ChatInput, type ChatInputHandle } from "@/components/ChatInput";
+import { parseServerCommands, ALL_COMMANDS, type Command } from "@/components/CommandSheet";
 import { SetupDialog } from "@/components/SetupDialog";
 import { ChatHeader } from "@/components/ChatHeader";
 import { useThinkingState } from "@/hooks/useThinkingState";
@@ -134,6 +135,9 @@ export default function Home() {
   const [availableModels, setAvailableModels] = useState<ModelChoice[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const modelsRequestedRef = useRef(false);
+  const [serverCommands, setServerCommands] = useState<Command[]>([]);
+  const commandsFetchActiveRef = useRef(false);
+  const commandsFetchBufferRef = useRef("");
   const appRef = useRef<HTMLDivElement>(null);
   const floatingBarRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -374,6 +378,25 @@ export default function Home() {
     sendWS({ type: "req", id: `models-catalog-${ts}`, method: "models.list", params: {} });
   }, [sendWS, backendMode]);
 
+  /** Silently send /commands to fetch the full command list from the server. */
+  const requestServerCommands = useCallback(() => {
+    if (backendMode !== "openclaw") return;
+    commandsFetchActiveRef.current = true;
+    commandsFetchBufferRef.current = "";
+    const ts = Date.now();
+    sendWS({
+      type: "req",
+      id: `cmdfetch-${ts}`,
+      method: "chat.send",
+      params: {
+        sessionKey: sessionKeyRef.current,
+        message: "/commands",
+        deliver: true,
+        idempotencyKey: `cmdfetch-${ts}`,
+      },
+    });
+  }, [sendWS, backendMode]);
+
   /** Ensure a streaming assistant message exists for `runId`, creating one if needed. */
   const ensureStreamingMessage = useCallback((
     prev: Message[],
@@ -462,6 +485,7 @@ export default function Home() {
     modelsCatalogRef.current = null;
     setModelsLoading(false);
     setAvailableModels([]);
+    setServerCommands([]);
     const server = resPayload.server as Record<string, unknown> | undefined;
     if (server) setServerInfo(server);
     sessionIdRef.current = (server as Record<string, string> | undefined)?.connId ?? null;
@@ -471,11 +495,58 @@ export default function Home() {
     const sessionKey = sessionDefaults?.mainSessionKey || sessionDefaults?.mainKey || "main";
     sessionKeyRef.current = sessionKey;
     requestHistory();
-  }, [requestHistory]);
+    requestServerCommands();
+  }, [requestHistory, requestServerCommands]);
 
   /** Handle chat.history response — parse, merge tool results, update state. */
   const handleHistoryResponse = useCallback((resPayload: Record<string, unknown>) => {
-    const rawMsgs = resPayload.messages as Array<Record<string, unknown>>;
+    const allRawMsgs = resPayload.messages as Array<Record<string, unknown>>;
+
+    // Filter out /commands exchanges persisted by the silent fetch.
+    // The server only persists the assistant response (model: "gateway-injected")
+    // for slash commands — the user input is NOT persisted. So we detect the
+    // assistant response by parsing it: if it yields many slash commands, it's a
+    // /commands listing and should be hidden (but its commands are extracted).
+    const skipIndices = new Set<number>();
+    for (let i = 0; i < allRawMsgs.length; i++) {
+      const m = allRawMsgs[i];
+      if (m.role === "user") {
+        // Also handle the case where user "/commands" IS persisted (e.g. agent runs)
+        const c = m.content;
+        let text = "";
+        if (typeof c === "string") text = c;
+        else if (Array.isArray(c)) {
+          const tp = (c as ContentPart[]).find((p) => p.type === "text" && p.text);
+          if (tp?.text) text = tp.text;
+        }
+        if (text.trim() === "/commands") {
+          skipIndices.add(i);
+          if (i + 1 < allRawMsgs.length && allRawMsgs[i + 1].role === "assistant") {
+            skipIndices.add(i + 1);
+          }
+        }
+      }
+      // Detect standalone assistant /commands responses (gateway-injected, no user message)
+      if (m.role === "assistant" && m.model === GATEWAY_INJECTED_MODEL && !skipIndices.has(i)) {
+        const c = m.content;
+        const text = typeof c === "string" ? c
+          : Array.isArray(c) ? (c as ContentPart[]).filter((p) => p.type === "text" && p.text).map((p) => p.text).join("") : "";
+        if (text) {
+          const parsed = parseServerCommands(text);
+          if (parsed.length >= 8) {
+            // Looks like a /commands listing — hide it and extract commands
+            skipIndices.add(i);
+            const coreNames = new Set(ALL_COMMANDS.map(cmd => cmd.name));
+            const extra = parsed.filter(cmd => !coreNames.has(cmd.name));
+            if (extra.length > 0) {
+              setServerCommands(extra);
+              try { localStorage.setItem("mc-server-commands", JSON.stringify(extra)); } catch {}
+            }
+          }
+        }
+      }
+    }
+    const rawMsgs = allRawMsgs.filter((_, i) => !skipIndices.has(i));
 
     const historyMessages = rawMsgs
       .filter((m) => {
@@ -739,6 +810,36 @@ export default function Home() {
   /** Handle chat events (delta/final/aborted/error). */
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
     logChatEvent(payload);
+    // Silent /commands fetch — intercept response before it reaches the UI
+    if (commandsFetchActiveRef.current && payload.sessionKey === sessionKeyRef.current) {
+      if (payload.state === "delta" && payload.message) {
+        const text = typeof payload.message.content === "string"
+          ? payload.message.content
+          : getTextFromContent(payload.message.content);
+        commandsFetchBufferRef.current += text;
+      }
+      if (payload.state === "final") {
+        // Slash commands send no deltas — the full response is in the final event's message
+        if (payload.message) {
+          const text = typeof payload.message.content === "string"
+            ? payload.message.content
+            : getTextFromContent(payload.message.content);
+          commandsFetchBufferRef.current += text;
+        }
+        const parsed = parseServerCommands(commandsFetchBufferRef.current);
+        const coreNames = new Set(ALL_COMMANDS.map(c => c.name));
+        const extra = parsed.filter(c => !coreNames.has(c.name));
+        setServerCommands(extra);
+        try { localStorage.setItem("mc-server-commands", JSON.stringify(extra)); } catch {}
+        commandsFetchActiveRef.current = false;
+        commandsFetchBufferRef.current = "";
+      }
+      if (payload.state === "error" || payload.state === "aborted") {
+        commandsFetchActiveRef.current = false;
+        commandsFetchBufferRef.current = "";
+      }
+      return;
+    }
     // Route subagent session events to the subagent store
     if (payload.sessionKey !== sessionKeyRef.current) {
       if (payload.state === "final" || payload.state === "aborted" || payload.state === "error") {
@@ -1068,6 +1169,7 @@ export default function Home() {
         return;
       }
       if (msg.ok && msg.id?.startsWith("sessions-list-")) return;
+      if (msg.id?.startsWith("cmdfetch-")) return;
       if (msg.ok && msg.id?.startsWith("subhistory-") && resPayload?.messages) {
         const sessionKey = pendingSubhistoryRef.current.get(msg.id);
         pendingSubhistoryRef.current.delete(msg.id);
@@ -1162,8 +1264,22 @@ export default function Home() {
   const handleNativeBridgeMessage = useCallback((msg: BridgeMessage) => {
     switch (msg.type) {
       case "messages:history": {
-        const msgs = msg.payload as Message[];
-        setMessages(msgs);
+        const allMsgs = msg.payload as Message[];
+        // Filter out /commands exchanges (may be persisted by the web app's silent fetch)
+        const skip = new Set<number>();
+        for (let i = 0; i < allMsgs.length; i++) {
+          const m = allMsgs[i];
+          const text = getTextFromContent(m.content);
+          if (m.role === "user" && text.trim() === "/commands") {
+            skip.add(i);
+            if (i + 1 < allMsgs.length && allMsgs[i + 1].role === "assistant") skip.add(i + 1);
+          }
+          if (m.role === "assistant" && m.stopReason === STOP_REASON_INJECTED && !skip.has(i)) {
+            const parsed = parseServerCommands(text);
+            if (parsed.length >= 8) skip.add(i);
+          }
+        }
+        setMessages(skip.size > 0 ? allMsgs.filter((_, i) => !skip.has(i)) : allMsgs);
         setHistoryLoaded(true);
         break;
       }
@@ -1574,6 +1690,10 @@ export default function Home() {
         gatewayTokenRef.current = savedToken ?? null;
         setBackendMode("openclaw");
         setOpenclawUrl(savedUrl);
+        try {
+          const cached = localStorage.getItem("mc-server-commands");
+          if (cached) setServerCommands(JSON.parse(cached));
+        } catch {}
         connect(toWsUrl(savedUrl));
       } else {
         if (!detached) setShowSetup(true);
@@ -1663,6 +1783,8 @@ export default function Home() {
 
   const sendMessage = useCallback(async (text: string, attachments?: ImageAttachment[]) => {
     console.log("[sendMessage]", { text: text.slice(0, 50), attachments: attachments?.length ?? 0 });
+    // Cancel any in-flight /commands fetch so its response doesn't intercept this message's events
+    commandsFetchActiveRef.current = false;
     const isSlashCommand = text.trim().startsWith("/");
     lastCommandRef.current = isSlashCommand ? text.trim().split(/\s/)[0].toLowerCase() : null;
     if (!isDetachedRef.current) void requestNotificationPermission();
@@ -1973,11 +2095,11 @@ export default function Home() {
                 <React.Fragment key={msg.id || idx}>
                   {isTimeGap && !isNewTurn && msg.timestamp && (
                     <div className="flex justify-center py-1">
-                      <span className="text-[10px] text-muted-foreground/60">{formatMessageTime(msg.timestamp)}</span>
+                      <span className="text-2xs text-muted-foreground/60">{formatMessageTime(msg.timestamp)}</span>
                     </div>
                   )}
                   {showTimestamp && isNewTurn && msg.timestamp && (
-                    <p className={`text-[10px] text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
+                    <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
                       {formatMessageTime(msg.timestamp)}
                       {msg.role === "assistant" && msg.runDuration && msg.runDuration > 0 && (
                         <span className="ml-1">&middot; Worked for {msg.runDuration}s</span>
@@ -2073,6 +2195,7 @@ export default function Home() {
             modelsLoading={modelsLoading}
             onFetchModels={fetchModels}
             backendMode={backendMode}
+            serverCommands={serverCommands}
             quoteText={quoteText}
             onClearQuote={() => setQuoteText(null)}
             isRunActive={isRunActive}

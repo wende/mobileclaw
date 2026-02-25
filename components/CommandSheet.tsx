@@ -307,7 +307,7 @@ export function CommandSheet({
                         {model.reasoning && " · reasoning"}
                       </span>
                     </div>
-                    <span className="mt-0.5 shrink-0 rounded bg-secondary/50 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                    <span className="mt-0.5 shrink-0 rounded bg-secondary/50 px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
                       {model.id}
                     </span>
                   </button>
@@ -325,7 +325,7 @@ export function CommandSheet({
             )}
             {filteredGroups.map((group) => (
               <div key={group.label} className="mb-4">
-                <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {group.label}
                 </p>
                 <div className="flex flex-col gap-0.5">

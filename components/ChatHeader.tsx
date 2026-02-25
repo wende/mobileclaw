@@ -21,7 +21,7 @@ export function ChatHeader({
   onOpenSetup,
 }: ChatHeaderProps) {
   return (
-    <header className="absolute top-0 left-0 right-0 z-10 flex items-center gap-3 border-b border-border/50 px-4 py-3 backdrop-blur-sm md:px-6" style={{ background: "oklch(from var(--card) l c h / 0.7)" }}>
+    <header className="absolute top-0 left-0 right-0 z-10 flex items-center gap-3 border-b border-border/50 px-4 py-3 font-[family-name:var(--font-geist-sans)] backdrop-blur-sm md:px-6" style={{ background: "oklch(from var(--card) l c h / 0.7)" }}>
       <button
         type="button"
         onClick={onOpenSetup}
@@ -33,7 +33,7 @@ export function ChatHeader({
       <div className="flex min-w-0 flex-1 flex-col">
         <h1 className="text-sm font-semibold text-foreground">MobileClaw</h1>
         {currentModel && (
-          <p className="truncate text-[11px] text-muted-foreground animate-[fadeIn_300ms_ease-out]">{currentModel}</p>
+          <p className="truncate text-xs text-muted-foreground animate-[fadeIn_300ms_ease-out]">{currentModel}</p>
         )}
       </div>
       <button
@@ -58,12 +58,12 @@ export function ChatHeader({
           {isDemoMode || backendMode === "demo" ? (
             <>
               <span className="h-2 w-2 rounded-full bg-blue-500" />
-              <span className="text-[11px] text-muted-foreground">Demo</span>
+              <span className="text-xs text-muted-foreground">Demo</span>
             </>
           ) : backendMode === "lmstudio" ? (
             <>
               <span className="h-2 w-2 rounded-full bg-green-500" />
-              <span className="text-[11px] text-muted-foreground">LM Studio</span>
+              <span className="text-xs text-muted-foreground">LM Studio</span>
             </>
           ) : (
             <>
@@ -73,7 +73,7 @@ export function ChatHeader({
                   ? "bg-yellow-500 animate-pulse"
                   : "bg-red-500"
                 }`} />
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {connectionState === "connected"
                   ? "Connected"
                   : connectionState === "reconnecting"
@@ -85,7 +85,7 @@ export function ChatHeader({
             </>
           )}
         </div>
-        <span className="text-[10px] text-muted-foreground/60 font-mono">{process.env.NEXT_PUBLIC_GIT_SHA}</span>
+        <span className="text-2xs text-muted-foreground/60 font-mono">{process.env.NEXT_PUBLIC_GIT_SHA}</span>
       </div>
     </header>
   );

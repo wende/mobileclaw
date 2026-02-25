@@ -381,7 +381,7 @@ export function SetupDialog({
         </button>
 
         {mode === "openclaw" && (
-          <p className="mt-3 text-center text-[11px] text-muted-foreground/60">
+          <p className="mt-3 text-center text-xs text-muted-foreground/60">
             Leave empty to use demo mode without a server
           </p>
         )}

@@ -51,7 +51,7 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
       className={`${entries.length === 0 && status === "done" ? "" : "h-28"} overflow-y-auto border-t border-border px-3 py-1.5 space-y-0.5 scrollbar-hide`}
     >
       {entries.length === 0 && status === "active" && (
-        <div className="h-full flex items-center gap-1.5 text-[11px] text-muted-foreground/40">
+        <div className="h-full flex items-center gap-1.5 text-xs text-muted-foreground/40">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin opacity-50">
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
           </svg>
@@ -59,7 +59,7 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
         </div>
       )}
       {entries.length === 0 && status === "done" && (
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground/40">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-50">
             <polyline points="20 6 9 17 4 12" />
           </svg>
@@ -69,7 +69,7 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
       {entries.map((entry, i) => {
         if (entry.type === "tool") {
           return (
-            <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60">
+            <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground/60">
               {entry.toolStatus === "running" ? (
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 animate-spin opacity-50">
                   <path d="M21 12a9 9 0 1 1-6.219-8.56" />
@@ -90,7 +90,7 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
 
         if (entry.type === "reasoning") {
           return (
-            <div key={i} className="text-[11px] text-muted-foreground/30 italic truncate">
+            <div key={i} className="text-xs text-muted-foreground/30 italic truncate">
               {entry.text.slice(0, 120)}
             </div>
           );
@@ -98,13 +98,13 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
 
         // text
         return (
-          <div key={i} className="text-[11px] text-muted-foreground/60 truncate">
+          <div key={i} className="text-xs text-muted-foreground/60 truncate">
             {entry.text.slice(0, 200)}
           </div>
         );
       })}
       {entries.length > 0 && status === "active" && (
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 pt-0.5">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground/40 pt-0.5">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin opacity-50">
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
           </svg>
@@ -112,7 +112,7 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
         </div>
       )}
       {entries.length > 0 && status === "done" && (
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 pt-0.5">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground/40 pt-0.5">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-50">
             <polyline points="20 6 9 17 4 12" />
           </svg>
@@ -120,7 +120,7 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
         </div>
       )}
       {entries.length > 0 && status === "error" && (
-        <div className="flex items-center gap-1.5 text-[11px] text-destructive/60 pt-0.5">
+        <div className="flex items-center gap-1.5 text-xs text-destructive/60 pt-0.5">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
             <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
           </svg>

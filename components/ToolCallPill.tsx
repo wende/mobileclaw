@@ -127,7 +127,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
   const hasStatusIcon = status === "running" || resultError;
 
   return (
-    <div className={`w-fit max-w-full rounded-lg border ${resultError ? "border-destructive/30 bg-destructive/5" : "border-border bg-secondary"}`}>
+    <div className={`w-fit max-w-full rounded-none border font-mono ${resultError ? "border-destructive/30 bg-destructive/5" : "border-border"}`}>
       <button
         type="button"
         onClick={hasContent ? () => setOpen((v) => !v) : undefined}
@@ -140,7 +140,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
       </button>
       {hasContent && (
         <SlideContent open={open}>
-          <div className="overflow-hidden text-xs text-muted-foreground">
+          <div className="overflow-hidden text-xs leading-[1.5] text-muted-foreground">
             {args && !isRead && !isGateway && (
               <div className="border-t border-border px-3 py-2">
                 {(() => {
@@ -153,7 +153,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
                         const oldLines = String(oldStr).split("\n");
                         const newLines = String(newStr).split("\n");
                         return (
-                          <pre className="whitespace-pre-wrap break-words overflow-hidden font-mono text-[11px] leading-[1.5]">
+                          <pre className="whitespace-pre-wrap break-words overflow-hidden font-mono text-xs leading-[1.5]">
                               {oldLines.map((line, i) => (
                                 <div key={`old-${i}`} className="bg-red-500/10 text-red-800 dark:text-red-400">
                                   <span className="select-none opacity-60">- </span>{line}
@@ -171,7 +171,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
                   }
                   return (
                     <>
-                      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">Arguments</span>
+                      <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground/60">Arguments</span>
                       <div className="mt-1 flex flex-col gap-0.5">
                         {(() => {
                           try {
@@ -196,7 +196,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
             )}
             {result && !isEdit && (
               <div className="border-t border-border px-3 py-2">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">Result</span>
+                <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground/60">Result</span>
                 <pre className="mt-1 whitespace-pre-wrap break-words overflow-hidden">{result}</pre>
               </div>
             )}
@@ -278,13 +278,13 @@ function SpawnPill({
 
   return (
     <div
-      className={`w-full rounded-lg border overflow-hidden relative ${resultError ? "border-destructive/30" : "border-border"}`}
+      className={`w-full rounded-none border overflow-hidden relative ${resultError ? "border-destructive/30" : "border-border"}`}
       {...handlers}
     >
       {/* Swipe action indicator (behind content) */}
       {hasFeed && offset !== 0 && (
         <div className="absolute right-0 inset-y-0 w-20 flex items-center justify-center">
-          <div className={`flex flex-col items-center gap-0.5 text-[10px] font-medium transition-colors ${pastThreshold ? "text-foreground" : "text-muted-foreground/50"}`}>
+          <div className={`flex flex-col items-center gap-0.5 text-2xs font-medium transition-colors ${pastThreshold ? "text-foreground" : "text-muted-foreground/50"}`}>
             <PinIcon pinned={!!isPinned} />
             <span>{isPinned ? "Unpin" : "Pin"}</span>
           </div>
@@ -292,7 +292,7 @@ function SpawnPill({
       )}
       {/* Sliding content */}
       <div
-        className={`rounded-[inherit] ${resultError ? "bg-destructive/5" : "bg-secondary"}`}
+        className={`rounded-[inherit] font-mono ${resultError ? "bg-destructive/5" : ""}`}
         style={{
           transform: offset !== 0 ? `translateX(${offset}px)` : undefined,
           transition: animating ? "transform 200ms ease-out" : "none",
@@ -311,7 +311,7 @@ function SpawnPill({
             <Chevron open={open && !isPinned} />
           </div>
           {model && (
-            <div className="text-[10px] text-muted-foreground/40 font-normal mt-0.5 ml-[18px]">{model}</div>
+            <div className="text-2xs text-muted-foreground/40 font-normal mt-0.5 ml-[18px]">{model}</div>
           )}
         </button>
         <SlideContent open={open && !isPinned}>

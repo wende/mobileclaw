@@ -60,7 +60,7 @@ export function ThinkingIndicator({ visible, startTime, label }: ThinkingIndicat
         </span>
       </div>
       {startTime && elapsedSeconds > 0 && visible && (
-        <div className={`text-[10px] text-muted-foreground/50 tabular-nums ${isCompacting ? "ml-6" : ""}`}>{elapsedSeconds}s</div>
+        <div className={`text-2xs text-muted-foreground/50 tabular-nums ${isCompacting ? "ml-6" : ""}`}>{elapsedSeconds}s</div>
       )}
     </div>
   );

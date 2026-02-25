@@ -19,6 +19,7 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@fontsource/google-sans-flex": "^5.2.2",
     "@hookform/resolvers": "^3.10.0",
     "@noble/ed25519": "^3.0.0",
     "@radix-ui/react-accordion": "1.2.2",

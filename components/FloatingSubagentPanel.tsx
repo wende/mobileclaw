@@ -55,7 +55,7 @@ export function FloatingSubagentPanel({
           {/* Swipe action indicator (behind content) */}
           {offset !== 0 && (
             <div className="absolute right-0 inset-y-0 w-20 flex items-center justify-center">
-              <div className={`flex flex-col items-center gap-0.5 text-[10px] font-medium transition-colors ${pastThreshold ? "text-foreground" : "text-muted-foreground/50"}`}>
+              <div className={`flex flex-col items-center gap-0.5 text-2xs font-medium transition-colors ${pastThreshold ? "text-foreground" : "text-muted-foreground/50"}`}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50">
                   <path d="M12 17v5" /><path d="M9 2h6l-1.5 4.5L18 9l-1 1h-5.5L9 17H7l2.5-7H4l-1-1 4.5-2.5L9 2z" transform="rotate(45 12 12)" />
                 </svg>
@@ -82,7 +82,7 @@ export function FloatingSubagentPanel({
               </svg>
               <span className="truncate flex-1 text-left">{taskName}</span>
               {model && (
-                <span className="text-[10px] text-muted-foreground/40 font-normal shrink-0">{model}</span>
+                <span className="text-2xs text-muted-foreground/40 font-normal shrink-0">{model}</span>
               )}
               <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-30">
                 <path d="M12 17v5" /><path d="M9 2h6l-1.5 4.5L18 9l-1 1h-5.5L9 17H7l2.5-7H4l-1-1 4.5-2.5L9 2z" transform="rotate(45 12 12)" />

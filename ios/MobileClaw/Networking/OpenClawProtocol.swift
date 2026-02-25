@@ -167,8 +167,32 @@ final class OpenClawProtocol {
     private func handleHistoryResponse(_ payload: [String: Any]) {
         guard let rawMessages = payload["messages"] as? [[String: Any]] else { return }
 
-        // Set stopReason: "injected" on gateway-injected messages so the webapp renders them as pills
-        let processedMessages = rawMessages.map { msg -> [String: Any] in
+        // Filter out /commands exchanges and set stopReason on injected messages
+        var skipIndices = Set<Int>()
+        for (i, m) in rawMessages.enumerated() {
+            if m["role"] as? String == "user" {
+                let text = extractUserText(m)
+                if text.trimmingCharacters(in: .whitespaces) == "/commands" {
+                    skipIndices.insert(i)
+                    if i + 1 < rawMessages.count,
+                       rawMessages[i + 1]["role"] as? String == "assistant" {
+                        skipIndices.insert(i + 1)
+                    }
+                }
+            }
+            // Standalone assistant /commands response (gateway-injected, no preceding user msg)
+            if m["role"] as? String == "assistant",
+               m["model"] as? String == "gateway-injected",
+               !skipIndices.contains(i) {
+                let text = extractUserText(m)
+                if text.contains("/") && text.components(separatedBy: "\n").filter({ $0.hasPrefix("/") }).count >= 8 {
+                    skipIndices.insert(i)
+                }
+            }
+        }
+
+        let processedMessages = rawMessages.enumerated().compactMap { (i, msg) -> [String: Any]? in
+            guard !skipIndices.contains(i) else { return nil }
             var m = msg
             if m["model"] as? String == "gateway-injected" {
                 m["stopReason"] = "injected"
@@ -403,6 +427,10 @@ final class OpenClawProtocol {
         guard let data = try? JSONSerialization.data(withJSONObject: dict),
               let string = String(data: data, encoding: .utf8) else { return }
         sendMessage?(string)
+    }
+
+    private func extractUserText(_ msg: [String: Any]) -> String {
+        extractText(from: msg["content"]) ?? ""
     }
 
     private func extractText(from content: Any?) -> String? {
