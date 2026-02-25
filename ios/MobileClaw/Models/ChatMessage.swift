@@ -12,8 +12,7 @@ enum ContentPartType: String, Codable {
 }
 
 struct ContentPart: Codable, Identifiable {
-    var id: String { "\(type.rawValue)-\(name ?? "")-\(toolCallId ?? UUID().uuidString)" }
-
+    let id: String
     let type: ContentPartType
     var text: String?
     var thinking: String?
@@ -28,12 +27,51 @@ struct ContentPart: Codable, Identifiable {
     var fileName: String?
     var fileMime: String?
 
+    init(type: ContentPartType, text: String? = nil, thinking: String? = nil,
+         name: String? = nil, toolCallId: String? = nil, arguments: String? = nil,
+         status: ToolCallStatus? = nil, result: String? = nil, resultError: Bool? = nil,
+         imageURL: ImageURLContent? = nil, fileURL: String? = nil,
+         fileName: String? = nil, fileMime: String? = nil) {
+        self.id = toolCallId ?? "\(type.rawValue)-\(name ?? "")-\(UUID().uuidString)"
+        self.type = type
+        self.text = text
+        self.thinking = thinking
+        self.name = name
+        self.toolCallId = toolCallId
+        self.arguments = arguments
+        self.status = status
+        self.result = result
+        self.resultError = resultError
+        self.imageURL = imageURL
+        self.fileURL = fileURL
+        self.fileName = fileName
+        self.fileMime = fileMime
+    }
+
     enum CodingKeys: String, CodingKey {
         case type, text, thinking, name, toolCallId, arguments, status, result, resultError
         case imageURL = "image_url"
         case fileURL = "file_url"
         case fileName = "file_name"
         case fileMime = "file_mime"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type = try c.decode(ContentPartType.self, forKey: .type)
+        text = try c.decodeIfPresent(String.self, forKey: .text)
+        thinking = try c.decodeIfPresent(String.self, forKey: .thinking)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        toolCallId = try c.decodeIfPresent(String.self, forKey: .toolCallId)
+        arguments = try c.decodeIfPresent(String.self, forKey: .arguments)
+        status = try c.decodeIfPresent(ToolCallStatus.self, forKey: .status)
+        result = try c.decodeIfPresent(String.self, forKey: .result)
+        resultError = try c.decodeIfPresent(Bool.self, forKey: .resultError)
+        imageURL = try c.decodeIfPresent(ImageURLContent.self, forKey: .imageURL)
+        fileURL = try c.decodeIfPresent(String.self, forKey: .fileURL)
+        fileName = try c.decodeIfPresent(String.self, forKey: .fileName)
+        fileMime = try c.decodeIfPresent(String.self, forKey: .fileMime)
+        id = toolCallId ?? "\(type.rawValue)-\(name ?? "")-\(UUID().uuidString)"
     }
 }
 
@@ -52,17 +90,14 @@ enum MessageRole: String, Codable {
     case assistant
     case system
     case tool
-    case toolResult
     case tool_result = "tool_result"
 }
 
 struct ChatMessage: Codable, Identifiable {
-    var id: String { msgId ?? UUID().uuidString }
-
+    let id: String
     let role: MessageRole
     var content: [ContentPart]
     var timestamp: Int?
-    var msgId: String?
     var reasoning: String?
     var toolName: String?
     var isError: Bool?
@@ -73,11 +108,49 @@ struct ChatMessage: Codable, Identifiable {
     var thinkingDuration: Int?
     var runDuration: Int?
 
+    init(role: MessageRole, content: [ContentPart], timestamp: Int? = nil,
+         msgId: String? = nil, reasoning: String? = nil, toolName: String? = nil,
+         isError: Bool? = nil, stopReason: String? = nil, isContext: Bool? = nil,
+         isCommandResponse: Bool? = nil, isHidden: Bool? = nil,
+         thinkingDuration: Int? = nil, runDuration: Int? = nil) {
+        self.id = msgId ?? UUID().uuidString
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+        self.reasoning = reasoning
+        self.toolName = toolName
+        self.isError = isError
+        self.stopReason = stopReason
+        self.isContext = isContext
+        self.isCommandResponse = isCommandResponse
+        self.isHidden = isHidden
+        self.thinkingDuration = thinkingDuration
+        self.runDuration = runDuration
+    }
+
     enum CodingKeys: String, CodingKey {
         case role, content, timestamp
-        case msgId = "id"
+        case id
         case reasoning, toolName, isError, stopReason, isContext
         case isCommandResponse, isHidden, thinkingDuration, runDuration
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        role = try c.decode(MessageRole.self, forKey: .role)
+        content = try c.decode([ContentPart].self, forKey: .content)
+        timestamp = try c.decodeIfPresent(Int.self, forKey: .timestamp)
+        let decodedId = try c.decodeIfPresent(String.self, forKey: .id)
+        id = decodedId ?? UUID().uuidString
+        reasoning = try c.decodeIfPresent(String.self, forKey: .reasoning)
+        toolName = try c.decodeIfPresent(String.self, forKey: .toolName)
+        isError = try c.decodeIfPresent(Bool.self, forKey: .isError)
+        stopReason = try c.decodeIfPresent(String.self, forKey: .stopReason)
+        isContext = try c.decodeIfPresent(Bool.self, forKey: .isContext)
+        isCommandResponse = try c.decodeIfPresent(Bool.self, forKey: .isCommandResponse)
+        isHidden = try c.decodeIfPresent(Bool.self, forKey: .isHidden)
+        thinkingDuration = try c.decodeIfPresent(Int.self, forKey: .thinkingDuration)
+        runDuration = try c.decodeIfPresent(Int.self, forKey: .runDuration)
     }
 }
 
@@ -112,93 +185,3 @@ struct ModelChoice: Codable, Identifiable {
     var reasoning: Bool?
 }
 
-// MARK: - WS Frame Types
-
-struct WSRequest: Encodable {
-    let type: String = "req"
-    let id: String
-    let method: String
-    let params: [String: AnyCodable]?
-}
-
-struct ConnectChallengePayload: Decodable {
-    let nonce: String
-    let ts: Int?
-}
-
-struct ChatEventPayload: Decodable {
-    let runId: String
-    let sessionKey: String
-    let state: String // delta, final, aborted, error
-    let message: ChatEventMessage?
-    let errorMessage: String?
-}
-
-struct ChatEventMessage: Decodable {
-    let role: String
-    let content: AnyCodable
-    let timestamp: Int?
-    let reasoning: String?
-}
-
-struct AgentEventPayload: Decodable {
-    let runId: String
-    let sessionKey: String
-    let stream: String // lifecycle, content, tool, reasoning
-    let data: [String: AnyCodable]
-    let seq: Int?
-    let ts: Int?
-}
-
-// MARK: - AnyCodable helper
-
-struct AnyCodable: Codable {
-    let value: Any
-
-    init(_ value: Any) {
-        self.value = value
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if container.decodeNil() {
-            value = NSNull()
-        } else if let bool = try? container.decode(Bool.self) {
-            value = bool
-        } else if let int = try? container.decode(Int.self) {
-            value = int
-        } else if let double = try? container.decode(Double.self) {
-            value = double
-        } else if let string = try? container.decode(String.self) {
-            value = string
-        } else if let array = try? container.decode([AnyCodable].self) {
-            value = array.map(\.value)
-        } else if let dict = try? container.decode([String: AnyCodable].self) {
-            value = dict.mapValues(\.value)
-        } else {
-            value = NSNull()
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch value {
-        case is NSNull:
-            try container.encodeNil()
-        case let bool as Bool:
-            try container.encode(bool)
-        case let int as Int:
-            try container.encode(int)
-        case let double as Double:
-            try container.encode(double)
-        case let string as String:
-            try container.encode(string)
-        case let array as [Any]:
-            try container.encode(array.map { AnyCodable($0) })
-        case let dict as [String: Any]:
-            try container.encode(dict.mapValues { AnyCodable($0) })
-        default:
-            try container.encodeNil()
-        }
-    }
-}

@@ -93,8 +93,3 @@ enum SwiftToWebMessage {
     }
 }
 
-// Messages received from WebView → Swift (via WKScriptMessageHandler)
-struct WebToSwiftMessage: Decodable {
-    let type: String
-    let payload: [String: AnyCodable]?
-}

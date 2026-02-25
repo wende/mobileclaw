@@ -29,7 +29,7 @@ final class WebSocketManager: NSObject, @unchecked Sendable, URLSessionWebSocket
         everEstablished = false
         reconnectAttempt = 0
 
-        guard let wsURL = URL(string: url) else {
+        guard URL(string: url) != nil else {
             print("[WS] Invalid URL: \(url)")
             onStateChange?(.error)
             return
@@ -39,15 +39,7 @@ final class WebSocketManager: NSObject, @unchecked Sendable, URLSessionWebSocket
 
         let config = URLSessionConfiguration.default
         session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
-        var request = URLRequest(url: wsURL)
-        // Set Origin header to match what the gateway expects from control UI
-        let origin = wsURL.scheme == "wss"
-            ? "https://\(wsURL.host ?? "localhost")"
-            : "http://\(wsURL.host ?? "localhost"):\(wsURL.port ?? 80)"
-        request.setValue(origin, forHTTPHeaderField: "Origin")
-        task = session?.webSocketTask(with: request)
-        task?.resume()
-        listen()
+        connectInternal()
     }
 
     func disconnect() {

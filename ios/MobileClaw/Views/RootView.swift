@@ -298,11 +298,8 @@ struct RootView: View {
 
         if appState.backendMode == .demo {
             demoHandler?.sendMessage(text: text)
-        } else if let proto = protocol_ {
-            appState.isRunActive = true
-            appState.isStreaming = true
-            bridge.send(.thinkingShow)
-            proto.sendChatMessage(text: text)
+        } else {
+            protocol_?.sendChatMessage(text: text)
         }
     }
 

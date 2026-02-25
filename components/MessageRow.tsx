@@ -235,7 +235,7 @@ function ThinkingPill({ text }: { text: string }) {
   // When text is already present on first render (history restore / refresh),
   // skip the slide animation and render at full height immediately.
   // Only animate the slide-in for the empty "Thinking..." placeholder.
-  const [mounted, setMounted] = useState(() => !isEmpty);
+  const [mounted, setMounted] = useState(() => text.length > 0);
   const [expanded, setExpanded] = useState(false);
 
   // Initialize from props so history-restored thinking blocks render at full height immediately

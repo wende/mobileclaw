@@ -52,11 +52,19 @@ struct QueuedMessage {
 }
 
 struct PinnedSubagent: Identifiable {
-    var id: String { toolCallId ?? UUID().uuidString }
+    let id: String
     let toolCallId: String?
     let childSessionKey: String?
     let taskName: String
     let model: String?
+
+    init(toolCallId: String?, childSessionKey: String?, taskName: String, model: String? = nil) {
+        self.id = toolCallId ?? UUID().uuidString
+        self.toolCallId = toolCallId
+        self.childSessionKey = childSessionKey
+        self.taskName = taskName
+        self.model = model
+    }
 }
 
 struct ImageAttachmentData {

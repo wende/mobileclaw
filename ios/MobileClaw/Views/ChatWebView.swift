@@ -1,6 +1,8 @@
 import SwiftUI
 import WebKit
 
+private let devServerURL = "http://192.168.1.18:3100?native"
+
 struct ChatWebView: UIViewRepresentable {
     let bridge: WebViewBridge
 
@@ -40,7 +42,7 @@ struct ChatWebView: UIViewRepresentable {
 
         let urlString: String
         #if DEBUG
-        urlString = "http://192.168.1.18:3100?native"
+        urlString = devServerURL
         #else
         if let bundleURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "web") {
             webView.loadFileURL(bundleURL, allowingReadAccessTo: bundleURL.deletingLastPathComponent())
