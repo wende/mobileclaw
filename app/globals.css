@@ -188,3 +188,21 @@
   scrollbar-width: none;
   &::-webkit-scrollbar { display: none; }
 }
+
+/* Native mode — body class added by JS when ?native param is present */
+body.native {
+  background: transparent !important;
+  overflow: visible;
+  overscroll-behavior: auto;
+  /* Disable scrollbar styling — native scroll handled by WKWebView */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar { display: none; }
+  /* Remove safe-area insets — SwiftUI handles these */
+  padding: env(safe-area-inset-top, 0) 0 0 0;
+}
+body.native * {
+  /* Ensure no safe-area-inset usage leaks through */
+  --safe-area-top: 0px;
+  --safe-area-bottom: 0px;
+}

@@ -12,6 +12,7 @@ import { ToolCallPill } from "@/components/ToolCallPill";
 import { ImageThumbnails } from "@/components/ImageThumbnails";
 import { SmoothGrow } from "@/components/SmoothGrow";
 import type { SubagentStore } from "@/hooks/useSubagentStore";
+import { isNativeMode, postLinkTap, postImageTap } from "@/lib/nativeBridge";
 
 // ── File Thumbnails ──────────────────────────────────────────────────────────
 
@@ -187,7 +188,7 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
                       }
                       if (part.type === "text" && part.text) {
                         return (
-                          <div key={`text-${i}`} className="text-sm leading-relaxed break-words overflow-hidden whitespace-pre-wrap">
+                          <div key={`text-${i}`} className="text-base leading-relaxed break-words overflow-hidden whitespace-pre-wrap">
                             <MarkdownContent text={part.text} />
                           </div>
                         );
@@ -465,9 +466,51 @@ function ContextPill({ summary, iconEl, text }: { summary: string; iconEl: React
   );
 }
 
+// ── Native mode click interceptor ──────────────────────────────────────────
+
+/** In native mode, intercept link clicks and image taps to route to Swift. */
+function useNativeClickInterceptor(containerRef: React.RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    if (!isNativeMode()) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handler = (e: MouseEvent) => {
+      let target = e.target as HTMLElement | null;
+      while (target && target !== el) {
+        if (target.tagName === "A") {
+          const href = (target as HTMLAnchorElement).href;
+          if (href && !href.startsWith("javascript:")) {
+            e.preventDefault();
+            e.stopPropagation();
+            postLinkTap(href);
+            return;
+          }
+        }
+        if (target.tagName === "IMG") {
+          const src = (target as HTMLImageElement).src;
+          if (src) {
+            e.preventDefault();
+            e.stopPropagation();
+            postImageTap(src);
+            return;
+          }
+        }
+        target = target.parentElement;
+      }
+    };
+
+    el.addEventListener("click", handler, true);
+    return () => el.removeEventListener("click", handler, true);
+  }, [containerRef]);
+}
+
 // ── MessageRow ───────────────────────────────────────────────────────────────
 
 export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCallId, onPin, onUnpin }: { message: Message; isStreaming: boolean; subagentStore?: SubagentStore; pinnedToolCallId?: string | null; onPin?: (info: { toolCallId: string | null; childSessionKey: string | null; taskName: string; model: string | null }) => void; onUnpin?: () => void }) {
+  const messageRef = useRef<HTMLDivElement>(null);
+  useNativeClickInterceptor(messageRef);
+
   const text = getTextFromContent(message.content);
   const images = getImages(message.content);
   const files = getFiles(message.content);
@@ -582,12 +625,12 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
     && (message.content).some((p) => isToolCallPart(p) && p.name === SPAWN_TOOL_NAME);
 
   return (
-    <div data-message-role={message.role} className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
+    <div ref={messageRef} data-message-role={message.role} className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
       <div className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground" : ""} ${hasSpawnTool ? "w-[85%] md:w-[75%]" : ""}`}>
         {isUser ? (
           <>
             {text && (
-              <div className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+              <div className="text-base leading-relaxed break-words whitespace-pre-wrap">
                 <UserTextWithQuotes text={text} />
               </div>
             )}
@@ -621,7 +664,7 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
                       <ThinkingPill text={extractedThinking} />
                     )}
                     {cleanText && (
-                      <div className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
+                      <div className="text-base leading-relaxed break-words overflow-hidden text-foreground">
                         {showCursor ? (
                           <StreamingText text={cleanText} isStreaming={isStreaming} />
                         ) : (
@@ -645,7 +688,7 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
                     <ThinkingPill text={extractedThinking} />
                   )}
                   {cleanText && (
-                    <div className="text-sm leading-relaxed break-words overflow-hidden text-foreground">
+                    <div className="text-base leading-relaxed break-words overflow-hidden text-foreground">
                       {isStreaming ? (
                         <StreamingText text={cleanText} isStreaming={isStreaming} />
                       ) : (

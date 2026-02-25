@@ -38,6 +38,7 @@ import { useKeyboardLayout } from "@/hooks/useKeyboardLayout";
 import { useTheme } from "@/hooks/useTheme";
 import { useSubagentStore } from "@/hooks/useSubagentStore";
 import { FloatingSubagentPanel } from "@/components/FloatingSubagentPanel";
+import { registerBridgeHandler, notifyWebViewReady, postScrollPosition, type BridgeMessage } from "@/lib/nativeBridge";
 
 // ── QueuePill ────────────────────────────────────────────────────────────────
 
@@ -136,6 +137,8 @@ export default function Home() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [isDetached, setIsDetached] = useState(false);
   const isDetachedRef = useRef(false);
+  const [isNative, setIsNative] = useState(false);
+  const isNativeRef = useRef(false);
   const [uploadDisabled, setUploadDisabled] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
@@ -1138,15 +1141,170 @@ export default function Home() {
     markEstablishedRef.current = markEstablished;
   }, [markEstablished]);
 
+  // ── Native bridge message handler ──────────────────────────────────────────
+  const handleNativeBridgeMessage = useCallback((msg: BridgeMessage) => {
+    switch (msg.type) {
+      case "messages:history": {
+        const msgs = msg.payload as Message[];
+        setMessages(msgs);
+        setHistoryLoaded(true);
+        break;
+      }
+      case "messages:append": {
+        const newMsg = msg.payload as Message;
+        setMessages((prev) => [...prev, newMsg]);
+        break;
+      }
+      case "messages:update": {
+        const update = msg.payload as { id: string; patch: Partial<Message> };
+        setMessages((prev) => prev.map((m) =>
+          m.id === update.id ? { ...m, ...update.patch } : m
+        ));
+        break;
+      }
+      case "messages:clear":
+        setMessages([]);
+        break;
+      case "stream:start": {
+        const { runId, ts } = msg.payload as { runId: string; ts: number };
+        setIsStreaming(true);
+        setStreamingId(runId);
+        setAwaitingResponse(true);
+        setMessages((prev) => [...prev, { role: "assistant", content: [], id: runId, timestamp: ts } as Message]);
+        break;
+      }
+      case "stream:contentDelta": {
+        const { runId, delta, ts } = msg.payload as { runId: string; delta: string; ts: number };
+        beginContentArrival();
+        setMessages((prev) => {
+          const updated = ensureStreamingMessage(prev, runId, ts);
+          const idx = updated.findIndex((m) => m.id === runId);
+          if (idx < 0) return updated;
+          return updateAt(updated, idx, (target) => {
+            const parts = Array.isArray(target.content) ? [...target.content] : [];
+            const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
+            if (lastTextIdx >= 0) {
+              parts[lastTextIdx] = { ...parts[lastTextIdx], text: (parts[lastTextIdx].text || "") + delta };
+            } else {
+              parts.push({ type: "text" as const, text: delta });
+            }
+            return { ...target, content: parts };
+          });
+        });
+        break;
+      }
+      case "stream:reasoningDelta": {
+        const { runId, delta, ts } = msg.payload as { runId: string; delta: string; ts: number };
+        beginContentArrival();
+        appendReasoning(runId, ts, delta);
+        break;
+      }
+      case "stream:toolStart": {
+        const { runId, name, args, toolCallId, ts } = msg.payload as { runId: string; name: string; args?: string; toolCallId?: string; ts: number };
+        beginContentArrival();
+        setMessages((prev) => {
+          const updated = ensureStreamingMessage(prev, runId, ts);
+          const idx = updated.findIndex((m) => m.id === runId);
+          if (idx < 0) return updated;
+          return updateAt(updated, idx, (target) => ({
+            ...target,
+            content: [...(Array.isArray(target.content) ? target.content : []), {
+              type: "tool_call" as const, name, toolCallId, arguments: args, status: "running" as const,
+            }],
+          }));
+        });
+        break;
+      }
+      case "stream:toolResult": {
+        const { runId, name, toolCallId, result, isError } = msg.payload as { runId: string; name: string; toolCallId?: string; result?: string; isError?: boolean };
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === runId);
+          if (idx < 0) return prev;
+          return updateAt(prev, idx, (target) => ({
+            ...target,
+            content: (target.content as ContentPart[]).map((part) => {
+              if (isToolCallPart(part)) {
+                const isMatch = toolCallId ? part.toolCallId === toolCallId : part.name === name && !part.result;
+                if (isMatch) return { ...part, status: isError ? "error" as const : "success" as const, result, resultError: isError };
+              }
+              return part;
+            }),
+          }));
+        });
+        break;
+      }
+      case "stream:end": {
+        setIsStreaming(false);
+        setStreamingId(null);
+        setAwaitingResponse(false);
+        break;
+      }
+      case "stream:error": {
+        const { errorMessage } = (msg.payload || {}) as { errorMessage?: string };
+        setIsStreaming(false);
+        setStreamingId(null);
+        setAwaitingResponse(false);
+        setMessages((prev) => [...prev, {
+          role: "system",
+          content: [{ type: "text", text: errorMessage || "Error" }],
+          id: `err-${Date.now()}`,
+          timestamp: Date.now(),
+          isError: true,
+        } as Message]);
+        break;
+      }
+      case "thinking:show":
+        setAwaitingResponse(true);
+        setThinkingStartTime(Date.now());
+        break;
+      case "thinking:hide":
+        setAwaitingResponse(false);
+        break;
+      case "theme:set": {
+        const { theme: newTheme } = msg.payload as { theme: "light" | "dark" };
+        const html = document.documentElement;
+        if (newTheme === "dark") html.classList.add("dark");
+        else html.classList.remove("dark");
+        break;
+      }
+      case "scroll:toBottom":
+        scrollToBottom();
+        break;
+      case "connection:state": {
+        // Visual feedback only — native manages actual connection
+        break;
+      }
+      case "subagent:update": {
+        // Placeholder for subagent store forwarding from native
+        break;
+      }
+      case "subagent:clear":
+        subagentStore.clearAll();
+        break;
+    }
+  }, [setIsStreaming, setAwaitingResponse, setThinkingStartTime, beginContentArrival, appendReasoning, ensureStreamingMessage, scrollToBottom, subagentStore]);
+
   // ── Demo mode ─────────────────────────────────────────────────────────────
 
-  // Detect ?detached and ?demo URL params on mount
+  // Detect ?detached, ?native, and ?demo URL params on mount
   useEffect(() => {
     if (getSearchParam("detached") !== null) {
       setIsDetached(true);
       isDetachedRef.current = true;
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
+    }
+    if (getSearchParam("native") !== null) {
+      setIsNative(true);
+      isNativeRef.current = true;
+      document.body.classList.add("native");
+      document.body.style.background = "transparent";
+      document.documentElement.style.background = "transparent";
+      // Register bridge handler for messages from Swift
+      registerBridgeHandler((msg: BridgeMessage) => {
+        handleNativeBridgeMessage(msg);
+      });
+      notifyWebViewReady();
     }
     if (getSearchParam("upload") === "false") {
       setUploadDisabled(true);
@@ -1342,6 +1500,8 @@ export default function Home() {
   useEffect(() => {
     if (getSearchParam("demo") !== null) return;
     if (isDemoMode) return;
+    // Native mode — Swift manages all connections, skip web init
+    if (isNativeRef.current) { setHistoryLoaded(true); return; }
 
     // Detached mode with ?url param — connect directly, skip localStorage
     const detached = getSearchParam("detached") !== null;
@@ -1710,13 +1870,16 @@ export default function Home() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   const inputZoneHeight = "calc(1.5dvh + 3.5rem)";
-  const bottomPad = pinnedSubagent ? (isDetached ? "10rem" : "16rem")
+  const bottomPad = isNative ? "5rem"
+    : pinnedSubagent ? (isDetached ? "10rem" : "16rem")
     : queuedMessage ? (isDetached ? "7rem" : "13rem")
     : (isDetached ? "4rem" : "10rem");
 
+  const hideChrome = isDetached || isNative;
+
   const chatWidget = (
-    <div ref={appRef} className={`relative flex flex-col overflow-hidden ${isDetached ? "" : "bg-background"}`} style={{ height: "100dvh" }}>
-      {!isDetached && (
+    <div ref={appRef} className={`relative flex flex-col overflow-hidden ${hideChrome ? "" : "bg-background"}`} style={{ height: "100dvh" }}>
+      {!hideChrome && (
         <>
           <SetupDialog
             onConnect={(config) => {
@@ -1741,15 +1904,22 @@ export default function Home() {
       )}
 
       <div ref={pullContentRef} className={`relative flex flex-1 flex-col min-h-0 ${isDetached ? "px-3 pt-3" : ""}`}>
-        <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${isDetached ? "inset-x-3 top-3 rounded-t-2xl" : "inset-x-0 top-[60px]"}`} style={{ background: "linear-gradient(to bottom, #FAFAFA 40%, transparent)" }} />
-        <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${isDetached ? "inset-x-3 rounded-b-2xl" : "inset-x-0"}`} style={{ bottom: isDetached ? inputZoneHeight : 0, background: "linear-gradient(to top, #FAFAFA 40%, transparent)" }} />
+        {!isNative && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${isDetached ? "inset-x-3 top-3 rounded-t-2xl" : "inset-x-0 top-[60px]"}`} style={{ background: "linear-gradient(to bottom, var(--background) 40%, transparent)" }} />}
+        {!isNative && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${isDetached ? "inset-x-3 rounded-b-2xl" : "inset-x-0"}`} style={{ bottom: isDetached ? inputZoneHeight : 0, background: "linear-gradient(to top, var(--background) 40%, transparent)" }} />}
         <main
           ref={scrollRef}
-          onScroll={handleScroll}
-          className={`flex-1 overflow-y-auto overflow-x-hidden bg-background ${isDetached ? "rounded-2xl" : "pt-14"}`}
+          onScroll={() => {
+            handleScroll();
+            if (isNativeRef.current && scrollRef.current) {
+              const el = scrollRef.current;
+              const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+              postScrollPosition(distFromBottom);
+            }
+          }}
+          className={`flex-1 overflow-y-auto overflow-x-hidden ${isNative ? "" : "bg-background"} ${isDetached ? "rounded-2xl" : "pt-14"}`}
           style={{ overscrollBehavior: "none", ...(isDetached ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
         >
-          <div className={`mx-auto flex w-full ${isDetached ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
+          <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
             {displayMessages.map((msg, idx) => {
               const side = getMessageSide(msg.role);
               const prevSide = idx > 0 ? getMessageSide(displayMessages[idx - 1].role) : null;
@@ -1790,9 +1960,9 @@ export default function Home() {
           </div>
         </main>
         {/* Spacer (detached only) — pushes main's bg up so the input bar floats on transparent bg */}
-        {isDetached && <div style={{ height: inputZoneHeight, flexShrink: 0 }} />}
+        {isDetached && !isNative && <div style={{ height: inputZoneHeight, flexShrink: 0 }} />}
         {/* Pull-to-refresh spinner */}
-        {!isDetached && (
+        {!isDetached && !isNative && (
           <div
             ref={pullSpinnerRef}
             className="flex h-0 items-center justify-center gap-2 overflow-visible"
@@ -1806,8 +1976,8 @@ export default function Home() {
         )}
       </div>
 
-      {/* Floating quote button */}
-      {quotePopup && (
+      {/* Floating quote button — hidden in native mode (SwiftUI handles this) */}
+      {quotePopup && !isNative && (
         <button
           ref={quotePopupRef}
           type="button"
@@ -1827,8 +1997,8 @@ export default function Home() {
         </button>
       )}
 
-      {/* Floating morphing bar */}
-      <div
+      {/* Floating morphing bar — hidden in native mode (SwiftUI handles input) */}
+      {!isNative && <div
         ref={floatingBarRef}
         className={`pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 ${isDetached ? "pb-[1.5dvh]" : "pb-[3dvh]"} md:px-6 ${isDetached ? "md:pb-[1.5dvh]" : "md:pb-[3dvh]"} animate-[fadeIn_400ms_ease-out]`}
       >
@@ -1878,7 +2048,7 @@ export default function Home() {
             uploadDisabled={uploadDisabled}
           />
         </div>
-      </div>
+      </div>}
     </div>
   );
 
