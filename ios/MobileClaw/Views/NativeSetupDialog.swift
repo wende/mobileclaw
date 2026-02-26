@@ -56,7 +56,6 @@ struct NativeSetupDialog: View {
     @State private var phase: DialogPhase = .idle
     @State private var logoScale: CGFloat = 1.0
     @State private var keyboardHeight: CGFloat = 0
-    @FocusState private var urlFieldFocused: Bool
 
     private var trimmedURL: String { url.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -92,7 +91,7 @@ struct NativeSetupDialog: View {
                 )
                 .onTapGesture {
                     guard phase == .open else { return }
-                    urlFieldFocused = false
+                    dismissKeyboard()
                     animateClose {
                         onClose?()
                     }
@@ -259,7 +258,6 @@ struct NativeSetupDialog: View {
                 .foregroundStyle(.secondary)
 
             TextField("ws://127.0.0.1:18789", text: $url)
-                .focused($urlFieldFocused)
                 .keyboardType(.URL)
                 .textContentType(.URL)
                 .autocorrectionDisabled()
@@ -460,6 +458,7 @@ struct NativeSetupDialog: View {
 
     private func handleVisibilityChange(_ newVisible: Bool) {
         if newVisible && (phase == .idle || phase == .closed) {
+            dismissKeyboard()
             isSubmitting = false
             restoreSavedValues()
             error = nil
@@ -471,18 +470,13 @@ struct NativeSetupDialog: View {
                     phase = .open
                 }
             }
-            // Auto-focus URL field after opening
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                if mode == .openclaw {
-                    urlFieldFocused = true
-                }
-            }
         } else if !newVisible && phase == .open {
             animateClose(completion: nil)
         }
     }
 
     private func animateClose(completion: (() -> Void)?) {
+        dismissKeyboard()
         withAnimation(.easeOut(duration: 0.2)) {
             logoScale = 1.2
         }
@@ -494,6 +488,10 @@ struct NativeSetupDialog: View {
             logoScale = 1.0
             completion?()
         }
+    }
+
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
     private func restoreSavedValues() {
