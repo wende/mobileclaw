@@ -96,6 +96,27 @@ function toWsUrl(url: string): string {
   return url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
 }
 
+function hasVisibleMessageContent(msg: Message): boolean {
+  if (typeof msg.content === "string") return msg.content.trim().length > 0;
+  if (!Array.isArray(msg.content)) return false;
+  return msg.content.some((part) => {
+    if (part.type === "text" || part.type === "thinking") return !!part.text?.trim();
+    if (isToolCallPart(part)) return !!(part.name || part.result || part.status);
+    if (part.type === "image" || part.type === "image_url") return !!part.image_url?.url;
+    if (part.type === "file") return !!(part.file_name || part.file_url);
+    return false;
+  });
+}
+
+function isUnreadCandidateMessage(msg: Message): boolean {
+  if (msg.role !== "assistant" && msg.role !== "system") return false;
+  if (msg.isHidden || msg.isCommandResponse) return false;
+  if (msg.stopReason === STOP_REASON_INJECTED) return false;
+  if (msg.isError) return true;
+  if (typeof msg.reasoning === "string" && msg.reasoning.trim()) return true;
+  return hasVisibleMessageContent(msg);
+}
+
 /** Merge tool/tool_result messages into the preceding assistant's tool_call content parts,
  *  normalize tool_call types/fields, and filter out the merged messages. */
 function mergeAndNormalizeToolResults(msgs: Message[]): Message[] {
@@ -210,6 +231,7 @@ export default function Home() {
   const [isNative, setIsNative] = useState(false);
   const [uploadDisabled, setUploadDisabled] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [hasUnreadTabMessage, setHasUnreadTabMessage] = useState(false);
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
 
   // ── Theme ───────────────────────────────────────────────────────────────────
@@ -1900,9 +1922,63 @@ export default function Home() {
   // Dynamic tab title — show "Thinking…" while run is active
   useEffect(() => {
     if (isDetached) return;
-    if (!isRunActive) { document.title = "MobileClaw"; return; }
-    document.title = lastCommandRef.current === "/compact" ? "Compacting… — MobileClaw" : "Thinking… — MobileClaw";
-  }, [isRunActive, isDetached]);
+    const baseTitle = !isRunActive
+      ? "MobileClaw"
+      : (lastCommandRef.current === "/compact" ? "Compacting… — MobileClaw" : "Thinking… — MobileClaw");
+    document.title = `${hasUnreadTabMessage ? "● " : ""}${baseTitle}`;
+  }, [isRunActive, isDetached, hasUnreadTabMessage]);
+
+  // Mark incoming assistant/system content as unread when the tab isn't visible.
+  const seenIncomingMessageKeysRef = useRef<Set<string>>(new Set());
+  const unreadTrackingReadyRef = useRef(false);
+  useEffect(() => {
+    if (isDetached) return;
+    if (!historyLoaded) {
+      unreadTrackingReadyRef.current = false;
+      seenIncomingMessageKeysRef.current = new Set();
+      return;
+    }
+    const incomingKeys = new Set<string>();
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (!isUnreadCandidateMessage(msg)) continue;
+      const key = msg.id || `${msg.role}:${msg.timestamp ?? 0}:${i}`;
+      incomingKeys.add(key);
+    }
+    if (!unreadTrackingReadyRef.current) {
+      seenIncomingMessageKeysRef.current = incomingKeys;
+      unreadTrackingReadyRef.current = true;
+      return;
+    }
+    let hasNewIncoming = false;
+    for (const key of incomingKeys) {
+      if (!seenIncomingMessageKeysRef.current.has(key)) {
+        hasNewIncoming = true;
+        break;
+      }
+    }
+    seenIncomingMessageKeysRef.current = incomingKeys;
+    if (hasNewIncoming && document.visibilityState !== "visible") {
+      setHasUnreadTabMessage(true);
+    }
+  }, [messages, historyLoaded, isDetached]);
+
+  // Clear unread indicator as soon as the user views the tab again.
+  useEffect(() => {
+    if (isDetached) return;
+    const clearIfVisible = () => {
+      if (document.visibilityState === "visible") {
+        setHasUnreadTabMessage(false);
+      }
+    };
+    document.addEventListener("visibilitychange", clearIfVisible);
+    window.addEventListener("focus", clearIfVisible);
+    clearIfVisible();
+    return () => {
+      document.removeEventListener("visibilitychange", clearIfVisible);
+      window.removeEventListener("focus", clearIfVisible);
+    };
+  }, [isDetached]);
 
   // Persist run-active state so "Thinking..." shows immediately after refresh
   useEffect(() => {
