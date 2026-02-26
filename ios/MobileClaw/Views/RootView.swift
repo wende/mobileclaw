@@ -8,15 +8,29 @@ struct RootView: View {
     @State private var protocol_: OpenClawProtocol?
     @State private var demoHandler: DemoModeHandler?
     @State private var safariURL: URL?
+    @State private var showSessionDropdown = false
+    @State private var pullRefreshProgress: CGFloat = 0
     private let refreshHaptic = UIImpactFeedbackGenerator(style: .medium)
+
+    private var currentSessionName: String {
+        if let current = appState.sessions.first(where: { $0.key == appState.sessionKey }) {
+            return current.name
+        }
+        if appState.sessionKey == "main" { return "Main Session" }
+        return SessionInfo.humanizeSessionKey(appState.sessionKey)
+    }
 
     var body: some View {
         @Bindable var state = appState
+        let showPullIndicator = appState.isRefreshing || pullRefreshProgress > 0.01
+        let indicatorOpacity = appState.isRefreshing ? 1 : Double(pullRefreshProgress)
+        let indicatorScale = appState.isRefreshing ? 1 : (0.75 + pullRefreshProgress * 0.25)
 
         ZStack(alignment: .bottom) {
             ChatWebView(bridge: bridge, onRefresh: {
                 refreshHaptic.impactOccurred()
                 appState.isRefreshing = true
+                pullRefreshProgress = 1
                 if appState.backendMode == .demo {
                     demoHandler?.loadDemoHistory()
                 } else {
@@ -24,7 +38,11 @@ struct RootView: View {
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     appState.isRefreshing = false
+                    pullRefreshProgress = 0
                 }
+            }, onPullProgress: { progress in
+                guard !appState.isRefreshing else { return }
+                pullRefreshProgress = progress
             })
                 .ignoresSafeArea(.container)
 
@@ -69,12 +87,15 @@ struct RootView: View {
             .allowsHitTesting(false)
 
             // Pull-to-refresh spinner
-            if appState.isRefreshing {
+            if showPullIndicator {
                 VStack {
                     Spacer()
                     ProgressView()
                         .tint(.secondary)
-                        .transition(.opacity)
+                        .scaleEffect(indicatorScale)
+                        .opacity(indicatorOpacity)
+                        .animation(.easeOut(duration: 0.12), value: pullRefreshProgress)
+                        .animation(.easeOut(duration: 0.12), value: appState.isRefreshing)
                 }
                 .padding(.bottom, 140)
                 .allowsHitTesting(false)
@@ -116,8 +137,39 @@ struct RootView: View {
             NativeChatHeader(
                 currentModel: appState.currentModel,
                 connectionState: appState.connectionState,
-                onOpenSetup: { appState.showSetup = true }
+                backendMode: appState.backendMode,
+                sessionName: currentSessionName,
+                sessionSwitching: appState.sessionSwitching,
+                isSessionDropdownOpen: showSessionDropdown,
+                onOpenSetup: {
+                    showSessionDropdown = false
+                    appState.showSetup = true
+                },
+                onToggleSessionDropdown: {
+                    guard appState.backendMode == .openclaw else { return }
+                    showSessionDropdown.toggle()
+                    if showSessionDropdown {
+                        protocol_?.requestSessionsList()
+                    }
+                }
             )
+        }
+        .overlay {
+            if showSessionDropdown && appState.backendMode == .openclaw {
+                NativeSessionDropdown(
+                    sessions: appState.sessions,
+                    loading: appState.sessionsLoading,
+                    currentSessionKey: appState.sessionKey,
+                    sessionSwitching: appState.sessionSwitching,
+                    onRefresh: { protocol_?.requestSessionsList() },
+                    onSelect: { key in
+                        showSessionDropdown = false
+                        appState.pinnedSubagent = nil
+                        protocol_?.switchSession(to: key)
+                    },
+                    onDismiss: { showSessionDropdown = false }
+                )
+            }
         }
         .overlay {
             NativeSetupDialog(
@@ -215,8 +267,14 @@ struct RootView: View {
         wsManager = nil
         protocol_ = nil
         demoHandler = nil
+        showSessionDropdown = false
         appState.connectionError = nil
         appState.backendMode = config.mode
+        appState.sessionKey = "main"
+        appState.sessionId = nil
+        appState.sessions = []
+        appState.sessionsLoading = false
+        appState.sessionSwitching = false
 
         UserDefaults.standard.set(config.mode.rawValue, forKey: "backend-mode")
 
@@ -235,6 +293,8 @@ struct RootView: View {
     private func handleDemoConnect() {
         appState.connectionState = .connected
         appState.currentModel = "claude-sonnet-4-5 (demo)"
+        appState.sessionKey = "main"
+        appState.sessions = []
         bridge.send(.connectionState(.connected))
 
         let handler = DemoModeHandler(bridge: bridge, appState: appState)
@@ -255,6 +315,8 @@ struct RootView: View {
         }
         appState.gatewayURL = config.url
         appState.gatewayToken = config.token ?? ""
+        appState.sessionsLoading = false
+        appState.sessionSwitching = false
 
         let wsURL = toWSURL(config.url)
         print("[RootView] Connecting to: \(wsURL)")
@@ -272,6 +334,10 @@ struct RootView: View {
             onStateChange: { state in
                 Task { @MainActor in
                     appState.connectionState = state
+                    if state != .connected {
+                        showSessionDropdown = false
+                        appState.sessionsLoading = false
+                    }
                     bridge.send(.connectionState(state))
                 }
             }
@@ -290,6 +356,10 @@ struct RootView: View {
         // TODO: Implement LM Studio HTTP/SSE connection
         appState.connectionState = .connected
         appState.currentModel = config.model ?? "unknown"
+        appState.sessionKey = "main"
+        appState.sessions = []
+        appState.sessionsLoading = false
+        appState.sessionSwitching = false
         bridge.send(.connectionState(.connected))
         print("[RootView] LM Studio mode — not yet implemented")
     }

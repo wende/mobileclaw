@@ -185,3 +185,69 @@ struct ModelChoice: Codable, Identifiable {
     var reasoning: Bool?
 }
 
+enum SessionKind: String, Codable, CaseIterable {
+    case main
+    case group
+    case cron
+    case hook
+    case node
+    case other
+
+    init(rawValueOrFallback value: String?) {
+        if let value, let parsed = SessionKind(rawValue: value) {
+            self = parsed
+        } else {
+            self = .other
+        }
+    }
+}
+
+struct SessionInfo: Identifiable, Hashable {
+    let key: String
+    let kind: SessionKind
+    let channel: String
+    let displayName: String?
+    let updatedAt: Int
+    let sessionId: String?
+    let model: String?
+    let contextTokens: Int?
+    let totalTokens: Int?
+
+    var id: String { key }
+
+    var name: String {
+        if kind == .main { return "Main Session" }
+        if let displayName, !displayName.isEmpty { return displayName }
+        return SessionInfo.humanizeSessionKey(key)
+    }
+
+    var kindLabel: String {
+        kind.rawValue
+    }
+
+    var relativeUpdatedAt: String {
+        guard updatedAt > 0 else { return "" }
+        let now = Int(Date().timeIntervalSince1970 * 1000)
+        let delta = max(0, now - updatedAt)
+        if delta < 60_000 { return "just now" }
+        let minutes = delta / 60_000
+        if minutes < 60 { return "\(minutes)m ago" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)h ago" }
+        let days = hours / 24
+        return "\(days)d ago"
+    }
+
+    static func humanizeSessionKey(_ key: String) -> String {
+        let last = key.split(separator: "/").last.map(String.init) ?? key
+        let normalized = last
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+        let words = normalized.split(separator: " ").map(String.init)
+        if words.isEmpty { return key }
+        return words.map { word in
+            guard let first = word.first else { return word }
+            return first.uppercased() + word.dropFirst()
+        }.joined(separator: " ")
+    }
+}

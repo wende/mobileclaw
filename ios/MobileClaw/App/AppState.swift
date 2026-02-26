@@ -36,6 +36,9 @@ final class AppState {
     // Session
     var sessionKey: String = "main"
     var sessionId: String?
+    var sessions: [SessionInfo] = []
+    var sessionsLoading = false
+    var sessionSwitching = false
 
     // Scroll state — distance from bottom in points (drives input→pill morph)
     var scrollDistanceFromBottom: CGFloat = 0
