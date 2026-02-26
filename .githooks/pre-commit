@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+FILE="next-env.d.ts"
+
+if [ ! -f "$FILE" ]; then
+  exit 0
+fi
+
+if grep -q '"\./\.next/dev/types/routes\.d\.ts"' "$FILE"; then
+  tmp_file="$(mktemp)"
+  sed 's|"\./\.next/dev/types/routes\.d\.ts"|"\./.next/types/routes.d.ts"|' "$FILE" > "$tmp_file"
+  if ! cmp -s "$tmp_file" "$FILE"; then
+    mv "$tmp_file" "$FILE"
+    git add "$FILE"
+    echo "[pre-commit] Normalized next-env.d.ts route types import"
+  else
+    rm -f "$tmp_file"
+  fi
+fi
