@@ -148,6 +148,7 @@ export interface ConnectionConfig {
   url: string;
   token?: string;
   model?: string;
+  remember?: boolean;
 }
 
 // Model choice from models.list response

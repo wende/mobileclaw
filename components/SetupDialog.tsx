@@ -4,6 +4,60 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import type { ConnectionConfig } from "@/types/chat";
 import { fetchLmStudioModels, type LmStudioModel } from "@/lib/lmStudio";
 
+const OPENCLAW_SAVED_CONFIGS_KEY = "openclaw-saved-configs";
+const OPENCLAW_SAVED_CONFIGS_LIMIT = 10;
+
+type SavedOpenclawConfig = {
+  url: string;
+  token?: string;
+  savedAt: number;
+};
+
+function readSavedOpenclawConfigs(): SavedOpenclawConfig[] {
+  try {
+    const raw = window.localStorage.getItem(OPENCLAW_SAVED_CONFIGS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    const valid = parsed
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const candidate = item as { url?: unknown; token?: unknown; savedAt?: unknown };
+        const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
+        if (!url) return null;
+        const token = typeof candidate.token === "string" && candidate.token.trim() ? candidate.token : undefined;
+        const savedAt = typeof candidate.savedAt === "number" && Number.isFinite(candidate.savedAt) ? candidate.savedAt : 0;
+        return { url, token, savedAt };
+      })
+      .filter((item): item is SavedOpenclawConfig => !!item)
+      .sort((a, b) => b.savedAt - a.savedAt);
+
+    const deduped = new Map<string, SavedOpenclawConfig>();
+    for (const config of valid) {
+      if (!deduped.has(config.url)) deduped.set(config.url, config);
+    }
+    return Array.from(deduped.values()).slice(0, OPENCLAW_SAVED_CONFIGS_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function upsertSavedOpenclawConfig(
+  configs: SavedOpenclawConfig[],
+  url: string,
+  token?: string
+): SavedOpenclawConfig[] {
+  const trimmedUrl = url.trim();
+  if (!trimmedUrl) return configs;
+  const trimmedToken = token?.trim() || undefined;
+  const next = [
+    { url: trimmedUrl, token: trimmedToken, savedAt: Date.now() },
+    ...configs.filter((config) => config.url !== trimmedUrl),
+  ];
+  return next.slice(0, OPENCLAW_SAVED_CONFIGS_LIMIT);
+}
+
 export function SetupDialog({
   onConnect,
   onClose,
@@ -27,6 +81,9 @@ export function SetupDialog({
   const [lmsModelLoading, setLmsModelLoading] = useState(false);
   const [lmsModelError, setLmsModelError] = useState("");
   const [error, setError] = useState("");
+  const [saveOpenclawUrl, setSaveOpenclawUrl] = useState(false);
+  const [savedOpenclawConfigs, setSavedOpenclawConfigs] = useState<SavedOpenclawConfig[]>([]);
+  const [selectedSavedOpenclawUrl, setSelectedSavedOpenclawUrl] = useState("");
   // Local submit state — only true after user clicks Connect, never affected
   // by background reconnection.  Resets when the dialog opens or on error.
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -47,8 +104,22 @@ export function SetupDialog({
       if (savedMode === "openclaw" || savedMode === "lmstudio") setMode(savedMode);
       const savedUrl = window.localStorage.getItem("openclaw-url");
       const savedToken = window.localStorage.getItem("openclaw-token");
-      if (savedUrl) setUrl(savedUrl);
-      if (savedToken) setToken(savedToken);
+      const savedConfigs = readSavedOpenclawConfigs();
+      setSavedOpenclawConfigs(savedConfigs);
+      const currentUrlWasSaved = Boolean(savedUrl && savedConfigs.some((config) => config.url === savedUrl));
+
+      if (currentUrlWasSaved) {
+        // Keep URL empty so the saved-server picker remains visible.
+        setUrl("");
+        setToken("");
+        setSaveOpenclawUrl(false);
+        setSelectedSavedOpenclawUrl(savedUrl || "");
+      } else {
+        if (savedUrl) setUrl(savedUrl);
+        setToken(savedToken || "");
+        setSaveOpenclawUrl(Boolean(savedUrl));
+        setSelectedSavedOpenclawUrl("");
+      }
       const savedLmsUrl = window.localStorage.getItem("lmstudio-url");
       const savedLmsApiKey = window.localStorage.getItem("lmstudio-apikey");
       const savedLmsModel = window.localStorage.getItem("lmstudio-model");
@@ -104,10 +175,16 @@ export function SetupDialog({
   const handleSubmit = () => {
     if (mode === "openclaw") {
       const trimmed = url.trim();
+      const selectedSavedConfig = !trimmed
+        ? savedOpenclawConfigs.find((config) => config.url === selectedSavedOpenclawUrl)
+        : undefined;
+      const targetUrl = trimmed || selectedSavedConfig?.url || "";
+      const targetToken = trimmed ? (token.trim() || undefined) : selectedSavedConfig?.token;
+      const shouldRemember = trimmed ? saveOpenclawUrl : Boolean(selectedSavedConfig);
       // Allow empty URL for mock mode
-      if (trimmed) {
+      if (targetUrl) {
         try {
-          new URL(trimmed);
+          new URL(targetUrl);
         } catch {
           setError("Please enter a valid URL or leave empty for demo mode");
           return;
@@ -118,10 +195,17 @@ export function SetupDialog({
       setPhase("closing");
       setTimeout(() => {
         setPhase("closed");
-        if (!trimmed) {
+        if (!targetUrl) {
           onConnect({ mode: "demo", url: "" });
         } else {
-          onConnect({ mode: "openclaw", url: trimmed, token: token.trim() || undefined });
+          if (shouldRemember) {
+            const nextSavedConfigs = upsertSavedOpenclawConfig(savedOpenclawConfigs, targetUrl, targetToken);
+            setSavedOpenclawConfigs(nextSavedConfigs);
+            try {
+              window.localStorage.setItem(OPENCLAW_SAVED_CONFIGS_KEY, JSON.stringify(nextSavedConfigs));
+            } catch { }
+          }
+          onConnect({ mode: "openclaw", url: targetUrl, token: targetToken, remember: shouldRemember });
         }
       }, 500);
     } else {
@@ -154,6 +238,10 @@ export function SetupDialog({
 
   const isOpen = phase === "open";
   const isClosing = phase === "closing";
+  const selectedSavedConfig = !url.trim()
+    ? savedOpenclawConfigs.find((config) => config.url === selectedSavedOpenclawUrl)
+    : undefined;
+  const hasOpenclawTarget = Boolean(url.trim() || selectedSavedConfig);
 
   return (
     <div
@@ -229,6 +317,44 @@ export function SetupDialog({
 
         {mode === "openclaw" ? (
           <>
+            {!url.trim() && savedOpenclawConfigs.length > 0 && (
+              <div className="mb-4">
+                <label htmlFor="openclaw-saved-config" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  Saved configurations
+                </label>
+                <div className="relative">
+                  <select
+                    id="openclaw-saved-config"
+                    value={selectedSavedOpenclawUrl}
+                    onChange={(e) => {
+                      const selectedUrl = e.target.value;
+                      setSelectedSavedOpenclawUrl(selectedUrl);
+                      const selected = savedOpenclawConfigs.find((config) => config.url === selectedUrl);
+                      if (!selected) return;
+                      setUrl(selected.url);
+                      setToken(selected.token || "");
+                      setSaveOpenclawUrl(true);
+                      setError("");
+                    }}
+                    disabled={isSubmitting}
+                    className="w-full appearance-none rounded-xl border border-border bg-background px-4 py-2.5 pr-10 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                  >
+                    <option value="">Select a saved server</option>
+                    {savedOpenclawConfigs.map((config) => (
+                      <option key={config.url} value={config.url}>
+                        {config.url}{config.token ? " (token saved)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-muted-foreground/70">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* URL input */}
             <div className="mb-4">
               <label htmlFor="openclaw-url" className="mb-1.5 block text-xs font-medium text-muted-foreground">
@@ -239,7 +365,12 @@ export function SetupDialog({
                 id="openclaw-url"
                 type="url"
                 value={url}
-                onChange={(e) => { setUrl(e.target.value); setError(""); }}
+                onChange={(e) => {
+                  const nextUrl = e.target.value;
+                  setUrl(nextUrl);
+                  if (nextUrl.trim()) setSelectedSavedOpenclawUrl("");
+                  setError("");
+                }}
                 onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
                 placeholder="ws://127.0.0.1:18789"
                 disabled={isSubmitting}
@@ -264,6 +395,23 @@ export function SetupDialog({
                   className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                 />
               </div>
+            )}
+
+            {url.trim() && (
+              <label
+                htmlFor="openclaw-save-url"
+                className="mb-4 flex cursor-pointer items-center gap-2 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
+              >
+                <input
+                  id="openclaw-save-url"
+                  type="checkbox"
+                  checked={saveOpenclawUrl}
+                  onChange={(e) => setSaveOpenclawUrl(e.target.checked)}
+                  disabled={isSubmitting}
+                  className="h-3.5 w-3.5 rounded border-border text-foreground accent-foreground"
+                />
+                Save this URL
+              </label>
             )}
           </>
         ) : (
@@ -373,7 +521,7 @@ export function SetupDialog({
               </svg>
               Connecting...
             </>
-          ) : mode === "openclaw" && !url.trim() ? (
+          ) : mode === "openclaw" && !hasOpenclawTarget ? (
             "Start Demo"
           ) : (
             "Connect"

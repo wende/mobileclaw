@@ -76,11 +76,15 @@ export function SessionSheet({
     );
   });
 
+  // Fully unmount when closed to avoid an invisible full-screen backdrop
+  // intercepting clicks/touches.
+  if (!open && !mounted) return null;
+
   return (
     <>
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 z-40 bg-foreground/10 backdrop-blur-sm transition-opacity duration-200 ${mounted ? "opacity-100" : "opacity-0"}`}
+        className={`fixed inset-0 z-40 bg-foreground/10 backdrop-blur-sm transition-opacity duration-200 ${mounted ? "opacity-100" : "opacity-0 pointer-events-none"}`}
         onClick={onClose}
         onMouseDown={onClose}
         role="button"
@@ -94,7 +98,7 @@ export function SessionSheet({
         role="dialog"
         aria-modal="true"
         aria-label="Sessions"
-        className={`fixed inset-x-0 bottom-0 z-50 flex max-h-[70dvh] flex-col rounded-t-2xl border-t border-border bg-background shadow-lg transition-transform duration-300 ease-out ${mounted ? "translate-y-0" : "translate-y-full"}`}
+        className={`fixed inset-x-0 bottom-0 z-50 flex max-h-[70dvh] flex-col rounded-t-2xl border-t border-border bg-background shadow-lg transition-transform duration-300 ease-out ${mounted ? "translate-y-0" : "translate-y-full pointer-events-none"}`}
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
