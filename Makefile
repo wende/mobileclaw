@@ -1,10 +1,15 @@
-.PHONY: help pr-comments
+.PHONY: help build-web pr-comments
 
 # Default target
 help:
 	@echo "Available targets:"
+	@echo "  make build-web                 - Build static web export for iOS (runs ios/build-web.sh)"
 	@echo "  make pr-comments [PR=<number>] - Display all comments from PR for current branch (or specify PR number)"
 	@echo "  make help                      - Display this help message"
+
+# Build static web export for iOS container app
+build-web:
+	@bash ios/build-web.sh
 
 # Display all comments from PR for current branch (or specify PR number with PR=<number>)
 pr-comments:

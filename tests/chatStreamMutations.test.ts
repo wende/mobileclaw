@@ -1,0 +1,56 @@
+import { describe, it, expect } from "vitest";
+
+import {
+  addToolCall,
+  appendContentDelta,
+  appendThinkingDelta,
+  resolveToolCall,
+} from "@/lib/chat/streamMutations";
+import type { Message } from "@/types/chat";
+
+describe("chat stream mutations", () => {
+  it("appends text after tool call boundary without destroying earlier text", () => {
+    const initial: Message[] = [{
+      role: "assistant",
+      id: "run-1",
+      content: [
+        { type: "text", text: "before" },
+        { type: "tool_call", name: "read", status: "running" },
+      ],
+    }];
+
+    const step1 = appendContentDelta(initial, "run-1", " after", Date.now());
+    const parts1 = step1.messages[0].content as Array<{ type: string; text?: string }>;
+    expect(parts1.map((p) => p.text || "").join(" ")).toContain("before");
+    expect(parts1[2]?.text).toBe(" after");
+
+    const step2 = appendContentDelta(step1.messages, "run-1", " more", Date.now());
+    const parts2 = step2.messages[0].content as Array<{ type: string; text?: string }>;
+    expect(parts2[2]?.text).toBe(" after more");
+  });
+
+  it("adds and extends thinking deltas by segment", () => {
+    const initial: Message[] = [{ role: "assistant", id: "run-2", content: [] }];
+    const step1 = appendThinkingDelta(initial, "run-2", "plan", Date.now());
+    const step2 = appendThinkingDelta(step1.messages, "run-2", " now", Date.now());
+
+    const parts = step2.messages[0].content as Array<{ type: string; text?: string }>;
+    expect(parts).toHaveLength(1);
+    expect(parts[0].type).toBe("thinking");
+    expect(parts[0].text).toBe("plan now");
+  });
+
+  it("resolves tool calls by toolCallId and by name fallback", () => {
+    const created = addToolCall([], "run-3", "write", Date.now(), "tc-1", "{}");
+    const byId = resolveToolCall(created.messages, "run-3", "write", "tc-1", "ok", false);
+    const partById = (byId[0].content as Array<{ status?: string; result?: string }>)[0];
+    expect(partById.status).toBe("success");
+    expect(partById.result).toBe("ok");
+
+    const noIdInitial = addToolCall([], "run-4", "edit", Date.now());
+    const byName = resolveToolCall(noIdInitial.messages, "run-4", "edit", undefined, "done", false);
+    const partByName = (byName[0].content as Array<{ status?: string; result?: string }>)[0];
+    expect(partByName.status).toBe("success");
+    expect(partByName.result).toBe("done");
+  });
+});
