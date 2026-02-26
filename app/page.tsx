@@ -1058,10 +1058,26 @@ export default function Home() {
     if (payload.stream === "lifecycle") {
       const phase = payload.data.phase as string;
       if (phase === "start") {
+        // Detect externally-initiated runs (another tab/client sent the message).
+        // When we initiate a run, sendMessage sets activeRunIdRef before lifecycle:start arrives.
+        // If it's still null, this run was started by another client.
+        const isExternalRun = !activeRunIdRef.current;
         markRunStart();
         setIsStreaming(true);
         activeRunIdRef.current = payload.runId;
         thinkTagStateRef.current = { insideThinkTag: false, tagBuffer: "" };
+        if (isExternalRun) {
+          // Show "Thinking..." indicator for external runs
+          setAwaitingResponse(true);
+          setThinkingStartTime(Date.now());
+          // Poll history to pick up the user message and any progress,
+          // since we may not receive streaming deltas for other clients' runs.
+          if (!historyPollRef.current) {
+            historyPollRef.current = setInterval(() => {
+              requestHistory();
+            }, 3000);
+          }
+        }
       } else if (phase === "end" || phase === "error") {
         const runDuration = markRunEnd();
         if (runDuration > 0 && payload.runId) {
@@ -1070,6 +1086,11 @@ export default function Home() {
             if (idx < 0) return prev;
             return updateAt(prev, idx, (m) => ({ ...m, runDuration }));
           });
+        }
+        // For external runs (history poll active), fetch history immediately
+        // rather than waiting for the next 3s poll or a chat:final that may not arrive.
+        if (historyPollRef.current) {
+          requestHistory();
         }
       }
       return;
@@ -1106,7 +1127,7 @@ export default function Home() {
       if (!delta) return;
       appendContentDelta(payload.runId, delta, payload.ts);
     }
-  }, [appendContentDelta, appendThinkingDelta, addToolCall, resolveToolCall, markRunStart, markRunEnd, setIsStreaming, subagentStore]);
+  }, [appendContentDelta, appendThinkingDelta, addToolCall, resolveToolCall, markRunStart, markRunEnd, setIsStreaming, setAwaitingResponse, setThinkingStartTime, requestHistory, subagentStore]);
 
   // ── Main WebSocket message dispatcher ─────────────────────────────────────
 
