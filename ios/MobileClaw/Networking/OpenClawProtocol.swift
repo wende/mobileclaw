@@ -2,6 +2,11 @@ import Foundation
 
 @MainActor
 final class OpenClawProtocol {
+    private enum TextStreamSource {
+        case chat
+        case agent
+    }
+
     let bridge: WebViewBridge
     let appState: AppState
     var sendMessage: ((String) -> Void)?
@@ -11,6 +16,7 @@ final class OpenClawProtocol {
     private var activeRunId: String?
     private var sessionKey: String = "main"
     private var pendingHistoryJSON: String?
+    private var textSourceByRunId: [String: TextStreamSource] = [:]
 
     init(bridge: WebViewBridge, appState: AppState) {
         self.bridge = bridge
@@ -323,6 +329,14 @@ final class OpenClawProtocol {
                 appState.isRunActive = true
                 activeRunId = runId
 
+                // Pick one authoritative source per run to avoid duplicate prefixes.
+                if textSourceByRunId[runId] == .agent {
+                    return
+                }
+                if textSourceByRunId[runId] == nil {
+                    textSourceByRunId[runId] = .chat
+                }
+
                 if let text = extractText(from: content) {
                     bridge.send(.streamContentDelta(runId: runId, delta: text, ts: ts))
                 }
@@ -336,6 +350,7 @@ final class OpenClawProtocol {
             appState.isStreaming = false
             bridge.send(.streamEnd)
             activeRunId = nil
+            textSourceByRunId.removeValue(forKey: runId)
 
             if let queued = appState.queuedMessage {
                 appState.queuedMessage = nil
@@ -351,6 +366,7 @@ final class OpenClawProtocol {
             appState.isStreaming = false
             bridge.send(.streamEnd)
             activeRunId = nil
+            textSourceByRunId.removeValue(forKey: runId)
 
         case "error":
             let errorMsg = payload["errorMessage"] as? String ?? "Chat error"
@@ -358,6 +374,7 @@ final class OpenClawProtocol {
             appState.isStreaming = false
             bridge.send(.streamError(errorMessage: errorMsg))
             activeRunId = nil
+            textSourceByRunId.removeValue(forKey: runId)
 
         default:
             break
@@ -387,12 +404,24 @@ final class OpenClawProtocol {
             }
 
         case "content":
+            if textSourceByRunId[runId] == .chat {
+                return
+            }
+            if textSourceByRunId[runId] == nil {
+                textSourceByRunId[runId] = .agent
+            }
             let delta = (data["delta"] ?? data["text"] ?? data["content"]) as? String ?? ""
             if !delta.isEmpty {
                 bridge.send(.streamContentDelta(runId: runId, delta: delta, ts: ts))
             }
 
         case "reasoning":
+            if textSourceByRunId[runId] == .chat {
+                return
+            }
+            if textSourceByRunId[runId] == nil {
+                textSourceByRunId[runId] = .agent
+            }
             let delta = (data["delta"] ?? data["text"] ?? data["content"]) as? String ?? ""
             if !delta.isEmpty {
                 bridge.send(.streamReasoningDelta(runId: runId, delta: delta, ts: ts))
@@ -440,6 +469,7 @@ final class OpenClawProtocol {
     func sendChatMessage(text: String) {
         let runId = "run-\(Int(Date().timeIntervalSince1970 * 1000))-\(randomHex(4))"
         activeRunId = runId
+        textSourceByRunId.removeValue(forKey: runId)
         appState.isRunActive = true
         appState.isStreaming = true
         bridge.send(.thinkingShow)

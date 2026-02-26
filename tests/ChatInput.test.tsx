@@ -9,7 +9,21 @@ const defaultProps = {
 
 describe("ChatInput", () => {
   beforeEach(() => {
-    localStorage.clear();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: vi.fn((key: string) => store.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => { store.set(key, value); }),
+      removeItem: vi.fn((key: string) => { store.delete(key); }),
+      clear: vi.fn(() => { store.clear(); }),
+      key: vi.fn((index: number) => Array.from(store.keys())[index] ?? null),
+      get length() { return store.size; },
+    };
+    Object.defineProperty(globalThis, "localStorage", {
+      value: storage,
+      configurable: true,
+      writable: true,
+    });
+    storage.clear();
   });
   it("renders textarea with placeholder", () => {
     render(<ChatInput {...defaultProps} />);

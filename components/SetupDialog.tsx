@@ -6,6 +6,7 @@ import { fetchLmStudioModels, type LmStudioModel } from "@/lib/lmStudio";
 
 const OPENCLAW_SAVED_CONFIGS_KEY = "openclaw-saved-configs";
 const OPENCLAW_SAVED_CONFIGS_LIMIT = 10;
+const OPENCLAW_NEW_SERVER_VALUE = "__new_server__";
 
 type SavedOpenclawConfig = {
   url: string;
@@ -83,7 +84,7 @@ export function SetupDialog({
   const [error, setError] = useState("");
   const [saveOpenclawUrl, setSaveOpenclawUrl] = useState(false);
   const [savedOpenclawConfigs, setSavedOpenclawConfigs] = useState<SavedOpenclawConfig[]>([]);
-  const [selectedSavedOpenclawUrl, setSelectedSavedOpenclawUrl] = useState("");
+  const [selectedSavedOpenclawUrl, setSelectedSavedOpenclawUrl] = useState(OPENCLAW_NEW_SERVER_VALUE);
   // Local submit state — only true after user clicks Connect, never affected
   // by background reconnection.  Resets when the dialog opens or on error.
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -118,7 +119,7 @@ export function SetupDialog({
         if (savedUrl) setUrl(savedUrl);
         setToken(savedToken || "");
         setSaveOpenclawUrl(Boolean(savedUrl));
-        setSelectedSavedOpenclawUrl("");
+        setSelectedSavedOpenclawUrl(OPENCLAW_NEW_SERVER_VALUE);
       }
       const savedLmsUrl = window.localStorage.getItem("lmstudio-url");
       const savedLmsApiKey = window.localStorage.getItem("lmstudio-apikey");
@@ -175,7 +176,7 @@ export function SetupDialog({
   const handleSubmit = () => {
     if (mode === "openclaw") {
       const trimmed = url.trim();
-      const selectedSavedConfig = !trimmed
+      const selectedSavedConfig = !trimmed && selectedSavedOpenclawUrl !== OPENCLAW_NEW_SERVER_VALUE
         ? savedOpenclawConfigs.find((config) => config.url === selectedSavedOpenclawUrl)
         : undefined;
       const targetUrl = trimmed || selectedSavedConfig?.url || "";
@@ -238,9 +239,9 @@ export function SetupDialog({
 
   const isOpen = phase === "open";
   const isClosing = phase === "closing";
-  const selectedSavedConfig = !url.trim()
-    ? savedOpenclawConfigs.find((config) => config.url === selectedSavedOpenclawUrl)
-    : undefined;
+  const selectedSavedConfig = savedOpenclawConfigs.find((config) => config.url === selectedSavedOpenclawUrl);
+  const isExistingSavedConfigSelected = Boolean(selectedSavedConfig);
+  const showOpenclawManualFields = !isExistingSavedConfigSelected;
   const hasOpenclawTarget = Boolean(url.trim() || selectedSavedConfig);
 
   return (
@@ -317,7 +318,7 @@ export function SetupDialog({
 
         {mode === "openclaw" ? (
           <>
-            {!url.trim() && savedOpenclawConfigs.length > 0 && (
+            {savedOpenclawConfigs.length > 0 && (
               <div className="mb-4">
                 <label htmlFor="openclaw-saved-config" className="mb-1.5 block text-xs font-medium text-muted-foreground">
                   Saved configurations
@@ -329,6 +330,14 @@ export function SetupDialog({
                     onChange={(e) => {
                       const selectedUrl = e.target.value;
                       setSelectedSavedOpenclawUrl(selectedUrl);
+                      if (selectedUrl === OPENCLAW_NEW_SERVER_VALUE) {
+                        setUrl("");
+                        setToken("");
+                        setSaveOpenclawUrl(false);
+                        setError("");
+                        return;
+                      }
+
                       const selected = savedOpenclawConfigs.find((config) => config.url === selectedUrl);
                       setUrl("");
                       setToken(selected?.token || "");
@@ -338,7 +347,7 @@ export function SetupDialog({
                     disabled={isSubmitting}
                     className="w-full appearance-none rounded-xl border border-border bg-background px-4 py-2.5 pr-10 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                   >
-                    <option value="">Select a saved server</option>
+                    <option value={OPENCLAW_NEW_SERVER_VALUE}>New server</option>
                     {savedOpenclawConfigs.map((config) => (
                       <option key={config.url} value={config.url}>
                         {config.url}{config.token ? " (token saved)" : ""}
@@ -354,49 +363,53 @@ export function SetupDialog({
               </div>
             )}
 
-            {/* URL input */}
-            <div className="mb-4">
-              <label htmlFor="openclaw-url" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Server URL
-              </label>
-              <input
-                ref={inputRef}
-                id="openclaw-url"
-                type="url"
-                value={url}
-                onChange={(e) => {
-                  const nextUrl = e.target.value;
-                  setUrl(nextUrl);
-                  if (nextUrl.trim()) setSelectedSavedOpenclawUrl("");
-                  setError("");
-                }}
-                onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-                placeholder="ws://127.0.0.1:18789"
-                disabled={isSubmitting}
-                className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error || connectionError ? "border-destructive" : "border-border"}`}
-              />
-            </div>
+            {showOpenclawManualFields && (
+              <>
+                {/* URL input */}
+                <div className="mb-4">
+                  <label htmlFor="openclaw-url" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    Server URL
+                  </label>
+                  <input
+                    ref={inputRef}
+                    id="openclaw-url"
+                    type="url"
+                    value={url}
+                    onChange={(e) => {
+                      const nextUrl = e.target.value;
+                      setUrl(nextUrl);
+                      setSelectedSavedOpenclawUrl(OPENCLAW_NEW_SERVER_VALUE);
+                      setError("");
+                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+                    placeholder="ws://127.0.0.1:18789"
+                    disabled={isSubmitting}
+                    className={`w-full rounded-xl border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${error || connectionError ? "border-destructive" : "border-border"}`}
+                  />
+                </div>
 
-            {/* Token input */}
-            {hasOpenclawTarget && (
-              <div className="mb-4">
-                <label htmlFor="openclaw-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  Gateway Token <span className="text-muted-foreground/60">(optional)</span>
-                </label>
-                <input
-                  id="openclaw-token"
-                  type="password"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-                  placeholder="Enter gateway auth token"
-                  disabled={isSubmitting}
-                  className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-                />
-              </div>
+                {/* Token input */}
+                {hasOpenclawTarget && (
+                  <div className="mb-4">
+                    <label htmlFor="openclaw-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                      Gateway Token <span className="text-muted-foreground/60">(optional)</span>
+                    </label>
+                    <input
+                      id="openclaw-token"
+                      type="password"
+                      value={token}
+                      onChange={(e) => setToken(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+                      placeholder="Enter gateway auth token"
+                      disabled={isSubmitting}
+                      className="w-full rounded-xl border border-border bg-background px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                    />
+                  </div>
+                )}
+              </>
             )}
 
-            {url.trim() && (
+            {showOpenclawManualFields && url.trim() && (
               <label
                 htmlFor="openclaw-save-url"
                 className="mb-4 flex cursor-pointer items-center gap-2 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"

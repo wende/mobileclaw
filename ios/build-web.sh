@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEST="$SCRIPT_DIR/MobileClaw/Resources/web"
 API_DIR="$PROJECT_ROOT/app/api"
-API_BACKUP="$PROJECT_ROOT/app/_api_backup"
+API_BACKUP="$PROJECT_ROOT/.api_backup_for_export"
 
 # Static export doesn't support API routes — move them aside during build
 cleanup() {
@@ -19,6 +19,7 @@ trap cleanup EXIT
 echo "Building Next.js static export..."
 cd "$PROJECT_ROOT"
 
+rm -rf "$API_BACKUP"
 mv "$API_DIR" "$API_BACKUP"
 mkdir -p "$API_DIR"
 

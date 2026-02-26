@@ -6,6 +6,7 @@ private let devServerURL = "http://192.168.1.18:3100?native"
 struct ChatWebView: UIViewRepresentable {
     let bridge: WebViewBridge
     var onRefresh: (() -> Void)?
+    var onPullProgress: ((CGFloat) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(bridge: bridge)
@@ -72,6 +73,7 @@ struct ChatWebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
         context.coordinator.onRefresh = onRefresh
+        context.coordinator.onPullProgress = onPullProgress
     }
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
@@ -86,7 +88,7 @@ struct ChatWebView: UIViewRepresentable {
 
         // Pull-up-to-refresh state
         private var pullUpTriggered = false
-        private let pullUpThreshold: CGFloat = 80
+        private let pullUpThreshold: CGFloat = 60
 
         init(bridge: WebViewBridge) {
             self.bridge = bridge
@@ -102,13 +104,15 @@ struct ChatWebView: UIViewRepresentable {
         // MARK: - Pull-up-to-refresh (bottom overscroll)
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            let contentHeight = scrollView.contentSize.height
-            let frameHeight = scrollView.frame.height
-            let offsetY = scrollView.contentOffset.y
-            let bottomInset = scrollView.contentInset.bottom
-
-            // How far past the bottom edge the user has dragged
-            let overscroll = offsetY - (contentHeight - frameHeight + bottomInset)
+            let inset = scrollView.adjustedContentInset
+            let maxOffsetY = max(
+                -inset.top,
+                scrollView.contentSize.height - scrollView.bounds.height + inset.bottom
+            )
+            // How far past the bottom edge the user has dragged.
+            let overscroll = max(0, scrollView.contentOffset.y - maxOffsetY)
+            let progress = min(1, max(0, overscroll / pullUpThreshold))
+            onPullProgress?(progress)
 
             if overscroll > pullUpThreshold && !pullUpTriggered && scrollView.isDragging {
                 pullUpTriggered = true
@@ -116,6 +120,7 @@ struct ChatWebView: UIViewRepresentable {
         }
 
         var onRefresh: (() -> Void)?
+        var onPullProgress: ((CGFloat) -> Void)?
 
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
             if pullUpTriggered {
@@ -124,6 +129,11 @@ struct ChatWebView: UIViewRepresentable {
                 scrollView.setContentOffset(scrollView.contentOffset, animated: false)
                 onRefresh?()
             }
+            onPullProgress?(0)
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            onPullProgress?(0)
         }
 
         // MARK: - Keyboard handling
