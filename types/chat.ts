@@ -55,8 +55,20 @@ export interface Message {
 export interface WSRequest {
   type: "req";
   id: string;
-  method: "connect" | "chat.send" | "chat.abort" | "chat.history" | "chat.subscribe" | "hello" | "models.list";
+  method: "connect" | "chat.send" | "chat.abort" | "chat.history" | "chat.subscribe" | "hello" | "models.list" | "sessions.list";
   params?: Record<string, unknown>;
+}
+
+export interface SessionInfo {
+  key: string;
+  kind: "main" | "group" | "cron" | "hook" | "node" | "other";
+  channel: string;
+  displayName?: string;
+  updatedAt: number;
+  sessionId?: string;
+  model?: string;
+  contextTokens?: number;
+  totalTokens?: number;
 }
 
 // Response (server → client)

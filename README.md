@@ -96,6 +96,8 @@ Open [localhost:3000?demo](http://localhost:3000?demo) to try it instantly.
 
 ### OpenClaw (WebSocket)
 
+Requires OpenClaw **2026.2+**.
+
 1. Start your OpenClaw instance
 2. Enter the server URL (e.g. `ws://127.0.0.1:18789`)
 3. Optionally enter a gateway auth token

@@ -9,6 +9,9 @@ interface ChatHeaderProps {
   backendMode: BackendMode;
   isDemoMode: boolean;
   onOpenSetup: () => void;
+  sessionName?: string;
+  onSessionPillClick?: () => void;
+  sessionSwitching?: boolean;
 }
 
 export function ChatHeader({
@@ -19,7 +22,36 @@ export function ChatHeader({
   backendMode,
   isDemoMode,
   onOpenSetup,
+  sessionName,
+  onSessionPillClick,
+  sessionSwitching,
 }: ChatHeaderProps) {
+  const isOpenClaw = backendMode === "openclaw" && !isDemoMode;
+  const canSwitch = isOpenClaw && !!onSessionPillClick;
+  const displayName = isOpenClaw && sessionName ? sessionName : "MobileClaw";
+
+  const connectionLabel = isDemoMode || backendMode === "demo"
+    ? "Demo"
+    : backendMode === "lmstudio"
+      ? "LM Studio"
+      : connectionState === "connected"
+        ? "Connected"
+        : connectionState === "reconnecting"
+          ? "Reconnecting..."
+          : connectionState === "connecting"
+            ? "Connecting..."
+            : "Disconnected";
+
+  const dotColor = isDemoMode || backendMode === "demo"
+    ? "bg-blue-500"
+    : backendMode === "lmstudio"
+      ? "bg-green-500"
+      : connectionState === "connected"
+        ? "bg-green-500"
+        : connectionState === "connecting" || connectionState === "reconnecting"
+          ? "bg-yellow-500 animate-pulse"
+          : "bg-red-500";
+
   return (
     <header className="absolute top-0 left-0 right-0 z-10 flex items-center gap-3 border-b border-border/50 px-4 py-3 font-[family-name:var(--font-geist-sans)] backdrop-blur-sm md:px-6" style={{ background: "oklch(from var(--card) l c h / 0.7)" }}>
       <button
@@ -30,10 +62,29 @@ export function ChatHeader({
       >
         <img src="/logo.png" alt="MobileClaw" className="h-7 mix-blend-multiply dark:mix-blend-screen dark:invert" />
       </button>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <h1 className="text-sm font-semibold text-foreground">MobileClaw</h1>
+      <div className="flex min-w-0 flex-1 flex-col items-center">
+        {canSwitch ? (
+          <button
+            type="button"
+            onClick={onSessionPillClick}
+            className="flex max-w-full items-center gap-1 transition-colors hover:text-foreground/80 active:text-foreground/60"
+          >
+            <span className="truncate text-xs text-muted-foreground">{displayName}</span>
+            {sessionSwitching ? (
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 animate-spin text-muted-foreground">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+            ) : (
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted-foreground">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            )}
+          </button>
+        ) : (
+          <span className="text-xs text-muted-foreground">{displayName}</span>
+        )}
         {currentModel && (
-          <p className="truncate text-xs text-muted-foreground animate-[fadeIn_300ms_ease-out]">{currentModel}</p>
+          <p className="truncate text-2xs text-muted-foreground/60 animate-[fadeIn_300ms_ease-out]">{currentModel}</p>
         )}
       </div>
       <button
@@ -53,38 +104,8 @@ export function ChatHeader({
           </svg>
         )}
       </button>
-      <div className="flex shrink-0 flex-col items-end gap-0.5 animate-[fadeIn_300ms_ease-out]">
-        <div className="flex items-center gap-1.5">
-          {isDemoMode || backendMode === "demo" ? (
-            <>
-              <span className="h-2 w-2 rounded-full bg-blue-500" />
-              <span className="text-xs text-muted-foreground">Demo</span>
-            </>
-          ) : backendMode === "lmstudio" ? (
-            <>
-              <span className="h-2 w-2 rounded-full bg-green-500" />
-              <span className="text-xs text-muted-foreground">LM Studio</span>
-            </>
-          ) : (
-            <>
-              <span className={`h-2 w-2 rounded-full ${connectionState === "connected"
-                ? "bg-green-500"
-                : connectionState === "connecting" || connectionState === "reconnecting"
-                  ? "bg-yellow-500 animate-pulse"
-                  : "bg-red-500"
-                }`} />
-              <span className="text-xs text-muted-foreground">
-                {connectionState === "connected"
-                  ? "Connected"
-                  : connectionState === "reconnecting"
-                    ? "Reconnecting..."
-                    : connectionState === "connecting"
-                      ? "Connecting..."
-                      : "Disconnected"}
-              </span>
-            </>
-          )}
-        </div>
+      <div className="flex shrink-0 items-center gap-1.5 animate-[fadeIn_300ms_ease-out]" title={connectionLabel}>
+        <span className={`h-2 w-2 rounded-full ${dotColor}`} />
         <span className="text-2xs text-muted-foreground/60 font-mono">{process.env.NEXT_PUBLIC_GIT_SHA}</span>
       </div>
     </header>
