@@ -179,7 +179,7 @@ export function SetupDialog({
         ? savedOpenclawConfigs.find((config) => config.url === selectedSavedOpenclawUrl)
         : undefined;
       const targetUrl = trimmed || selectedSavedConfig?.url || "";
-      const targetToken = trimmed ? (token.trim() || undefined) : selectedSavedConfig?.token;
+      const targetToken = token.trim() || undefined;
       const shouldRemember = trimmed ? saveOpenclawUrl : Boolean(selectedSavedConfig);
       // Allow empty URL for mock mode
       if (targetUrl) {
@@ -330,10 +330,9 @@ export function SetupDialog({
                       const selectedUrl = e.target.value;
                       setSelectedSavedOpenclawUrl(selectedUrl);
                       const selected = savedOpenclawConfigs.find((config) => config.url === selectedUrl);
-                      if (!selected) return;
-                      setUrl(selected.url);
-                      setToken(selected.token || "");
-                      setSaveOpenclawUrl(true);
+                      setUrl("");
+                      setToken(selected?.token || "");
+                      setSaveOpenclawUrl(Boolean(selected));
                       setError("");
                     }}
                     disabled={isSubmitting}
@@ -378,8 +377,8 @@ export function SetupDialog({
               />
             </div>
 
-            {/* Token input — hidden when URL is empty (demo mode) */}
-            {url.trim() && (
+            {/* Token input */}
+            {hasOpenclawTarget && (
               <div className="mb-4">
                 <label htmlFor="openclaw-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
                   Gateway Token <span className="text-muted-foreground/60">(optional)</span>

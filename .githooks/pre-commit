@@ -2,6 +2,15 @@
 set -eu
 
 FILE="next-env.d.ts"
+tmp_file=""
+
+cleanup() {
+  if [ -n "$tmp_file" ]; then
+    rm -f "$tmp_file"
+  fi
+}
+
+trap cleanup EXIT INT TERM
 
 if [ ! -f "$FILE" ]; then
   exit 0
@@ -14,7 +23,5 @@ if grep -q '"\./\.next/dev/types/routes\.d\.ts"' "$FILE"; then
     mv "$tmp_file" "$FILE"
     git add "$FILE"
     echo "[pre-commit] Normalized next-env.d.ts route types import"
-  else
-    rm -f "$tmp_file"
   fi
 fi

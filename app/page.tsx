@@ -1391,9 +1391,6 @@ export default function Home() {
       isDetachedRef.current = true;
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
-      const detachedMode = getSearchParam("mode");
-      if (detachedMode === "dark") document.documentElement.classList.add("dark");
-      else if (detachedMode === "light") document.documentElement.classList.remove("dark");
     }
     if (getSearchParam("native") !== null || (window as any).__nativeMode) {
       setIsNative(true);
@@ -1992,11 +1989,7 @@ export default function Home() {
     return currentSessionKey;
   }, [sessions, currentSessionKey]);
 
-  const handleSessionSelect = useCallback((key: string) => {
-    closeSessionSheet();
-    if (backendMode !== "openclaw") return;
-    if (key === currentSessionKey) return;
-    switchSession(key);
+  const resetChatStateForSessionSwitch = useCallback(() => {
     if (historyPollRef.current) {
       clearInterval(historyPollRef.current);
       historyPollRef.current = null;
@@ -2011,6 +2004,14 @@ export default function Home() {
     subagentStore.clearAll();
     handleUnpinSubagent();
     fetchedSubhistoryRef.current.clear();
+  }, [setAwaitingResponse, setIsStreaming, subagentStore, handleUnpinSubagent]);
+
+  const handleSessionSelect = useCallback((key: string) => {
+    closeSessionSheet();
+    if (backendMode !== "openclaw") return;
+    if (key === currentSessionKey) return;
+    switchSession(key);
+    resetChatStateForSessionSwitch();
     requestHistory();
     requestServerCommands();
   }, [
@@ -2018,10 +2019,7 @@ export default function Home() {
     backendMode,
     currentSessionKey,
     switchSession,
-    setAwaitingResponse,
-    setIsStreaming,
-    subagentStore,
-    handleUnpinSubagent,
+    resetChatStateForSessionSwitch,
     requestHistory,
     requestServerCommands,
   ]);
