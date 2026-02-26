@@ -469,18 +469,80 @@ export default function Home() {
     return [...prev, { role: "assistant", content: [], id: runId, timestamp: ts, ...extra } as Message];
   }, []);
 
-  /** Append a reasoning delta to an existing or new assistant message. */
-  const appendReasoning = useCallback((runId: string, ts: number, delta: string) => {
+  /** Append a content text delta to an existing or new assistant message. */
+  const appendContentDelta = useCallback((runId: string, delta: string, ts: number) => {
+    beginContentArrival();
     setMessages((prev: Message[]) => {
-      const idx = prev.findIndex((m) => m.id === runId);
-      if (idx >= 0) {
-        return updateAt(prev, idx, (msg) => ({
-          ...msg,
-          reasoning: (msg.reasoning || "") + delta,
-        }));
-      }
-      setStreamingId(runId);
-      return [...prev, { role: "assistant", content: [], id: runId, timestamp: ts, reasoning: delta } as Message];
+      const updated = ensureStreamingMessage(prev, runId, ts);
+      const idx = updated.findIndex((m) => m.id === runId);
+      if (idx < 0) return updated;
+      return updateAt(updated, idx, (target) => {
+        const parts = Array.isArray(target.content) ? [...target.content] : [];
+        const lastToolIdx = parts.findLastIndex((p: ContentPart) => isToolCallPart(p));
+        const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
+        if (lastTextIdx > lastToolIdx) {
+          parts[lastTextIdx] = { ...parts[lastTextIdx], text: (parts[lastTextIdx].text || "") + delta };
+        } else {
+          parts.push({ type: "text" as const, text: delta });
+        }
+        return { ...target, content: parts };
+      });
+    });
+  }, [beginContentArrival, ensureStreamingMessage]);
+
+  /** Append a thinking/reasoning delta as a content part. */
+  const appendThinkingDelta = useCallback((runId: string, delta: string, ts: number) => {
+    beginContentArrival();
+    setMessages((prev: Message[]) => {
+      const updated = ensureStreamingMessage(prev, runId, ts);
+      const idx = updated.findIndex((m) => m.id === runId);
+      if (idx < 0) return updated;
+      return updateAt(updated, idx, (target) => {
+        const parts = Array.isArray(target.content) ? [...target.content] : [];
+        const lastThinkIdx = parts.findLastIndex((p: ContentPart) => p.type === "thinking");
+        const lastToolIdx = parts.findLastIndex((p: ContentPart) => isToolCallPart(p));
+        if (lastThinkIdx > lastToolIdx) {
+          parts[lastThinkIdx] = { ...parts[lastThinkIdx], type: "thinking", text: (parts[lastThinkIdx].text || "") + delta };
+        } else {
+          parts.push({ type: "thinking" as const, text: delta });
+        }
+        return { ...target, content: parts };
+      });
+    });
+  }, [beginContentArrival, ensureStreamingMessage]);
+
+  /** Add a running tool call to an existing or new assistant message. */
+  const addToolCall = useCallback((runId: string, name: string, ts: number, toolCallId?: string, args?: string) => {
+    beginContentArrival();
+    setMessages((prev: Message[]) => {
+      const updated = ensureStreamingMessage(prev, runId, ts);
+      const idx = updated.findIndex((m) => m.id === runId);
+      if (idx < 0) return updated;
+      return updateAt(updated, idx, (target) => ({
+        ...target,
+        content: [...(Array.isArray(target.content) ? target.content : []), {
+          type: "tool_call" as const, name, toolCallId, arguments: args, status: "running" as const,
+        }],
+      }));
+    });
+  }, [beginContentArrival, ensureStreamingMessage]);
+
+  /** Resolve a running tool call with its result. */
+  const resolveToolCall = useCallback((runId: string, name: string, toolCallId?: string, result?: string, isError?: boolean) => {
+    setMessages((prev: Message[]) => {
+      let idx = prev.findIndex((m) => m.id === runId);
+      if (idx < 0) idx = prev.findLastIndex((m) => m.role === "assistant");
+      if (idx < 0 || !Array.isArray(prev[idx].content)) return prev;
+      return updateAt(prev, idx, (target) => ({
+        ...target,
+        content: (target.content as ContentPart[]).map((part) => {
+          if (isToolCallPart(part)) {
+            const isMatch = toolCallId ? part.toolCallId === toolCallId : part.name === name && !part.result;
+            if (isMatch) return { ...part, status: isError ? "error" as const : "success" as const, result, resultError: isError };
+          }
+          return part;
+        }),
+      }));
     });
   }, []);
 
@@ -1025,109 +1087,26 @@ export default function Home() {
         if (toolName === SPAWN_TOOL_NAME && toolCallId) {
           subagentStore.registerSpawn(toolCallId);
         }
-        beginContentArrival();
-        setMessages((prev: Message[]) => {
-          const toolCallPart: ContentPart = {
-            type: "tool_call",
-            name: toolName,
-            toolCallId,
-            arguments: payload.data.args ? JSON.stringify(payload.data.args) : undefined,
-            status: "running",
-          };
-
-          const idx = prev.findIndex((m) => m.id === payload.runId);
-          if (idx >= 0) {
-            return updateAt(prev, idx, (target) => ({
-              ...target,
-              content: [...(Array.isArray(target.content) ? target.content : []), toolCallPart],
-            }));
-          }
-
-          setStreamingId(payload.runId);
-          return [...prev, {
-            role: "assistant",
-            content: [toolCallPart],
-            id: payload.runId,
-            timestamp: payload.ts,
-          } as Message];
-        });
+        addToolCall(payload.runId, toolName, payload.ts, toolCallId, payload.data.args ? JSON.stringify(payload.data.args) : undefined);
       } else if (phase === "result" && toolName) {
         const resultText = typeof payload.data.result === "string"
           ? payload.data.result : JSON.stringify(payload.data.result, null, 2);
-        const isErr = !!payload.data.isError;
-        setMessages((prev: Message[]) => {
-          let idx = prev.findIndex((m) => m.id === payload.runId);
-          if (idx < 0) idx = prev.findLastIndex((m) => m.role === "assistant");
-          if (idx < 0 || !Array.isArray(prev[idx].content)) return prev;
-          return updateAt(prev, idx, (target) => ({
-            ...target,
-            content: (target.content as ContentPart[]).map((part) => {
-              if (isToolCallPart(part)) {
-                const isMatch = toolCallId
-                  ? part.toolCallId === toolCallId
-                  : part.name === toolName && !part.result;
-                if (isMatch) {
-                  return { ...part, status: isErr ? "error" as const : "success" as const, result: resultText, resultError: isErr };
-                }
-              }
-              return part;
-            }),
-          }));
-        });
+        resolveToolCall(payload.runId, toolName, toolCallId, resultText, !!payload.data.isError);
       }
     }
 
     if (payload.stream === "reasoning") {
       const delta = (payload.data.delta || payload.data.text || payload.data.content || "") as string;
       if (!delta) return;
-      beginContentArrival();
-      setMessages((prev: Message[]) => {
-        const updated = ensureStreamingMessage(prev, payload.runId, payload.ts);
-        const idx = updated.findIndex((m) => m.id === payload.runId);
-        if (idx < 0) return updated;
-        return updateAt(updated, idx, (target) => {
-          const parts = Array.isArray(target.content) ? [...target.content] : [];
-          // Append to the trailing thinking part, or create one after the last tool call
-          const lastThinkIdx = parts.findLastIndex((p: ContentPart) => p.type === "thinking");
-          const lastToolIdx = parts.findLastIndex(
-            (p: ContentPart) => isToolCallPart(p)
-          );
-          if (lastThinkIdx > lastToolIdx) {
-            // Append to existing thinking part (after last tool)
-            parts[lastThinkIdx] = { ...parts[lastThinkIdx], type: "thinking", text: (parts[lastThinkIdx].text || "") + delta };
-          } else {
-            // New thinking segment after the last tool call
-            parts.push({ type: "thinking" as const, text: delta });
-          }
-          return { ...target, content: parts };
-        });
-      });
+      appendThinkingDelta(payload.runId, delta, payload.ts);
     }
 
     if (payload.stream === "content") {
       const delta = (payload.data.delta || payload.data.text || payload.data.content || "") as string;
       if (!delta) return;
-      beginContentArrival();
-      setMessages((prev: Message[]) => {
-        const updated = ensureStreamingMessage(prev, payload.runId, payload.ts);
-        const idx = updated.findIndex((m) => m.id === payload.runId);
-        if (idx < 0) return updated;
-        return updateAt(updated, idx, (target) => {
-          const parts = Array.isArray(target.content) ? [...target.content] : [];
-          const lastToolIdx = parts.findLastIndex(
-            (p: ContentPart) => isToolCallPart(p)
-          );
-          const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
-          if (lastTextIdx > lastToolIdx) {
-            parts[lastTextIdx] = { ...parts[lastTextIdx], text: (parts[lastTextIdx].text || "") + delta };
-          } else {
-            parts.push({ type: "text" as const, text: delta });
-          }
-          return { ...target, content: parts };
-        });
-      });
+      appendContentDelta(payload.runId, delta, payload.ts);
     }
-  }, [appendReasoning, ensureStreamingMessage, beginContentArrival, markRunStart, markRunEnd, setIsStreaming, subagentStore]);
+  }, [appendContentDelta, appendThinkingDelta, addToolCall, resolveToolCall, markRunStart, markRunEnd, setIsStreaming, subagentStore]);
 
   // ── Main WebSocket message dispatcher ─────────────────────────────────────
 
@@ -1310,62 +1289,22 @@ export default function Home() {
       }
       case "stream:contentDelta": {
         const { runId, delta, ts } = msg.payload as { runId: string; delta: string; ts: number };
-        beginContentArrival();
-        setMessages((prev) => {
-          const updated = ensureStreamingMessage(prev, runId, ts);
-          const idx = updated.findIndex((m) => m.id === runId);
-          if (idx < 0) return updated;
-          return updateAt(updated, idx, (target) => {
-            const parts = Array.isArray(target.content) ? [...target.content] : [];
-            const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
-            if (lastTextIdx >= 0) {
-              parts[lastTextIdx] = { ...parts[lastTextIdx], text: (parts[lastTextIdx].text || "") + delta };
-            } else {
-              parts.push({ type: "text" as const, text: delta });
-            }
-            return { ...target, content: parts };
-          });
-        });
+        appendContentDelta(runId, delta, ts);
         break;
       }
       case "stream:reasoningDelta": {
         const { runId, delta, ts } = msg.payload as { runId: string; delta: string; ts: number };
-        beginContentArrival();
-        appendReasoning(runId, ts, delta);
+        appendThinkingDelta(runId, delta, ts);
         break;
       }
       case "stream:toolStart": {
         const { runId, name, args, toolCallId, ts } = msg.payload as { runId: string; name: string; args?: string; toolCallId?: string; ts: number };
-        beginContentArrival();
-        setMessages((prev) => {
-          const updated = ensureStreamingMessage(prev, runId, ts);
-          const idx = updated.findIndex((m) => m.id === runId);
-          if (idx < 0) return updated;
-          return updateAt(updated, idx, (target) => ({
-            ...target,
-            content: [...(Array.isArray(target.content) ? target.content : []), {
-              type: "tool_call" as const, name, toolCallId, arguments: args, status: "running" as const,
-            }],
-          }));
-        });
+        addToolCall(runId, name, ts, toolCallId, args);
         break;
       }
       case "stream:toolResult": {
         const { runId, name, toolCallId, result, isError } = msg.payload as { runId: string; name: string; toolCallId?: string; result?: string; isError?: boolean };
-        setMessages((prev) => {
-          const idx = prev.findIndex((m) => m.id === runId);
-          if (idx < 0) return prev;
-          return updateAt(prev, idx, (target) => ({
-            ...target,
-            content: (target.content as ContentPart[]).map((part) => {
-              if (isToolCallPart(part)) {
-                const isMatch = toolCallId ? part.toolCallId === toolCallId : part.name === name && !part.result;
-                if (isMatch) return { ...part, status: isError ? "error" as const : "success" as const, result, resultError: isError };
-              }
-              return part;
-            }),
-          }));
-        });
+        resolveToolCall(runId, name, toolCallId, result, isError);
         break;
       }
       case "stream:end": {
@@ -1419,7 +1358,7 @@ export default function Home() {
         subagentStore.clearAll();
         break;
     }
-  }, [setIsStreaming, setAwaitingResponse, setThinkingStartTime, beginContentArrival, appendReasoning, ensureStreamingMessage, scrollToBottom, subagentStore]);
+  }, [setIsStreaming, setAwaitingResponse, setThinkingStartTime, appendContentDelta, appendThinkingDelta, addToolCall, resolveToolCall, scrollToBottom, subagentStore]);
 
   // ── Demo mode ─────────────────────────────────────────────────────────────
 
