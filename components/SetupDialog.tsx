@@ -21,7 +21,7 @@ function readSavedOpenclawConfigs(): SavedOpenclawConfig[] {
     if (!Array.isArray(parsed)) return [];
 
     const valid = parsed
-      .map((item) => {
+      .map((item): SavedOpenclawConfig | null => {
         if (!item || typeof item !== "object") return null;
         const candidate = item as { url?: unknown; token?: unknown; savedAt?: unknown };
         const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
