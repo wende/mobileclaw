@@ -18,6 +18,7 @@ final class AppState {
     var lightboxURL: URL?
     var isRunActive = false
     var isStreaming = false
+    var isRefreshing = false
 
     // Messages — stored here so Swift can forward to WebView
     var messages: [ChatMessage] = []

@@ -8,12 +8,24 @@ struct RootView: View {
     @State private var protocol_: OpenClawProtocol?
     @State private var demoHandler: DemoModeHandler?
     @State private var safariURL: URL?
+    private let refreshHaptic = UIImpactFeedbackGenerator(style: .medium)
 
     var body: some View {
         @Bindable var state = appState
 
         ZStack(alignment: .bottom) {
-            ChatWebView(bridge: bridge)
+            ChatWebView(bridge: bridge, onRefresh: {
+                refreshHaptic.impactOccurred()
+                appState.isRefreshing = true
+                if appState.backendMode == .demo {
+                    demoHandler?.loadDemoHistory()
+                } else {
+                    protocol_?.requestHistory()
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    appState.isRefreshing = false
+                }
+            })
                 .ignoresSafeArea(.container)
 
             // Top fade: blur + gradient below header
@@ -55,6 +67,18 @@ struct RootView: View {
             }
             .ignoresSafeArea(.container)
             .allowsHitTesting(false)
+
+            // Pull-to-refresh spinner
+            if appState.isRefreshing {
+                VStack {
+                    Spacer()
+                    ProgressView()
+                        .tint(.secondary)
+                        .transition(.opacity)
+                }
+                .padding(.bottom, 140)
+                .allowsHitTesting(false)
+            }
 
             VStack(spacing: 0) {
                 if let pinned = appState.pinnedSubagent {

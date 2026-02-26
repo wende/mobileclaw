@@ -197,6 +197,13 @@ final class OpenClawProtocol {
             if m["model"] as? String == "gateway-injected" {
                 m["stopReason"] = "injected"
             }
+            // Detect context messages (system-injected user messages)
+            if m["role"] as? String == "user" {
+                let text = extractUserText(m)
+                if text.hasPrefix("System: [") || text.hasPrefix("[System Message]") || text.contains("HEARTBEAT_OK") {
+                    m["isContext"] = true
+                }
+            }
             return m
         }
 

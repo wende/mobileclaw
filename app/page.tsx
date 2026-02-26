@@ -94,6 +94,66 @@ function toWsUrl(url: string): string {
   return url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
 }
 
+/** Merge tool/tool_result messages into the preceding assistant's tool_call content parts,
+ *  normalize tool_call types/fields, and filter out the merged messages. */
+function mergeAndNormalizeToolResults(msgs: Message[]): Message[] {
+  const mergedIds = new Set<string>();
+  for (let i = 0; i < msgs.length; i++) {
+    const hm = msgs[i];
+    const toolName = hm.toolName || (hm as unknown as Record<string, unknown>).name as string | undefined;
+    if ((hm.role === "tool" || hm.role === "toolResult" || hm.role === "tool_result") && toolName) {
+      const resultText = getTextFromContent(hm.content);
+      let isErr = !!hm.isError;
+      if (!isErr && resultText) {
+        try {
+          const parsed = JSON.parse(resultText);
+          if (parsed && typeof parsed === "object") {
+            isErr = parsed.status === "error" || (typeof parsed.error === "string" && !!parsed.error) || parsed.isError === true;
+          }
+        } catch {}
+      }
+      for (let j = i - 1; j >= 0; j--) {
+        const prev = msgs[j];
+        if (prev.role === "assistant" && Array.isArray(prev.content)) {
+          const tc = prev.content.find((p) => p.name === toolName && !p.result);
+          if (tc) {
+            const args = tc.arguments;
+            tc.arguments = typeof args === "string" ? args : args ? JSON.stringify(args) : undefined;
+            tc.result = resultText;
+            tc.resultError = isErr;
+            tc.status = isErr ? "error" : "success";
+            if (hm.id) mergedIds.add(hm.id);
+            break;
+          }
+        }
+      }
+    }
+  }
+  for (const hm of msgs) {
+    if (hm.role !== "assistant" || !Array.isArray(hm.content)) continue;
+    for (const part of hm.content) {
+      if (!isToolCallPart(part) && part.name) {
+        (part).type = "tool_call";
+      }
+      if (isToolCallPart(part)) {
+        if (!part.result && !part.status) part.status = "running";
+        if (!part.toolCallId) {
+          const p = part as unknown as Record<string, unknown>;
+          const id = (p.tool_call_id || p.id) as string | undefined;
+          if (id) part.toolCallId = id;
+        }
+        if (!part.arguments) {
+          const p = part as unknown as Record<string, unknown>;
+          if (p.input) part.arguments = typeof p.input === "string" ? p.input : JSON.stringify(p.input);
+        } else if (typeof part.arguments !== "string") {
+          part.arguments = JSON.stringify(part.arguments);
+        }
+      }
+    }
+  }
+  return msgs.filter((m) => !m.id || !mergedIds.has(m.id));
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -595,70 +655,7 @@ export default function Home() {
         } as Message;
       });
 
-    // Merge tool results into the preceding assistant's tool call content parts
-    const mergedIds = new Set<string>();
-    for (let i = 0; i < historyMessages.length; i++) {
-      const hm = historyMessages[i];
-      if ((hm.role === "tool" || hm.role === "toolResult" || hm.role === "tool_result") && hm.toolName) {
-        const resultText = getTextFromContent(hm.content);
-        // Detect error from message flag OR from result content
-        let isErr = !!hm.isError;
-        if (!isErr && resultText) {
-          try {
-            const parsed = JSON.parse(resultText);
-            if (parsed && typeof parsed === "object") {
-              isErr = parsed.status === "error" || (typeof parsed.error === "string" && !!parsed.error) || parsed.isError === true;
-            }
-          } catch {}
-        }
-        for (let j = i - 1; j >= 0; j--) {
-          const prev = historyMessages[j];
-          if (prev.role === "assistant" && Array.isArray(prev.content)) {
-            const tc = prev.content.find((p) => p.name === hm.toolName && !p.result);
-            if (tc) {
-              const args = tc.arguments;
-              tc.arguments = typeof args === "string" ? args : args ? JSON.stringify(args) : undefined;
-              tc.result = resultText;
-              tc.resultError = isErr;
-              tc.status = isErr ? "error" : "success";
-              if (hm.id) mergedIds.add(hm.id);
-              break;
-            }
-          }
-        }
-      }
-    }
-    // Normalize tool call parts from server history:
-    // - Set status to "running" for tool calls without results (server doesn't send status)
-    // - Normalize toolCallId from server field names (id, tool_call_id)
-    // - Stringify non-string arguments
-    for (const hm of historyMessages) {
-      if (hm.role !== "assistant" || !Array.isArray(hm.content)) continue;
-      for (const part of hm.content) {
-        if (!isToolCallPart(part) && part.name) {
-          // Server may send "tool_use" type — normalize to "tool_call"
-          (part).type = "tool_call";
-        }
-        if (isToolCallPart(part)) {
-          if (!part.result && !part.status) part.status = "running";
-          // Normalize toolCallId from various server field names
-          if (!part.toolCallId) {
-            const p = part as unknown as Record<string, unknown>;
-            const id = (p.tool_call_id || p.id) as string | undefined;
-            if (id) part.toolCallId = id;
-          }
-          // Normalize arguments from server field names
-          if (!part.arguments) {
-            const p = part as unknown as Record<string, unknown>;
-            if (p.input) part.arguments = typeof p.input === "string" ? p.input : JSON.stringify(p.input);
-          } else if (typeof part.arguments !== "string") {
-            part.arguments = JSON.stringify(part.arguments);
-          }
-        }
-      }
-    }
-
-    const finalMessages = historyMessages.filter((m) => !m.id || !mergedIds.has(m.id));
+    const finalMessages = mergeAndNormalizeToolResults(historyMessages);
 
     // Extract model from history
     const lastAssistantRaw = rawMsgs.filter((m) => m.role === "assistant" && m.model).pop();
@@ -1279,7 +1276,8 @@ export default function Home() {
             if (parsed.length >= 8) skip.add(i);
           }
         }
-        setMessages(skip.size > 0 ? allMsgs.filter((_, i) => !skip.has(i)) : allMsgs);
+        const filtered = skip.size > 0 ? allMsgs.filter((_, i) => !skip.has(i)) : allMsgs;
+        setMessages(mergeAndNormalizeToolResults(filtered));
         setHistoryLoaded(true);
         break;
       }

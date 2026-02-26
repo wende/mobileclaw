@@ -27,3 +27,7 @@ Run the webapp dev server on the same network before launching the app:
 ```bash
 PORT=3100 pnpm run dev
 ```
+
+## Building
+
+**NEVER run `xcodebuild` or build the iOS project from the command line.** The user builds manually in Xcode (Cmd+R). After making Swift changes, just ask the user to build and test.

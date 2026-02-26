@@ -5,6 +5,7 @@ private let devServerURL = "http://192.168.1.18:3100?native"
 
 struct ChatWebView: UIViewRepresentable {
     let bridge: WebViewBridge
+    var onRefresh: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(bridge: bridge)
@@ -69,7 +70,9 @@ struct ChatWebView: UIViewRepresentable {
         return webView
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        context.coordinator.onRefresh = onRefresh
+    }
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "bridge")
@@ -112,11 +115,14 @@ struct ChatWebView: UIViewRepresentable {
             }
         }
 
+        var onRefresh: (() -> Void)?
+
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
             if pullUpTriggered {
                 pullUpTriggered = false
-                bridge.isReady = false
-                webView?.reload()
+                // Hard stop: kill any scroll deceleration
+                scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+                onRefresh?()
             }
         }
 
