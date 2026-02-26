@@ -7,6 +7,23 @@ interface EnsureResult {
   created: boolean;
 }
 
+function mergeStreamText(existingText: string, incomingText: string): string {
+  if (!incomingText) return existingText;
+  if (!existingText) return incomingText;
+
+  // Some runtimes send cumulative snapshots instead of true token deltas.
+  if (incomingText.length > existingText.length && incomingText.startsWith(existingText)) {
+    return incomingText;
+  }
+
+  // Drop stale/truncated snapshots that can arrive out of order.
+  if (existingText.length > incomingText.length && existingText.startsWith(incomingText)) {
+    return existingText;
+  }
+
+  return existingText + incomingText;
+}
+
 export function ensureStreamingMessage(
   prev: Message[],
   runId: string,
@@ -35,7 +52,8 @@ export function appendContentDelta(messages: Message[], runId: string, delta: st
       const lastToolIdx = parts.findLastIndex((p: ContentPart) => isToolCallPart(p));
       const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
       if (lastTextIdx > lastToolIdx) {
-        parts[lastTextIdx] = { ...parts[lastTextIdx], text: (parts[lastTextIdx].text || "") + delta };
+        const existing = parts[lastTextIdx].text || "";
+        parts[lastTextIdx] = { ...parts[lastTextIdx], text: mergeStreamText(existing, delta) };
       } else {
         parts.push({ type: "text" as const, text: delta });
       }
@@ -56,10 +74,11 @@ export function appendThinkingDelta(messages: Message[], runId: string, delta: s
       const lastThinkIdx = parts.findLastIndex((p: ContentPart) => p.type === "thinking");
       const lastToolIdx = parts.findLastIndex((p: ContentPart) => isToolCallPart(p));
       if (lastThinkIdx > lastToolIdx) {
+        const existing = parts[lastThinkIdx].text || "";
         parts[lastThinkIdx] = {
           ...parts[lastThinkIdx],
           type: "thinking",
-          text: (parts[lastThinkIdx].text || "") + delta,
+          text: mergeStreamText(existing, delta),
         };
       } else {
         parts.push({ type: "thinking" as const, text: delta });

@@ -4,10 +4,8 @@ import { parseServerCommands, ALL_COMMANDS, type Command } from "@/components/Co
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { useSessionSwitcher } from "@/hooks/useSessionSwitcher";
 import {
-  GATEWAY_INJECTED_MODEL,
   HEARTBEAT_MARKER,
   SPAWN_TOOL_NAME,
-  STOP_REASON_INJECTED,
   SYSTEM_MESSAGE_PREFIX,
   SYSTEM_PREFIX,
   WS_HELLO_OK,
@@ -19,6 +17,14 @@ import { getTextFromContent, updateAt } from "@/lib/messageUtils";
 import { mergeModels, parseConfigProviders, type ConfigParseResult } from "@/lib/parseBackendModels";
 import { useWebSocket, type WebSocketMessage } from "@/lib/useWebSocket";
 import { mergeAndNormalizeToolResults } from "@/lib/chat/messageTransforms";
+import {
+  buildHistoryMessages,
+  extractSpawnChildSessionKeys,
+  inferCurrentModel,
+  isRunInProgressFromHistory,
+  mergeHistoryWithOptimistic,
+  prepareHistoryMessages,
+} from "@/lib/chat/historyResponse";
 import type {
   AgentEventPayload,
   BackendMode,
@@ -161,6 +167,28 @@ export function useOpenClawRuntime({
     });
   }, [sendWS]);
 
+  const startHistoryPolling = useCallback(() => {
+    if (historyPollRef.current) return;
+    historyPollRef.current = setInterval(() => {
+      requestHistory();
+    }, 3000);
+  }, [requestHistory]);
+
+  const stopHistoryPolling = useCallback(() => {
+    if (!historyPollRef.current) return;
+    clearInterval(historyPollRef.current);
+    historyPollRef.current = null;
+  }, []);
+
+  const clearStreamingRuntimeState = useCallback((opts?: { clearRunId?: boolean }) => {
+    setAwaitingResponse(false);
+    setIsStreaming(false);
+    setStreamingId(null);
+    if (opts?.clearRunId) {
+      activeRunIdRef.current = null;
+    }
+  }, [setAwaitingResponse, setIsStreaming, setStreamingId]);
+
   const configResultRef = useRef<ConfigParseResult | null>(null);
   const modelsCatalogRef = useRef<Array<Record<string, unknown>> | null>(null);
 
@@ -282,238 +310,55 @@ export function useOpenClawRuntime({
   ]);
 
   const handleHistoryResponse = useCallback((resPayload: Record<string, unknown>) => {
-    const allRawMsgs = resPayload.messages as Array<Record<string, unknown>>;
-
-    const skipIndices = new Set<number>();
-    for (let i = 0; i < allRawMsgs.length; i++) {
-      const m = allRawMsgs[i];
-      if (m.role === "user") {
-        const c = m.content;
-        let text = "";
-        if (typeof c === "string") text = c;
-        else if (Array.isArray(c)) {
-          const tp = (c as ContentPart[]).find((p) => p.type === "text" && p.text);
-          if (tp?.text) text = tp.text;
-        }
-        if (text.trim() === "/commands") {
-          skipIndices.add(i);
-          if (i + 1 < allRawMsgs.length && allRawMsgs[i + 1].role === "assistant") {
-            skipIndices.add(i + 1);
-          }
-        }
-      }
-
-      if (m.role === "assistant" && m.model === GATEWAY_INJECTED_MODEL && !skipIndices.has(i)) {
-        const c = m.content;
-        const text = typeof c === "string"
-          ? c
-          : Array.isArray(c)
-            ? (c as ContentPart[])
-              .filter((p) => p.type === "text" && p.text)
-              .map((p) => p.text)
-              .join("")
-            : "";
-        if (text) {
-          const parsed = parseServerCommands(text);
-          if (parsed.length >= 8) {
-            skipIndices.add(i);
-            const coreNames = new Set(ALL_COMMANDS.map((cmd) => cmd.name));
-            const extra = parsed.filter((cmd) => !coreNames.has(cmd.name));
-            if (extra.length > 0) {
-              setServerCommands(extra);
-              try { localStorage.setItem("mc-server-commands", JSON.stringify(extra)); } catch {}
-            }
-          }
-        }
-      }
+    const allRawMsgs = Array.isArray(resPayload.messages) ? resPayload.messages as Array<Record<string, unknown>> : [];
+    const { rawMessages, inferredServerCommands } = prepareHistoryMessages({
+      allRawMessages: allRawMsgs,
+      parseServerCommands,
+      coreCommandNames: new Set(ALL_COMMANDS.map((cmd) => cmd.name)),
+    });
+    if (inferredServerCommands && inferredServerCommands.length > 0) {
+      setServerCommands(inferredServerCommands);
+      try { localStorage.setItem("mc-server-commands", JSON.stringify(inferredServerCommands)); } catch {}
     }
 
-    const rawMsgs = allRawMsgs.filter((_, i) => !skipIndices.has(i));
-
-    const historyMessages = rawMsgs
-      .filter((m) => {
-        const content = m.content as ContentPart[] | string | null;
-        return content && !(Array.isArray(content) && content.length === 0);
-      })
-      .map((m, idx) => {
-        const content = m.content as ContentPart[] | string;
-        let reasoning: string | undefined;
-        let filteredContent: ContentPart[] | string;
-
-        if (Array.isArray(content)) {
-          const thinkingPart = content.find((p) => p.type === "thinking");
-          if (thinkingPart?.thinking) reasoning = thinkingPart.thinking;
-          filteredContent = content.filter((p) => p.type !== "thinking");
-        } else {
-          filteredContent = content;
-        }
-
-        let toolName: string | undefined;
-        if (m.name) toolName = m.name as string;
-        else if (m.toolName) toolName = m.toolName as string;
-        if (!toolName && Array.isArray(filteredContent)) {
-          const toolPart = filteredContent.find((p) => p.name);
-          if (toolPart) toolName = toolPart.name;
-        }
-
-        let isContext = false;
-        if (m.role === "user" && Array.isArray(filteredContent)) {
-          const tp = filteredContent.find((p) => p.type === "text" && p.text);
-          if (tp?.text && typeof tp.text === "string" && (tp.text.startsWith(SYSTEM_PREFIX) || tp.text.startsWith(SYSTEM_MESSAGE_PREFIX) || tp.text.includes(HEARTBEAT_MARKER))) {
-            isContext = true;
-          }
-        }
-
-        const isGatewayInjected = m.model === GATEWAY_INJECTED_MODEL;
-        const effectiveStopReason = isGatewayInjected ? STOP_REASON_INJECTED : m.stopReason;
-
-        return {
-          role: m.role,
-          content: filteredContent,
-          timestamp: m.timestamp,
-          id: `hist-${idx}`,
-          reasoning,
-          toolName,
-          isError: m.stopReason === "error" || !!m.isError,
-          stopReason: effectiveStopReason,
-          isContext,
-        } as Message;
-      });
-
+    const historyMessages = buildHistoryMessages(rawMessages);
     const finalMessages = mergeAndNormalizeToolResults(historyMessages);
 
-    const lastAssistantRaw = rawMsgs.filter((m) => m.role === "assistant" && m.model).pop();
-    if (lastAssistantRaw?.model) {
-      const provider = lastAssistantRaw.provider as string | undefined;
-      const model = lastAssistantRaw.model as string;
-      setCurrentModel(provider ? `${provider}/${model}` : model);
-    }
+    const inferredModel = inferCurrentModel(rawMessages);
+    if (inferredModel) setCurrentModel(inferredModel);
 
-    const lastInjected = rawMsgs.filter((m) => m.stopReason === STOP_REASON_INJECTED).pop();
-    if (lastInjected) {
-      if (lastInjected.model) {
-        const provider = lastInjected.provider as string | undefined;
-        const model = lastInjected.model as string;
-        setCurrentModel(provider ? `${provider}/${model}` : model);
-      } else {
-        const injectedContent = lastInjected.content;
-        let injectedText = "";
-        if (typeof injectedContent === "string") {
-          injectedText = injectedContent;
-        } else if (Array.isArray(injectedContent)) {
-          injectedText = (injectedContent as ContentPart[])
-            .filter((p) => p.type === "text" && p.text)
-            .map((p) => p.text)
-            .join("");
-        }
-        const modelMatch = injectedText.match(/model\s+(?:set\s+to|changed\s+to|is|:)\s+[`*]*([a-zA-Z0-9_./-]+)[`*]*/i);
-        if (modelMatch) setCurrentModel(modelMatch[1]);
-      }
-    }
+    setMessages((prev: Message[]) => mergeHistoryWithOptimistic(finalMessages, prev));
 
-    setMessages((prev: Message[]) => {
-      const norm = (t: string) => t.replace(/\s+/g, " ").trim();
-
-      const optimisticByNorm = new Map<string, Message>();
-      for (const m of prev) {
-        if (m.role === "user" && m.id?.startsWith("u-")) {
-          optimisticByNorm.set(norm(getTextFromContent(m.content)), m);
-        }
-      }
-
-      const historyUserNorms = new Set(
-        finalMessages
-          .filter((m) => m.role === "user")
-          .map((m) => norm(getTextFromContent(m.content))),
-      );
-
-      const enriched = finalMessages.map((m) => {
-        if (m.role !== "user") return m;
-        const text = getTextFromContent(m.content);
-        const opt = optimisticByNorm.get(norm(text));
-        if (!opt || !Array.isArray(opt.content)) return m;
-
-        const optText = opt.content.filter((p) => p.type === "text");
-        const optImages = opt.content.filter((p) => p.type === "image_url" || p.type === "image");
-        const serverImages = Array.isArray(m.content)
-          ? m.content.filter((p) => p.type === "image_url" || p.type === "image")
-          : [];
-        const images = serverImages.length > 0 ? serverImages : optImages;
-        const nonTextNonImage = Array.isArray(m.content)
-          ? m.content.filter((p) => p.type !== "text" && p.type !== "image_url" && p.type !== "image")
-          : [];
-
-        if (optText.length === 0 && images.length === 0) return m;
-        return { ...m, content: [...optText, ...nonTextNonImage, ...images] };
-      });
-
-      const prevServerCount = prev.filter((m) => !(m.role === "user" && m.id?.startsWith("u-"))).length;
-      if (finalMessages.length < prevServerCount) return enriched;
-
-      const optimistic = prev.filter(
-        (m) =>
-          m.role === "user" &&
-          m.id?.startsWith("u-") &&
-          !historyUserNorms.has(norm(getTextFromContent(m.content))),
-      );
-      if (optimistic.length === 0) return enriched;
-      return [...enriched, ...optimistic].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
-    });
-
-    const lastRaw = rawMsgs[rawMsgs.length - 1];
-    const lastIsUser = lastRaw?.role === "user";
-    const lastAssistant = [...rawMsgs].reverse().find((m) => m.role === "assistant");
-    const runInProgress = lastIsUser || (lastAssistant && !lastAssistant.stopReason);
-
+    const runInProgress = isRunInProgressFromHistory(rawMessages);
     if (runInProgress) {
       setAwaitingResponse(true);
       setIsStreaming(true);
-      if (!historyPollRef.current) {
-        historyPollRef.current = setInterval(() => {
-          requestHistory();
-        }, 3000);
-      }
+      startHistoryPolling();
     } else {
-      if (historyPollRef.current) {
-        clearInterval(historyPollRef.current);
-        historyPollRef.current = null;
-      }
-      setAwaitingResponse(false);
-      setIsStreaming(false);
-      setStreamingId(null);
+      stopHistoryPolling();
+      clearStreamingRuntimeState();
     }
 
-    for (const raw of rawMsgs) {
-      if (raw.role !== "assistant" || !Array.isArray(raw.content)) continue;
-      for (const part of raw.content as ContentPart[]) {
-        if (!isToolCallPart(part) || part.name !== SPAWN_TOOL_NAME) continue;
-        const resultStr = part.result;
-        if (!resultStr) continue;
-        try {
-          const r = JSON.parse(resultStr) as { childSessionKey?: string };
-          const childKey = r?.childSessionKey;
-          if (childKey && !fetchedSubhistoryRef.current.has(childKey)) {
-            fetchedSubhistoryRef.current.add(childKey);
-            const reqId = `subhistory-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            pendingSubhistoryRef.current.set(reqId, childKey);
-            sendWS({
-              type: "req",
-              id: reqId,
-              method: "chat.history",
-              params: { sessionKey: childKey },
-            });
-          }
-        } catch {}
-      }
+    for (const childKey of extractSpawnChildSessionKeys(rawMessages)) {
+      if (!childKey || fetchedSubhistoryRef.current.has(childKey)) continue;
+      fetchedSubhistoryRef.current.add(childKey);
+      const reqId = `subhistory-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      pendingSubhistoryRef.current.set(reqId, childKey);
+      sendWS({
+        type: "req",
+        id: reqId,
+        method: "chat.history",
+        params: { sessionKey: childKey },
+      });
     }
 
     onHistoryReceived();
     onHistoryLoadedAfterSwitch();
     setHistoryLoaded(true);
   }, [
+    clearStreamingRuntimeState,
     onHistoryLoadedAfterSwitch,
     onHistoryReceived,
-    requestHistory,
     sendWS,
     setAwaitingResponse,
     setCurrentModel,
@@ -521,7 +366,8 @@ export function useOpenClawRuntime({
     setIsStreaming,
     setMessages,
     setServerCommands,
-    setStreamingId,
+    startHistoryPolling,
+    stopHistoryPolling,
   ]);
 
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
@@ -646,14 +492,8 @@ export function useOpenClawRuntime({
           });
         }
 
-        if (historyPollRef.current) {
-          clearInterval(historyPollRef.current);
-          historyPollRef.current = null;
-        }
-        setAwaitingResponse(false);
-        setIsStreaming(false);
-        setStreamingId(null);
-        activeRunIdRef.current = null;
+        stopHistoryPolling();
+        clearStreamingRuntimeState({ clearRunId: true });
         thinkTagStateRef.current = { insideThinkTag: false, tagBuffer: "" };
         subagentStore.clearAll();
         handleUnpinSubagent();
@@ -667,14 +507,8 @@ export function useOpenClawRuntime({
 
       case "aborted":
         markRunEnd();
-        if (historyPollRef.current) {
-          clearInterval(historyPollRef.current);
-          historyPollRef.current = null;
-        }
-        setAwaitingResponse(false);
-        setIsStreaming(false);
-        setStreamingId(null);
-        activeRunIdRef.current = null;
+        stopHistoryPolling();
+        clearStreamingRuntimeState({ clearRunId: true });
         subagentStore.clearAll();
         handleUnpinSubagent();
         fetchedSubhistoryRef.current.clear();
@@ -682,13 +516,8 @@ export function useOpenClawRuntime({
 
       case "error": {
         markRunEnd();
-        if (historyPollRef.current) {
-          clearInterval(historyPollRef.current);
-          historyPollRef.current = null;
-        }
-        setAwaitingResponse(false);
-        setIsStreaming(false);
-        setStreamingId(null);
+        stopHistoryPolling();
+        clearStreamingRuntimeState({ clearRunId: true });
         const errorText = payload.errorMessage || "Chat error";
         const errorMsg: Message = {
           role: "system",
@@ -698,7 +527,6 @@ export function useOpenClawRuntime({
           isError: true,
         };
         setMessages((prev) => [...prev, errorMsg]);
-        activeRunIdRef.current = null;
         subagentStore.clearAll();
         handleUnpinSubagent();
         fetchedSubhistoryRef.current.clear();
@@ -707,16 +535,17 @@ export function useOpenClawRuntime({
     }
   }, [
     beginContentArrival,
+    clearStreamingRuntimeState,
     handleUnpinSubagent,
     markRunEnd,
     notifyForRun,
     queuedMessageRef,
     requestHistory,
-    setAwaitingResponse,
     setIsStreaming,
     setMessages,
     setServerCommands,
     setStreamingId,
+    stopHistoryPolling,
     subagentStore,
   ]);
 
@@ -739,11 +568,7 @@ export function useOpenClawRuntime({
         if (isExternalRun) {
           setAwaitingResponse(true);
           setThinkingStartTime(Date.now());
-          if (!historyPollRef.current) {
-            historyPollRef.current = setInterval(() => {
-              requestHistory();
-            }, 3000);
-          }
+          startHistoryPolling();
         }
       } else if (phase === "end" || phase === "error") {
         const runDuration = markRunEnd();
@@ -803,6 +628,7 @@ export function useOpenClawRuntime({
     setIsStreaming,
     setMessages,
     setThinkingStartTime,
+    startHistoryPolling,
     subagentStore,
   ]);
 
@@ -829,10 +655,7 @@ export function useOpenClawRuntime({
       if (msg.id?.startsWith("run-")) {
         if (!msg.ok && msg.error) {
           const errorText = typeof msg.error === "string" ? msg.error : msg.error?.message || "Request failed";
-          setAwaitingResponse(false);
-          setIsStreaming(false);
-          setStreamingId(null);
-          activeRunIdRef.current = null;
+          clearStreamingRuntimeState({ clearRunId: true });
           const errorMsg: Message = {
             role: "system",
             content: [{ type: "text", text: errorText }],
@@ -909,19 +732,17 @@ export function useOpenClawRuntime({
       }
     }
   }, [
+    clearStreamingRuntimeState,
     handleAgentEvent,
     handleChatEvent,
     handleConnectChallenge,
     handleHelloOk,
     handleHistoryResponse,
     handleSessionsListResponse,
-    setAwaitingResponse,
     setAvailableModels,
     setConnectionError,
-    setIsStreaming,
     setMessages,
     setModelsLoading,
-    setStreamingId,
     subagentStore,
   ]);
 
@@ -938,13 +759,8 @@ export function useOpenClawRuntime({
       if (!isDetachedRef.current && !isNativeRef.current) setShowSetup(true);
     },
     onClose: () => {
-      if (historyPollRef.current) {
-        clearInterval(historyPollRef.current);
-        historyPollRef.current = null;
-      }
-      setIsStreaming(false);
-      setStreamingId(null);
-      setAwaitingResponse(false);
+      stopHistoryPolling();
+      clearStreamingRuntimeState();
     },
     onReconnecting: (attempt, delay) => {
       setConnectionError(null);
@@ -964,14 +780,8 @@ export function useOpenClawRuntime({
   }, [markEstablished]);
 
   const clearForSessionSwitch = useCallback(() => {
-    if (historyPollRef.current) {
-      clearInterval(historyPollRef.current);
-      historyPollRef.current = null;
-    }
-    setAwaitingResponse(false);
-    setIsStreaming(false);
-    setStreamingId(null);
-    activeRunIdRef.current = null;
+    stopHistoryPolling();
+    clearStreamingRuntimeState({ clearRunId: true });
     setMessages([]);
     setHistoryLoaded(false);
     setCurrentModel(null);
@@ -979,13 +789,12 @@ export function useOpenClawRuntime({
     handleUnpinSubagent();
     fetchedSubhistoryRef.current.clear();
   }, [
+    clearStreamingRuntimeState,
     handleUnpinSubagent,
-    setAwaitingResponse,
     setCurrentModel,
     setHistoryLoaded,
-    setIsStreaming,
     setMessages,
-    setStreamingId,
+    stopHistoryPolling,
     subagentStore,
   ]);
 

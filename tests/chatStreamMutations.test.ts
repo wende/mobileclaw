@@ -40,6 +40,27 @@ describe("chat stream mutations", () => {
     expect(parts[0].text).toBe("plan now");
   });
 
+  it("handles cumulative snapshot deltas without duplicating text", () => {
+    const initial: Message[] = [{ role: "assistant", id: "run-dup", content: [] }];
+    const step1 = appendContentDelta(initial, "run-dup", "Let", Date.now());
+    const step2 = appendContentDelta(step1.messages, "run-dup", "Lets See", Date.now());
+    const step3 = appendContentDelta(step2.messages, "run-dup", "Lets See what's in the file", Date.now());
+
+    const parts = step3.messages[0].content as Array<{ type: string; text?: string }>;
+    expect(parts).toHaveLength(1);
+    expect(parts[0].type).toBe("text");
+    expect(parts[0].text).toBe("Lets See what's in the file");
+  });
+
+  it("still appends normal repeated incremental chunks", () => {
+    const initial: Message[] = [{ role: "assistant", id: "run-repeat", content: [] }];
+    const step1 = appendContentDelta(initial, "run-repeat", "ha", Date.now());
+    const step2 = appendContentDelta(step1.messages, "run-repeat", "ha", Date.now());
+
+    const parts = step2.messages[0].content as Array<{ type: string; text?: string }>;
+    expect(parts[0].text).toBe("haha");
+  });
+
   it("resolves tool calls by toolCallId and by name fallback", () => {
     const created = addToolCall([], "run-3", "write", Date.now(), "tc-1", "{}");
     const byId = resolveToolCall(created.messages, "run-3", "write", "tc-1", "ok", false);

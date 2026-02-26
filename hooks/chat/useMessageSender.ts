@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 
+import { LITTERBOX_UPLOAD_URL } from "@/lib/constants";
 import { requestNotificationPermission } from "@/lib/notifications";
 import { PIN_LOCK_MS } from "@/hooks/useScrollManager";
 import type { ContentPart, ImageAttachment, Message } from "@/types/chat";
@@ -55,7 +56,7 @@ export function useMessageSender({
         form.append("reqtype", "fileupload");
         form.append("time", "72h");
         form.append("fileToUpload", new File([buf], name, { type: a.mimeType }));
-        const res = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", {
+        const res = await fetch(LITTERBOX_UPLOAD_URL, {
           method: "POST",
           body: form,
         });

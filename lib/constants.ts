@@ -30,6 +30,7 @@ export function hasUnquotedMarker(text: string, marker: string): boolean {
 export const SYSTEM_PREFIX = "System: [";
 export const SYSTEM_MESSAGE_PREFIX = "[System Message]";
 export const GATEWAY_INJECTED_MODEL = "gateway-injected";
+export const LITTERBOX_UPLOAD_URL = "https://litterbox.catbox.moe/resources/internals/api.php";
 
 // WebSocket protocol
 export const WS_HELLO_OK = "hello-ok";
