@@ -483,6 +483,13 @@ export function useScrollManager(
           pinnedToBottomRef.current = false;
         }
       }
+      // ── Re-pin during streaming/grace if user scrolls near bottom ──
+      if ((isStreamingRef.current || scrollGraceRef.current) && !pinnedToBottomRef.current) {
+        const dist = el.scrollHeight - currentScrollTop - el.clientHeight;
+        if (dist < 80) {
+          pinnedToBottomRef.current = true;
+        }
+      }
       lastScrollTop = currentScrollTop;
     };
 
