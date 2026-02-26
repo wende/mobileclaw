@@ -173,9 +173,9 @@ export function useModeBootstrap({
         setOpenclawUrl(savedUrl);
         try {
           const cached = localStorage.getItem("mc-server-commands");
-            if (cached) {
+          if (cached) {
             setServerCommands(JSON.parse(cached) as Command[]);
-            }
+          }
         } catch {}
         connect(toWsUrl(savedUrl));
       } else {
