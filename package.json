@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.22.0",
   "scripts": {
+    "hooks:install": "sh scripts/setup-git-hooks.sh",
     "dev": "next dev",
     "build": "next build",
     "build:ios": "NEXT_EXPORT=1 next build",

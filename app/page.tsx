@@ -35,11 +35,13 @@ import { ChatInput, type ChatInputHandle } from "@/components/ChatInput";
 import { parseServerCommands, ALL_COMMANDS, type Command } from "@/components/CommandSheet";
 import { SetupDialog } from "@/components/SetupDialog";
 import { ChatHeader } from "@/components/ChatHeader";
+import { SessionSheet } from "@/components/SessionSheet";
 import { useThinkingState } from "@/hooks/useThinkingState";
 import { useScrollManager, PIN_LOCK_MS } from "@/hooks/useScrollManager";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { useKeyboardLayout } from "@/hooks/useKeyboardLayout";
 import { useTheme } from "@/hooks/useTheme";
+import { useSessionSwitcher, formatSessionName } from "@/hooks/useSessionSwitcher";
 import { useSubagentStore } from "@/hooks/useSubagentStore";
 import { FloatingSubagentPanel } from "@/components/FloatingSubagentPanel";
 import { registerBridgeHandler, notifyWebViewReady, postScrollPosition, type BridgeMessage } from "@/lib/nativeBridge";
@@ -411,6 +413,21 @@ export default function Home() {
   }, []);
 
   const {
+    sessions,
+    sessionsLoading,
+    currentSessionKey,
+    sessionSwitching,
+    sheetOpen: isSessionSheetOpen,
+    requestSessionsList,
+    handleSessionsListResponse,
+    openSheet: openSessionSheet,
+    closeSheet: closeSessionSheet,
+    switchSession,
+    onHistoryLoadedAfterSwitch,
+    syncSessionKey,
+  } = useSessionSwitcher({ sendWS, sessionKeyRef, backendMode });
+
+  const {
     pullContentRef, pullSpinnerRef, isPullingRef: _isPullingRef,
     onHistoryReceived,
   } = usePullToRefresh({ scrollRef, backendMode, sendWS, sessionKeyRef, enabled: !isNative });
@@ -619,10 +636,11 @@ export default function Home() {
     const snapshot = resPayload.snapshot as Record<string, unknown> | undefined;
     const sessionDefaults = snapshot?.sessionDefaults as Record<string, string> | undefined;
     const sessionKey = sessionDefaults?.mainSessionKey || sessionDefaults?.mainKey || "main";
-    sessionKeyRef.current = sessionKey;
+    syncSessionKey(sessionKey);
     requestHistory();
     requestServerCommands();
-  }, [requestHistory, requestServerCommands]);
+    requestSessionsList();
+  }, [requestHistory, requestServerCommands, requestSessionsList, syncSessionKey]);
 
   /** Handle chat.history response — parse, merge tool results, update state. */
   const handleHistoryResponse = useCallback((resPayload: Record<string, unknown>) => {
@@ -867,8 +885,9 @@ export default function Home() {
 
     // If pull-to-refresh was active, bounce back
     onHistoryReceived();
+    onHistoryLoadedAfterSwitch();
     setHistoryLoaded(true);
-  }, [onHistoryReceived, requestHistory, sendWS, subagentStore]);
+  }, [onHistoryReceived, onHistoryLoadedAfterSwitch, requestHistory, sendWS, subagentStore]);
 
   /** Handle chat events (delta/final/aborted/error). */
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
@@ -1169,7 +1188,10 @@ export default function Home() {
         }
         return;
       }
-      if (msg.ok && msg.id?.startsWith("sessions-list-")) return;
+      if (msg.id?.startsWith("sessions-list-")) {
+        handleSessionsListResponse(msg.ok && resPayload ? resPayload : {});
+        return;
+      }
       if (msg.id?.startsWith("cmdfetch-")) return;
       if (msg.ok && msg.id?.startsWith("subhistory-") && resPayload?.messages) {
         const sessionKey = pendingSubhistoryRef.current.get(msg.id);
@@ -1223,7 +1245,7 @@ export default function Home() {
       if (msg.event === "chat") return handleChatEvent(msg.payload as ChatEventPayload);
       if (msg.event === "agent") return handleAgentEvent(msg.payload as AgentEventPayload);
     }
-  }, [handleConnectChallenge, handleHelloOk, handleHistoryResponse, handleChatEvent, handleAgentEvent, subagentStore]);
+  }, [handleConnectChallenge, handleHelloOk, handleHistoryResponse, handleChatEvent, handleAgentEvent, handleSessionsListResponse, subagentStore]);
 
   const { connectionState, connect, disconnect, sendMessage: sendWSMessage, isConnected, markEstablished } = useWebSocket({
     onMessage: handleWSMessage,
@@ -1700,8 +1722,14 @@ export default function Home() {
 
     // OpenClaw mode
     window.localStorage.setItem("mobileclaw-mode", "openclaw");
-    window.localStorage.setItem("openclaw-url", config.url);
-    if (config.token) window.localStorage.setItem("openclaw-token", config.token);
+    if (config.remember) {
+      window.localStorage.setItem("openclaw-url", config.url);
+      if (config.token) window.localStorage.setItem("openclaw-token", config.token);
+      else window.localStorage.removeItem("openclaw-token");
+    } else {
+      window.localStorage.removeItem("openclaw-url");
+      window.localStorage.removeItem("openclaw-token");
+    }
     gatewayTokenRef.current = config.token ?? null;
     setBackendMode("openclaw");
     setIsDemoMode(false);
@@ -1979,6 +2007,48 @@ export default function Home() {
     return result.filter((m) => !m.isHidden);
   }, [messages]);
 
+  const currentSessionName = useMemo(() => {
+    const current = sessions.find((session) => session.key === currentSessionKey);
+    if (current) return formatSessionName(current);
+    if (currentSessionKey === "main") return "Main Session";
+    return currentSessionKey;
+  }, [sessions, currentSessionKey]);
+
+  const resetChatStateForSessionSwitch = useCallback(() => {
+    if (historyPollRef.current) {
+      clearInterval(historyPollRef.current);
+      historyPollRef.current = null;
+    }
+    setAwaitingResponse(false);
+    setIsStreaming(false);
+    setStreamingId(null);
+    activeRunIdRef.current = null;
+    setMessages([]);
+    setHistoryLoaded(false);
+    setCurrentModel(null);
+    subagentStore.clearAll();
+    handleUnpinSubagent();
+    fetchedSubhistoryRef.current.clear();
+  }, [setAwaitingResponse, setIsStreaming, subagentStore, handleUnpinSubagent]);
+
+  const handleSessionSelect = useCallback((key: string) => {
+    closeSessionSheet();
+    if (backendMode !== "openclaw") return;
+    if (key === currentSessionKey) return;
+    switchSession(key);
+    resetChatStateForSessionSwitch();
+    requestHistory();
+    requestServerCommands();
+  }, [
+    closeSessionSheet,
+    backendMode,
+    currentSessionKey,
+    switchSession,
+    resetChatStateForSessionSwitch,
+    requestHistory,
+    requestServerCommands,
+  ]);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (!turnstileChecked) return null;
@@ -2037,6 +2107,17 @@ export default function Home() {
             backendMode={backendMode}
             isDemoMode={isDemoMode}
             onOpenSetup={() => setShowSetup(true)}
+            sessionName={currentSessionName}
+            onSessionPillClick={openSessionSheet}
+            sessionSwitching={sessionSwitching}
+          />
+          <SessionSheet
+            open={isSessionSheetOpen}
+            onClose={closeSessionSheet}
+            sessions={sessions}
+            loading={sessionsLoading}
+            currentSessionKey={currentSessionKey}
+            onSelect={handleSessionSelect}
           />
         </>
       )}
@@ -2054,7 +2135,7 @@ export default function Home() {
               postScrollPosition(distFromBottom);
             }
           }}
-          className={`flex-1 overflow-y-auto overflow-x-hidden ${isNative ? "" : "bg-background"} ${isDetached ? "rounded-2xl" : "pt-14"}`}
+          className={`scrollbar-hide flex-1 overflow-y-auto overflow-x-hidden ${isNative ? "" : "bg-background"} ${isDetached ? "rounded-2xl" : "pt-14"}`}
           style={{ ...(isNative ? {} : { overscrollBehavior: "none" as const }), ...(isDetached ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
         >
           <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
