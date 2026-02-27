@@ -35,9 +35,10 @@ import { ChatViewport } from "@/components/chat/ChatViewport";
 import { ChatComposerBar } from "@/components/chat/ChatComposerBar";
 
 import { useThinkingState } from "@/hooks/useThinkingState";
-import { useScrollManager } from "@/hooks/useScrollManager";
+import { PIN_LOCK_MS, useScrollManager } from "@/hooks/useScrollManager";
 import { useKeyboardLayout } from "@/hooks/useKeyboardLayout";
 import { useTheme } from "@/hooks/useTheme";
+import { useZenMode } from "@/hooks/useZenMode";
 import { useSubagentStore } from "@/hooks/useSubagentStore";
 import { formatSessionName } from "@/hooks/useSessionSwitcher";
 
@@ -52,6 +53,8 @@ import { useLmStudioRuntime } from "@/hooks/chat/useLmStudioRuntime";
 import { useMessageSender } from "@/hooks/chat/useMessageSender";
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null;
+const ZEN_TOGGLE_PIN_MS = 700;
+const ZEN_BOTTOM_THRESHOLD_PX = 12;
 
 export default function Home() {
   const [openclawUrl, setOpenclawUrl] = useState<string | null>(null);
@@ -107,6 +110,8 @@ export default function Home() {
   const [historyLoaded, setHistoryLoaded] = useState(false);
 
   const { theme, toggleTheme } = useTheme();
+  const { zenMode, toggleZenMode } = useZenMode();
+  const zenPinRafRef = useRef<number | null>(null);
 
   const subagentStore = useSubagentStore();
   const [pinnedSubagent, setPinnedSubagent] = useState<{
@@ -153,6 +158,47 @@ export default function Home() {
   const handleUnpinSubagent = useCallback(() => {
     setPinnedSubagent(null);
     try { sessionStorage.removeItem("pinned-subagent"); } catch {}
+  }, []);
+
+  const handleToggleZenMode = useCallback(() => {
+    const el = scrollRef.current;
+    const distanceFromBottom = el ? el.scrollHeight - el.scrollTop - el.clientHeight : Infinity;
+    const wasPinnedAtBottom = !!el && distanceFromBottom <= ZEN_BOTTOM_THRESHOLD_PX;
+
+    if (zenPinRafRef.current != null) {
+      cancelAnimationFrame(zenPinRafRef.current);
+      zenPinRafRef.current = null;
+    }
+
+    if (wasPinnedAtBottom && el) {
+      pinnedToBottomRef.current = true;
+      pinLockUntilRef.current = Date.now() + PIN_LOCK_MS + ZEN_TOGGLE_PIN_MS;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    toggleZenMode();
+
+    if (!wasPinnedAtBottom) return;
+    const endAt = performance.now() + ZEN_TOGGLE_PIN_MS;
+    const pinTick = () => {
+      const node = scrollRef.current;
+      if (!node) return;
+      node.scrollTop = node.scrollHeight;
+      if (performance.now() < endAt) {
+        zenPinRafRef.current = requestAnimationFrame(pinTick);
+      } else {
+        zenPinRafRef.current = null;
+      }
+    };
+    zenPinRafRef.current = requestAnimationFrame(pinTick);
+  }, [pinLockUntilRef, pinnedToBottomRef, scrollRef, toggleZenMode]);
+
+  useEffect(() => {
+    return () => {
+      if (zenPinRafRef.current != null) {
+        cancelAnimationFrame(zenPinRafRef.current);
+      }
+    };
   }, []);
 
   const [backendMode, setBackendMode] = useState<BackendMode>("openclaw");
@@ -517,6 +563,8 @@ export default function Home() {
         currentModel={currentModel}
         theme={theme}
         toggleTheme={toggleTheme}
+        zenMode={zenMode}
+        toggleZenMode={handleToggleZenMode}
         connectionState={connectionState}
         sessionName={currentSessionName}
         onSessionPillClick={openSessionSheet}
@@ -551,6 +599,7 @@ export default function Home() {
         pinnedToolCallId={pinnedSubagent?.toolCallId ?? null}
         onPin={handlePinSubagent}
         onUnpin={handleUnpinSubagent}
+        zenMode={zenMode}
         awaitingResponse={awaitingResponse}
         thinkingStartTime={thinkingStartTime}
         thinkingLabel={thinkingLabel}

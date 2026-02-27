@@ -1,7 +1,16 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MessageRow } from "@/components/MessageRow";
 import type { Message } from "@/types/chat";
+
+function findSlideGrid(el: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = el;
+  while (node) {
+    if (node.style?.gridTemplateRows) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
 
 describe("MessageRow", () => {
   it("renders user message text", () => {
@@ -115,5 +124,102 @@ describe("MessageRow", () => {
     };
     render(<MessageRow message={message} isStreaming={false} />);
     expect(screen.getByText("Running...")).toBeInTheDocument();
+  });
+
+  it("renders full assistant content when zen mode is off", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [
+        { type: "text", text: "Step one" },
+        { type: "tool_call", name: "exec", arguments: "{\"command\":\"echo 1\"}", status: "success", result: "1" },
+        { type: "text", text: "Step two" },
+        { type: "tool_call", name: "exec", arguments: "{\"command\":\"echo 2\"}", status: "success", result: "2" },
+        { type: "text", text: "Final answer" },
+      ],
+      id: "zen-off",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} zenMode={false} />);
+    expect(screen.getByText("Step one")).toBeInTheDocument();
+    expect(screen.getByText("Step two")).toBeInTheDocument();
+    expect(screen.getByText("Final answer")).toBeInTheDocument();
+  });
+
+  it("renders zen toggle for block-collapsible rows and calls toggle handler", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Final answer" }],
+      id: "zen-toggle",
+    };
+    const onZenGroupToggle = vi.fn();
+
+    render(
+      <MessageRow
+        message={message}
+        isStreaming={false}
+        zenMode
+        zenGroupCollapsible
+        zenGroupExpanded={false}
+        onZenGroupToggle={onZenGroupToggle}
+      />,
+    );
+
+    const toggle = screen.getByTestId("zen-toggle");
+    expect(toggle).toHaveAttribute("aria-label", "Expand assistant steps");
+    fireEvent.click(toggle);
+    expect(onZenGroupToggle).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Final answer")).toBeInTheDocument();
+  });
+
+  it("hides collapsed sibling rows in zen mode and reveals when expanded", async () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Step one" }],
+      id: "zen-sibling",
+    };
+
+    const { rerender } = render(
+      <MessageRow
+        message={message}
+        isStreaming={false}
+        zenMode
+        zenCollapsedByGroup
+        zenGroupExpanded={false}
+        zenGroupSlideOpen={false}
+        zenGroupFadeVisible={false}
+      />,
+    );
+    const initialGrid = findSlideGrid(screen.getByText("Step one"));
+    expect(initialGrid).not.toBeNull();
+    expect(initialGrid).toHaveStyle({ gridTemplateRows: "0fr" });
+
+    rerender(
+      <MessageRow
+        message={message}
+        isStreaming={false}
+        zenMode
+        zenCollapsedByGroup
+        zenGroupExpanded
+        zenGroupSlideOpen
+        zenGroupFadeVisible
+      />,
+    );
+    await waitFor(() => {
+      const expandedGrid = findSlideGrid(screen.getByText("Step one"));
+      expect(expandedGrid).not.toBeNull();
+      expect(expandedGrid).toHaveStyle({ gridTemplateRows: "1fr" });
+    });
+  });
+
+  it("does not render zen chevron without a block-collapsible flag", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Just one group" }],
+      id: "zen-single",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} zenMode />);
+    expect(screen.getByText("Just one group")).toBeInTheDocument();
+    expect(screen.queryByTestId("zen-toggle")).not.toBeInTheDocument();
   });
 });

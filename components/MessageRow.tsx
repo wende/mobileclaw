@@ -213,6 +213,8 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
 // ── ThinkingPill ─────────────────────────────────────────────────────────────
 
 const THINKING_COLLAPSE_THRESHOLD = 5;
+const ZEN_SLIDE_MS = 200;
+const ZEN_FADE_MS = 400;
 
 function ThinkingPill({ text }: { text: string }) {
   const isEmpty = !text.trim();
@@ -460,7 +462,35 @@ function useNativeClickInterceptor(containerRef: React.RefObject<HTMLDivElement 
 
 // ── MessageRow ───────────────────────────────────────────────────────────────
 
-export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCallId, onPin, onUnpin }: { message: Message; isStreaming: boolean; subagentStore?: SubagentStore; pinnedToolCallId?: string | null; onPin?: (info: { toolCallId: string | null; childSessionKey: string | null; taskName: string; model: string | null }) => void; onUnpin?: () => void }) {
+export function MessageRow({
+  message,
+  isStreaming,
+  subagentStore,
+  pinnedToolCallId,
+  onPin,
+  onUnpin,
+  zenMode = false,
+  zenGroupCollapsible = false,
+  zenGroupExpanded = false,
+  zenCollapsedByGroup = false,
+  zenGroupSlideOpen = false,
+  zenGroupFadeVisible = false,
+  onZenGroupToggle,
+}: {
+  message: Message;
+  isStreaming: boolean;
+  subagentStore?: SubagentStore;
+  pinnedToolCallId?: string | null;
+  onPin?: (info: { toolCallId: string | null; childSessionKey: string | null; taskName: string; model: string | null }) => void;
+  onUnpin?: () => void;
+  zenMode?: boolean;
+  zenGroupCollapsible?: boolean;
+  zenGroupExpanded?: boolean;
+  zenCollapsedByGroup?: boolean;
+  zenGroupSlideOpen?: boolean;
+  zenGroupFadeVisible?: boolean;
+  onZenGroupToggle?: () => void;
+}) {
   const messageRef = useRef<HTMLDivElement>(null);
   useNativeClickInterceptor(messageRef);
 
@@ -568,6 +598,10 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
   }
 
   const isUser = message.role === "user";
+  type AssistantBlock = {
+    key: string;
+    node: React.ReactNode;
+  };
 
   // Check if content array has structured thinking parts
   const hasThinkingParts = Array.isArray(message.content)
@@ -577,8 +611,138 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
   const hasSpawnTool = !isUser && Array.isArray(message.content)
     && (message.content).some((p) => isToolCallPart(p) && p.name === SPAWN_TOOL_NAME);
 
-  return (
-    <div ref={messageRef} data-message-role={message.role} className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
+  const assistantBlocks: AssistantBlock[] = [];
+  const pushAssistantBlock = (key: string, node: React.ReactNode) => {
+    assistantBlocks.push({ key, node });
+  };
+
+  if (!isUser) {
+    if (message.reasoning && !hasThinkingParts) {
+      pushAssistantBlock("reasoning", <ThinkingPill text={message.reasoning} />);
+    }
+
+    if (Array.isArray(message.content)) {
+      const contentParts = message.content;
+      contentParts.forEach((part, i) => {
+        if (part.type === "thinking") {
+          pushAssistantBlock(`thinking-${i}`, <ThinkingPill text={part.thinking || part.text || ""} />);
+          return;
+        }
+        if (isToolCallPart(part)) {
+          const isSpawn = part.name === SPAWN_TOOL_NAME;
+          pushAssistantBlock(
+            `tool-${i}`,
+            (
+              <ToolCallPill
+                name={part.name || "tool"}
+                args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined}
+                status={part.status}
+                result={part.result}
+                resultError={part.resultError}
+                toolCallId={part.toolCallId}
+                subagentStore={isSpawn ? subagentStore : undefined}
+                isPinned={isSpawn && !!part.toolCallId && part.toolCallId === pinnedToolCallId}
+                onPin={isSpawn ? onPin : undefined}
+                onUnpin={isSpawn ? onUnpin : undefined}
+              />
+            ),
+          );
+          return;
+        }
+        if (part.type === "text" && part.text) {
+          const { thinking: extractedThinking, text: rawCleanText } = stripThinkTags(part.text);
+          const cleanText = stripFinalTags(rawCleanText);
+          const remainingParts = contentParts.slice(i + 1);
+          const isLastText = !remainingParts.some((p) => p.type === "text" && p.text);
+          // Hide cursor if tool call or thinking appears after this text
+          const hasLaterNonText = remainingParts.some((p) => isToolCallPart(p) || p.type === "thinking");
+          const showCursor = isStreaming && isLastText && !hasLaterNonText;
+
+          if (extractedThinking && !hasThinkingParts && !message.reasoning) {
+            pushAssistantBlock(`text-thinking-${i}`, <ThinkingPill text={extractedThinking} />);
+          }
+          if (cleanText) {
+            pushAssistantBlock(
+              `text-${i}`,
+              <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
+                {showCursor ? (
+                  <StreamingText text={cleanText} isStreaming={isStreaming} />
+                ) : (
+                  <MarkdownContent text={cleanText} />
+                )}
+              </div>,
+            );
+          }
+          return;
+        }
+        if (part.type === "image" || part.type === "image_url") {
+          pushAssistantBlock(`img-${i}`, <ImageThumbnails images={[part]} />);
+        }
+      });
+    } else if (text) {
+      const { thinking: extractedThinking, text: rawCleanText } = stripThinkTags(text);
+      const cleanText = stripFinalTags(rawCleanText);
+      if (extractedThinking && !hasThinkingParts && !message.reasoning) {
+        pushAssistantBlock("fallback-thinking", <ThinkingPill text={extractedThinking} />);
+      }
+      if (cleanText) {
+        pushAssistantBlock(
+          "fallback-text",
+          <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
+            {isStreaming ? (
+              <StreamingText text={cleanText} isStreaming={isStreaming} />
+            ) : (
+              <MarkdownContent text={cleanText} />
+            )}
+          </div>,
+        );
+      }
+    }
+  }
+
+  const zenCollapsible = !isUser && zenMode && zenGroupCollapsible;
+  const renderAssistantBlock = (block: AssistantBlock) => (
+    <React.Fragment key={block.key}>{block.node}</React.Fragment>
+  );
+  const zenToggleLabel = zenGroupExpanded ? "Collapse assistant steps" : "Expand assistant steps";
+  const renderZenToggle = () => (
+    <div className="flex">
+      <button
+        type="button"
+        onClick={onZenGroupToggle}
+        className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+        aria-label={zenToggleLabel}
+        data-testid="zen-toggle"
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="transition-transform duration-200"
+          style={{ transform: zenGroupExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+    </div>
+  );
+
+  const effectiveZenSlideOpen = zenCollapsedByGroup ? zenGroupSlideOpen : zenGroupExpanded;
+  const effectiveZenFadeVisible = zenCollapsedByGroup ? zenGroupFadeVisible : zenGroupExpanded;
+  const collapsedZenSibling = !isUser && zenMode && zenCollapsedByGroup && !effectiveZenSlideOpen;
+
+  const rowContent = (
+    <div
+      ref={messageRef}
+      data-message-role={message.role}
+      className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}
+      style={collapsedZenSibling ? { marginBottom: "-0.75rem", transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` } : { transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` }}
+    >
       <div className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "rounded-2xl rounded-tr-[1px] rounded-br-lg bg-primary px-4 py-2.5 text-primary-foreground" : ""} ${hasSpawnTool ? "w-[85%] md:w-[75%]" : ""}`}>
         {isUser ? (
           <>
@@ -593,68 +757,29 @@ export function MessageRow({ message, isStreaming, subagentStore, pinnedToolCall
         ) : (
           /* Single-pass rendering: all parts in content array order for correct chronology */
           <SmoothGrow active={isStreaming} className="flex flex-col gap-1.5">
-            {/* message.reasoning (from OpenClaw stream parser) renders first — it precedes tool calls */}
-            {message.reasoning && !hasThinkingParts && <ThinkingPill text={message.reasoning} />}
-            {Array.isArray(message.content) ? (message.content).map((part, i) => {
-              if (part.type === "thinking") {
-                return <ThinkingPill key={`thinking-${i}`} text={part.thinking || part.text || ""} />;
-              }
-              if (isToolCallPart(part)) {
-                const isSpawn = part.name === SPAWN_TOOL_NAME;
-                return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status} result={part.result} resultError={part.resultError} toolCallId={part.toolCallId} subagentStore={isSpawn ? subagentStore : undefined} isPinned={isSpawn && !!part.toolCallId && part.toolCallId === pinnedToolCallId} onPin={isSpawn ? onPin : undefined} onUnpin={isSpawn ? onUnpin : undefined} />;
-              }
-              if (part.type === "text" && part.text) {
-                const { thinking: extractedThinking, text: rawCleanText } = stripThinkTags(part.text);
-                const cleanText = stripFinalTags(rawCleanText);
-                const remainingParts = (message.content as ContentPart[]).slice(i + 1);
-                const isLastText = !remainingParts.some((p) => p.type === "text" && p.text);
-                // Hide cursor if tool call or thinking appears after this text
-                const hasLaterNonText = remainingParts.some((p) => isToolCallPart(p) || p.type === "thinking");
-                const showCursor = isStreaming && isLastText && !hasLaterNonText;
-                return (
-                  <React.Fragment key={`text-${i}`}>
-                    {extractedThinking && !hasThinkingParts && !message.reasoning && (
-                      <ThinkingPill text={extractedThinking} />
-                    )}
-                    {cleanText && (
-                      <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
-                        {showCursor ? (
-                          <StreamingText text={cleanText} isStreaming={isStreaming} />
-                        ) : (
-                          <MarkdownContent text={cleanText} />
-                        )}
-                      </div>
-                    )}
-                  </React.Fragment>
-                );
-              }
-              if (part.type === "image" || part.type === "image_url") {
-                return <ImageThumbnails key={`img-${i}`} images={[part]} />;
-              }
-              return null;
-            }) : text ? (() => {
-              const { thinking: extractedThinking, text: rawCleanText } = stripThinkTags(text);
-              const cleanText = stripFinalTags(rawCleanText);
-              return (
-                <>
-                  {extractedThinking && !hasThinkingParts && !message.reasoning && (
-                    <ThinkingPill text={extractedThinking} />
-                  )}
-                  {cleanText && (
-                    <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
-                      {isStreaming ? (
-                        <StreamingText text={cleanText} isStreaming={isStreaming} />
-                      ) : (
-                        <MarkdownContent text={cleanText} />
-                      )}
-                    </div>
-                  )}
-                </>
-              );
-            })() : null}
+            {zenCollapsedByGroup ? (
+              <>
+                {zenCollapsible && renderZenToggle()}
+                <SlideContent open={effectiveZenSlideOpen}>
+                  <div
+                    className="flex flex-col gap-1.5 transition-opacity ease-out"
+                    style={{ opacity: effectiveZenFadeVisible ? 1 : 0, transitionDuration: `${ZEN_FADE_MS}ms` }}
+                  >
+                    {assistantBlocks.map(renderAssistantBlock)}
+                  </div>
+                </SlideContent>
+              </>
+            ) : (
+              <>
+                {zenCollapsible && renderZenToggle()}
+                {assistantBlocks.map(renderAssistantBlock)}
+              </>
+            )}
           </SmoothGrow>
         )}
       </div>
     </div>
   );
+
+  return rowContent;
 }

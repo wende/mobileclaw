@@ -5,6 +5,8 @@ interface ChatHeaderProps {
   currentModel: string | null;
   theme: "light" | "dark";
   toggleTheme: () => void;
+  zenMode: boolean;
+  toggleZenMode: () => void;
   connectionState: ConnectionState;
   backendMode: BackendMode;
   isDemoMode: boolean;
@@ -18,6 +20,8 @@ export function ChatHeader({
   currentModel,
   theme,
   toggleTheme,
+  zenMode,
+  toggleZenMode,
   connectionState,
   backendMode,
   isDemoMode,
@@ -103,6 +107,20 @@ export function ChatHeader({
             <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
           </svg>
         )}
+      </button>
+      <button
+        type="button"
+        onClick={toggleZenMode}
+        className={`flex h-8 w-8 items-center justify-center rounded-full border border-border transition-colors active:bg-accent ${
+          zenMode ? "bg-accent text-foreground" : "bg-card hover:bg-accent"
+        }`}
+        aria-label={zenMode ? "Disable zen mode" : "Enable zen mode"}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 8h16" />
+          <path d="M7 12h10" />
+          <path d="M10 16h4" />
+        </svg>
       </button>
       <div className="flex shrink-0 items-center gap-1.5 animate-[fadeIn_300ms_ease-out]" title={connectionLabel}>
         <span className={`h-2 w-2 rounded-full ${dotColor}`} />

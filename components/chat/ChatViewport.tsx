@@ -1,12 +1,17 @@
 "use client";
 
-import React from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 
 import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 import { formatMessageTime, getMessageSide } from "@/lib/messageUtils";
+import { STOP_REASON_INJECTED } from "@/lib/constants";
 import type { Message } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
+
+const ZEN_SLIDE_MS = 200;
+const ZEN_FADE_MS = 400;
+const ZEN_TOGGLE_FRAME_MS = 16;
 
 interface ChatViewportProps {
   isDetached: boolean;
@@ -35,6 +40,7 @@ interface ChatViewportProps {
     model: string | null;
   }) => void;
   onUnpin: () => void;
+  zenMode: boolean;
   awaitingResponse: boolean;
   thinkingStartTime: number | null;
   thinkingLabel?: string;
@@ -65,6 +71,7 @@ export function ChatViewport({
   pinnedToolCallId,
   onPin,
   onUnpin,
+  zenMode,
   awaitingResponse,
   thinkingStartTime,
   thinkingLabel,
@@ -72,6 +79,285 @@ export function ChatViewport({
   quotePopupRef,
   onAcceptQuote,
 }: ChatViewportProps) {
+  const [zenRenderMode, setZenRenderMode] = useState(zenMode);
+  const [expandedZenGroups, setExpandedZenGroups] = useState<Record<string, boolean>>({});
+  const [collapsingZenGroups, setCollapsingZenGroups] = useState<Record<string, boolean>>({});
+  const [zenGroupSlideOpen, setZenGroupSlideOpen] = useState<Record<string, boolean>>({});
+  const [zenGroupFadeVisible, setZenGroupFadeVisible] = useState<Record<string, boolean>>({});
+  const animationTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({});
+  const modeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const prevZenModeRef = useRef(zenMode);
+
+  const zenGroupMeta = useMemo(() => {
+    const byIndex = new Map<number, { groupId: string; isHead: boolean; isTail: boolean; hasMultiple: boolean }>();
+    const groupIds: string[] = [];
+    const multiGroupIds: string[] = [];
+    let currentGroupId: string | null = null;
+    let currentIndices: number[] = [];
+
+    const flushGroup = () => {
+      if (!currentGroupId || currentIndices.length === 0) return;
+      const head = currentIndices[0];
+      const tail = currentIndices[currentIndices.length - 1];
+      const hasMultiple = currentIndices.length > 1;
+      for (const idx of currentIndices) {
+        byIndex.set(idx, { groupId: currentGroupId, isHead: idx === head, isTail: idx === tail, hasMultiple });
+      }
+      groupIds.push(currentGroupId);
+      if (hasMultiple) multiGroupIds.push(currentGroupId);
+      currentGroupId = null;
+      currentIndices = [];
+    };
+
+    for (let idx = 0; idx < displayMessages.length; idx++) {
+      const msg = displayMessages[idx];
+      const side = getMessageSide(msg.role);
+      const prevSide = idx > 0 ? getMessageSide(displayMessages[idx - 1].role) : null;
+      const prevTimestamp = idx > 0 ? displayMessages[idx - 1].timestamp : null;
+      const isNewTurn = side !== "center" && side !== prevSide;
+      const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
+      const isTimeGap = timGap > 10 * 60 * 1000;
+      const showTimestamp = side !== "center" && (isNewTurn || isTimeGap);
+
+      const isZenEligibleAssistant =
+        msg.role === "assistant"
+        && !msg.isCommandResponse
+        && !msg.isContext
+        && msg.stopReason !== STOP_REASON_INJECTED;
+
+      if (!isZenEligibleAssistant) {
+        continue;
+      }
+
+      if (!currentGroupId || showTimestamp) {
+        flushGroup();
+        currentGroupId = msg.id ? `zen-${msg.id}` : `zen-idx-${idx}`;
+      }
+      currentIndices.push(idx);
+    }
+    flushGroup();
+    return { byIndex, groupIds, multiGroupIds };
+  }, [displayMessages]);
+
+  const clearGroupTimers = useCallback((groupId: string) => {
+    const timers = animationTimersRef.current[groupId];
+    if (!timers) return;
+    timers.forEach((timer) => clearTimeout(timer));
+    delete animationTimersRef.current[groupId];
+  }, []);
+
+  const setGroupTimer = useCallback((groupId: string, timer: ReturnType<typeof setTimeout>) => {
+    if (!animationTimersRef.current[groupId]) {
+      animationTimersRef.current[groupId] = [];
+    }
+    animationTimersRef.current[groupId].push(timer);
+  }, []);
+
+  const clearModeTimers = useCallback(() => {
+    modeTimersRef.current.forEach((timer) => clearTimeout(timer));
+    modeTimersRef.current = [];
+  }, []);
+
+  const setModeTimer = useCallback((timer: ReturnType<typeof setTimeout>) => {
+    modeTimersRef.current.push(timer);
+  }, []);
+
+  useEffect(() => {
+    setExpandedZenGroups((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const id of zenGroupMeta.groupIds) {
+        if (prev[id]) next[id] = true;
+      }
+      return next;
+    });
+    setCollapsingZenGroups((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const id of zenGroupMeta.groupIds) {
+        if (prev[id]) next[id] = true;
+      }
+      return next;
+    });
+    setZenGroupSlideOpen((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const id of zenGroupMeta.groupIds) {
+        if (prev[id]) next[id] = true;
+      }
+      return next;
+    });
+    setZenGroupFadeVisible((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const id of zenGroupMeta.groupIds) {
+        if (prev[id]) next[id] = true;
+      }
+      return next;
+    });
+
+    for (const groupId of Object.keys(animationTimersRef.current)) {
+      if (!zenGroupMeta.groupIds.includes(groupId)) {
+        clearGroupTimers(groupId);
+      }
+    }
+  }, [clearGroupTimers, zenGroupMeta.groupIds]);
+
+  useEffect(() => {
+    const wasZenMode = prevZenModeRef.current;
+    if (wasZenMode === zenMode) return;
+    prevZenModeRef.current = zenMode;
+
+    clearModeTimers();
+    for (const groupId of zenGroupMeta.multiGroupIds) {
+      clearGroupTimers(groupId);
+    }
+
+    if (zenMode) {
+      setZenRenderMode(true);
+
+      if (zenGroupMeta.multiGroupIds.length === 0) return;
+
+      setExpandedZenGroups((prev) => {
+        const next = { ...prev };
+        for (const groupId of zenGroupMeta.multiGroupIds) next[groupId] = false;
+        return next;
+      });
+      setCollapsingZenGroups((prev) => {
+        const next = { ...prev };
+        for (const groupId of zenGroupMeta.multiGroupIds) next[groupId] = true;
+        return next;
+      });
+      setZenGroupSlideOpen((prev) => {
+        const next = { ...prev };
+        for (const groupId of zenGroupMeta.multiGroupIds) next[groupId] = true;
+        return next;
+      });
+      setZenGroupFadeVisible((prev) => {
+        const next = { ...prev };
+        for (const groupId of zenGroupMeta.multiGroupIds) next[groupId] = true;
+        return next;
+      });
+
+      const fadeOutTimer = setTimeout(() => {
+        setZenGroupFadeVisible((prev) => {
+          const next = { ...prev };
+          for (const groupId of zenGroupMeta.multiGroupIds) next[groupId] = false;
+          return next;
+        });
+      }, ZEN_TOGGLE_FRAME_MS);
+      const closeTimer = setTimeout(() => {
+        setZenGroupSlideOpen((prev) => {
+          const next = { ...prev };
+          for (const groupId of zenGroupMeta.multiGroupIds) next[groupId] = false;
+          return next;
+        });
+      }, ZEN_TOGGLE_FRAME_MS + ZEN_FADE_MS);
+      const doneTimer = setTimeout(() => {
+        setCollapsingZenGroups((prev) => {
+          const next = { ...prev };
+          for (const groupId of zenGroupMeta.multiGroupIds) delete next[groupId];
+          return next;
+        });
+      }, ZEN_TOGGLE_FRAME_MS + ZEN_FADE_MS + ZEN_SLIDE_MS);
+
+      setModeTimer(fadeOutTimer);
+      setModeTimer(closeTimer);
+      setModeTimer(doneTimer);
+      return;
+    }
+
+    if (!zenRenderMode) return;
+
+    if (zenGroupMeta.multiGroupIds.length === 0) {
+      setZenRenderMode(false);
+      return;
+    }
+
+    setExpandedZenGroups((prev) => {
+      const next = { ...prev };
+      for (const groupId of zenGroupMeta.multiGroupIds) next[groupId] = true;
+      return next;
+    });
+    setCollapsingZenGroups((prev) => {
+      const next = { ...prev };
+      for (const groupId of zenGroupMeta.multiGroupIds) delete next[groupId];
+      return next;
+    });
+    setZenGroupFadeVisible((prev) => {
+      const next = { ...prev };
+      for (const groupId of zenGroupMeta.multiGroupIds) next[groupId] = false;
+      return next;
+    });
+    setZenGroupSlideOpen((prev) => {
+      const next = { ...prev };
+      for (const groupId of zenGroupMeta.multiGroupIds) next[groupId] = true;
+      return next;
+    });
+
+    const fadeInTimer = setTimeout(() => {
+      setZenGroupFadeVisible((prev) => {
+        const next = { ...prev };
+        for (const groupId of zenGroupMeta.multiGroupIds) next[groupId] = true;
+        return next;
+      });
+    }, ZEN_SLIDE_MS);
+    const doneTimer = setTimeout(() => {
+      setZenRenderMode(false);
+    }, ZEN_SLIDE_MS + ZEN_FADE_MS);
+
+    setModeTimer(fadeInTimer);
+    setModeTimer(doneTimer);
+  }, [clearGroupTimers, clearModeTimers, setModeTimer, zenGroupMeta.multiGroupIds, zenMode, zenRenderMode]);
+
+  const handleToggleZenGroup = useCallback((groupId: string) => {
+    clearGroupTimers(groupId);
+    setExpandedZenGroups((prev) => {
+      const wasExpanded = !!prev[groupId];
+      const next = { ...prev, [groupId]: !wasExpanded };
+
+      if (wasExpanded) {
+        // Collapse sequence: fade out first, then slide closed.
+        setCollapsingZenGroups((cPrev) => ({ ...cPrev, [groupId]: true }));
+        setZenGroupFadeVisible((fPrev) => ({ ...fPrev, [groupId]: false }));
+        setZenGroupSlideOpen((sPrev) => ({ ...sPrev, [groupId]: true }));
+        const closeTimer = setTimeout(() => {
+          setZenGroupSlideOpen((sPrev) => ({ ...sPrev, [groupId]: false }));
+        }, ZEN_FADE_MS);
+        const collapseDoneTimer = setTimeout(() => {
+          setCollapsingZenGroups((cPrev) => {
+            const cNext = { ...cPrev };
+            delete cNext[groupId];
+            return cNext;
+          });
+        }, ZEN_FADE_MS + ZEN_SLIDE_MS);
+        setGroupTimer(groupId, closeTimer);
+        setGroupTimer(groupId, collapseDoneTimer);
+      } else {
+        // Expand sequence: slide open first, then fade in.
+        setCollapsingZenGroups((cPrev) => {
+          const cNext = { ...cPrev };
+          delete cNext[groupId];
+          return cNext;
+        });
+        setZenGroupSlideOpen((sPrev) => ({ ...sPrev, [groupId]: true }));
+        setZenGroupFadeVisible((fPrev) => ({ ...fPrev, [groupId]: false }));
+        const fadeTimer = setTimeout(() => {
+          setZenGroupFadeVisible((fPrev) => ({ ...fPrev, [groupId]: true }));
+        }, ZEN_SLIDE_MS);
+        setGroupTimer(groupId, fadeTimer);
+      }
+
+      return next;
+    });
+  }, [clearGroupTimers, setGroupTimer]);
+
+  useEffect(() => {
+    return () => {
+      for (const timers of Object.values(animationTimersRef.current)) {
+        timers.forEach((timer) => clearTimeout(timer));
+      }
+      animationTimersRef.current = {};
+      clearModeTimers();
+    };
+  }, [clearModeTimers]);
+
   return (
     <div ref={pullContentRef} className={`relative flex flex-1 flex-col min-h-0 ${isDetached ? "px-3 pt-3" : ""}`}>
       {!isNative && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${isDetached ? "inset-x-3 top-3 rounded-t-2xl" : "inset-x-0 top-[60px]"}`} style={{ background: "linear-gradient(to bottom, var(--background) 40%, transparent)" }} />}
@@ -98,6 +384,19 @@ export function ChatViewport({
             const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
             const isTimeGap = timGap > 10 * 60 * 1000;
             const showTimestamp = side !== "center" && (isNewTurn || isTimeGap);
+            const zenMeta = zenGroupMeta.byIndex.get(idx);
+            const zenGroupExpanded = zenMeta ? !!expandedZenGroups[zenMeta.groupId] : false;
+            const zenGroupCollapsing = zenMeta ? !!collapsingZenGroups[zenMeta.groupId] : false;
+            const zenSlideOpen = zenMeta ? !!zenGroupSlideOpen[zenMeta.groupId] : false;
+            const zenFadeVisible = zenMeta ? !!zenGroupFadeVisible[zenMeta.groupId] : false;
+            const showZenToggle = zenMode
+              && !!zenMeta
+              && zenMeta.hasMultiple
+              && (
+                ((zenGroupExpanded || zenSlideOpen || zenGroupCollapsing) && zenMeta.isHead)
+                || (!zenGroupExpanded && !zenSlideOpen && !zenGroupCollapsing && zenMeta.isTail)
+              );
+            const isZenSiblingRow = zenRenderMode && !!zenMeta && zenMeta.hasMultiple && !zenMeta.isTail;
             return (
               <React.Fragment key={msg.id || idx}>
                 {isTimeGap && !isNewTurn && msg.timestamp && (
@@ -116,16 +415,7 @@ export function ChatViewport({
                     )}
                   </p>
                 )}
-                <div
-                  style={
-                    msg.id === sentAnimId
-                      ? { animation: "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both", transformOrigin: "bottom right" }
-                      : msg.id && fadeInIds.has(msg.id)
-                        ? { animation: "fadeIn 250ms ease-out" }
-                        : undefined
-                  }
-                  onAnimationEnd={msg.id === sentAnimId ? onSentAnimationEnd : undefined}
-                >
+                {isZenSiblingRow ? (
                   <MessageRow
                     message={msg}
                     isStreaming={isStreaming && msg.id === streamingId}
@@ -133,8 +423,42 @@ export function ChatViewport({
                     pinnedToolCallId={pinnedToolCallId}
                     onPin={onPin}
                     onUnpin={onUnpin}
+                    zenMode={zenRenderMode}
+                    zenGroupCollapsible={showZenToggle}
+                    zenGroupExpanded={zenGroupExpanded}
+                    zenCollapsedByGroup
+                    zenGroupSlideOpen={zenSlideOpen}
+                    zenGroupFadeVisible={zenFadeVisible}
+                    onZenGroupToggle={showZenToggle && zenMeta ? () => handleToggleZenGroup(zenMeta.groupId) : undefined}
                   />
-                </div>
+                ) : (
+                  <div
+                    style={
+                      msg.id === sentAnimId
+                        ? { animation: "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both", transformOrigin: "bottom right" }
+                        : msg.id && fadeInIds.has(msg.id)
+                          ? { animation: "fadeIn 250ms ease-out" }
+                          : undefined
+                    }
+                    onAnimationEnd={msg.id === sentAnimId ? onSentAnimationEnd : undefined}
+                  >
+                    <MessageRow
+                      message={msg}
+                      isStreaming={isStreaming && msg.id === streamingId}
+                      subagentStore={subagentStore}
+                      pinnedToolCallId={pinnedToolCallId}
+                      onPin={onPin}
+                      onUnpin={onUnpin}
+                      zenMode={zenRenderMode}
+                      zenGroupCollapsible={showZenToggle}
+                      zenGroupExpanded={zenGroupExpanded}
+                      zenCollapsedByGroup={false}
+                      zenGroupSlideOpen={zenSlideOpen}
+                      zenGroupFadeVisible={zenFadeVisible}
+                      onZenGroupToggle={showZenToggle && zenMeta ? () => handleToggleZenGroup(zenMeta.groupId) : undefined}
+                    />
+                  </div>
+                )}
               </React.Fragment>
             );
           })}
