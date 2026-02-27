@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import React, { useMemo, useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 
 import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
@@ -12,6 +12,7 @@ import type { useSubagentStore } from "@/hooks/useSubagentStore";
 const ZEN_SLIDE_MS = 200;
 const ZEN_FADE_MS = 400;
 const ZEN_TOGGLE_FRAME_MS = 16;
+const ZEN_COLLAPSE_TOTAL_MS = ZEN_TOGGLE_FRAME_MS + ZEN_FADE_MS + ZEN_SLIDE_MS;
 
 interface ChatViewportProps {
   isDetached: boolean;
@@ -84,9 +85,15 @@ export function ChatViewport({
   const [collapsingZenGroups, setCollapsingZenGroups] = useState<Record<string, boolean>>({});
   const [zenGroupSlideOpen, setZenGroupSlideOpen] = useState<Record<string, boolean>>({});
   const [zenGroupFadeVisible, setZenGroupFadeVisible] = useState<Record<string, boolean>>({});
+  const [zenRowSlideOpen, setZenRowSlideOpen] = useState<Record<string, boolean>>({});
+  const [zenRowFadeVisible, setZenRowFadeVisible] = useState<Record<string, boolean>>({});
+  const [deferredZenTailByGroup, setDeferredZenTailByGroup] = useState<Record<string, boolean>>({});
   const animationTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({});
+  const rowAnimationTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({});
+  const tailDeferTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const modeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const prevZenModeRef = useRef(zenMode);
+  const prevZenMetaByMessageIdRef = useRef<Record<string, { groupId: string; isTail: boolean; hasMultiple: boolean }>>({});
 
   const zenGroupMeta = useMemo(() => {
     const byIndex = new Map<number, { groupId: string; isHead: boolean; isTail: boolean; hasMultiple: boolean }>();
@@ -153,6 +160,40 @@ export function ChatViewport({
     animationTimersRef.current[groupId].push(timer);
   }, []);
 
+  const clearRowTimers = useCallback((messageId: string) => {
+    const timers = rowAnimationTimersRef.current[messageId];
+    if (!timers) return;
+    timers.forEach((timer) => clearTimeout(timer));
+    delete rowAnimationTimersRef.current[messageId];
+  }, []);
+
+  const setRowTimer = useCallback((messageId: string, timer: ReturnType<typeof setTimeout>) => {
+    if (!rowAnimationTimersRef.current[messageId]) {
+      rowAnimationTimersRef.current[messageId] = [];
+    }
+    rowAnimationTimersRef.current[messageId].push(timer);
+  }, []);
+
+  const clearTailDeferTimer = useCallback((groupId: string) => {
+    const timer = tailDeferTimersRef.current[groupId];
+    if (!timer) return;
+    clearTimeout(timer);
+    delete tailDeferTimersRef.current[groupId];
+  }, []);
+
+  const deferZenTailRender = useCallback((groupId: string) => {
+    clearTailDeferTimer(groupId);
+    setDeferredZenTailByGroup((prev) => ({ ...prev, [groupId]: true }));
+    tailDeferTimersRef.current[groupId] = setTimeout(() => {
+      delete tailDeferTimersRef.current[groupId];
+      setDeferredZenTailByGroup((prev) => {
+        const next = { ...prev };
+        delete next[groupId];
+        return next;
+      });
+    }, ZEN_COLLAPSE_TOTAL_MS);
+  }, [clearTailDeferTimer]);
+
   const clearModeTimers = useCallback(() => {
     modeTimersRef.current.forEach((timer) => clearTimeout(timer));
     modeTimersRef.current = [];
@@ -161,6 +202,45 @@ export function ChatViewport({
   const setModeTimer = useCallback((timer: ReturnType<typeof setTimeout>) => {
     modeTimersRef.current.push(timer);
   }, []);
+
+  const demotingZenRows = useMemo(() => {
+    const rowIds = new Set<string>();
+    const groupIds = new Set<string>();
+    if (!(zenMode && zenRenderMode && isStreaming)) return { rowIds, groupIds };
+
+    for (let idx = 0; idx < displayMessages.length; idx++) {
+      const msg = displayMessages[idx];
+      if (!msg.id) continue;
+      const zenMeta = zenGroupMeta.byIndex.get(idx);
+      if (!zenMeta || !zenMeta.hasMultiple || zenMeta.isTail) continue;
+
+      const prevMeta = prevZenMetaByMessageIdRef.current[msg.id];
+      if (!prevMeta) continue;
+      const wasTailInSameGroup = prevMeta.groupId === zenMeta.groupId && prevMeta.isTail;
+      if (!wasTailInSameGroup) continue;
+
+      const groupId = zenMeta.groupId;
+      const groupExpanded = !!expandedZenGroups[groupId];
+      const groupSlidingOpen = !!zenGroupSlideOpen[groupId];
+      const groupCollapsing = !!collapsingZenGroups[groupId];
+      const groupIsCollapsedVisual = !groupExpanded && !groupSlidingOpen && !groupCollapsing;
+      if (!groupIsCollapsedVisual) continue;
+
+      rowIds.add(msg.id);
+      groupIds.add(groupId);
+    }
+
+    return { rowIds, groupIds };
+  }, [
+    collapsingZenGroups,
+    displayMessages,
+    expandedZenGroups,
+    isStreaming,
+    zenGroupMeta.byIndex,
+    zenGroupSlideOpen,
+    zenMode,
+    zenRenderMode,
+  ]);
 
   useEffect(() => {
     setExpandedZenGroups((prev) => {
@@ -191,13 +271,57 @@ export function ChatViewport({
       }
       return next;
     });
+    setDeferredZenTailByGroup((prev) => {
+      const next: Record<string, boolean> = {};
+      for (const id of zenGroupMeta.groupIds) {
+        if (prev[id]) next[id] = true;
+      }
+      return next;
+    });
 
     for (const groupId of Object.keys(animationTimersRef.current)) {
       if (!zenGroupMeta.groupIds.includes(groupId)) {
         clearGroupTimers(groupId);
       }
     }
-  }, [clearGroupTimers, zenGroupMeta.groupIds]);
+    for (const groupId of Object.keys(tailDeferTimersRef.current)) {
+      if (!zenGroupMeta.groupIds.includes(groupId)) {
+        clearTailDeferTimer(groupId);
+      }
+    }
+  }, [clearGroupTimers, clearTailDeferTimer, zenGroupMeta.groupIds]);
+
+  useEffect(() => {
+    const liveMessageIds = new Set(
+      displayMessages
+        .map((msg) => msg.id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    );
+
+    setZenRowSlideOpen((prev) => {
+      let changed = false;
+      const next: Record<string, boolean> = {};
+      for (const [id, open] of Object.entries(prev)) {
+        if (liveMessageIds.has(id)) next[id] = open;
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+    setZenRowFadeVisible((prev) => {
+      let changed = false;
+      const next: Record<string, boolean> = {};
+      for (const [id, visible] of Object.entries(prev)) {
+        if (liveMessageIds.has(id)) next[id] = visible;
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+    for (const messageId of Object.keys(rowAnimationTimersRef.current)) {
+      if (!liveMessageIds.has(messageId)) {
+        clearRowTimers(messageId);
+      }
+    }
+  }, [clearRowTimers, displayMessages]);
 
   useEffect(() => {
     const wasZenMode = prevZenModeRef.current;
@@ -306,6 +430,87 @@ export function ChatViewport({
     setModeTimer(doneTimer);
   }, [clearGroupTimers, clearModeTimers, setModeTimer, zenGroupMeta.multiGroupIds, zenMode, zenRenderMode]);
 
+  useLayoutEffect(() => {
+    const currentMetaByMessageId: Record<string, { groupId: string; isTail: boolean; hasMultiple: boolean }> = {};
+
+    for (let idx = 0; idx < displayMessages.length; idx++) {
+      const msg = displayMessages[idx];
+      if (!msg.id) continue;
+      const zenMeta = zenGroupMeta.byIndex.get(idx);
+      if (!zenMeta) continue;
+      currentMetaByMessageId[msg.id] = {
+        groupId: zenMeta.groupId,
+        isTail: zenMeta.isTail,
+        hasMultiple: zenMeta.hasMultiple,
+      };
+    }
+
+    if (zenMode && zenRenderMode && isStreaming) {
+      for (const [messageId, currentMeta] of Object.entries(currentMetaByMessageId)) {
+        if (!currentMeta.hasMultiple || currentMeta.isTail) continue;
+        if (!demotingZenRows.rowIds.has(messageId)) continue;
+        if (rowAnimationTimersRef.current[messageId]) continue;
+        if (zenRowSlideOpen[messageId] !== undefined || zenRowFadeVisible[messageId] !== undefined) continue;
+        const prevMeta = prevZenMetaByMessageIdRef.current[messageId];
+        if (!prevMeta) continue;
+        const wasTailInSameGroup = prevMeta.groupId === currentMeta.groupId && prevMeta.isTail;
+        if (!wasTailInSameGroup) continue;
+
+        const groupId = currentMeta.groupId;
+        const groupExpanded = !!expandedZenGroups[groupId];
+        const groupSlidingOpen = !!zenGroupSlideOpen[groupId];
+        const groupCollapsing = !!collapsingZenGroups[groupId];
+        const groupIsCollapsedVisual = !groupExpanded && !groupSlidingOpen && !groupCollapsing;
+        if (!groupIsCollapsedVisual) continue;
+
+        clearRowTimers(messageId);
+        setZenRowSlideOpen((prev) => ({ ...prev, [messageId]: true }));
+        setZenRowFadeVisible((prev) => ({ ...prev, [messageId]: true }));
+
+        const fadeTimer = setTimeout(() => {
+          setZenRowFadeVisible((prev) => ({ ...prev, [messageId]: false }));
+        }, ZEN_TOGGLE_FRAME_MS);
+        const closeTimer = setTimeout(() => {
+          setZenRowSlideOpen((prev) => ({ ...prev, [messageId]: false }));
+        }, ZEN_TOGGLE_FRAME_MS + ZEN_FADE_MS);
+        const cleanupTimer = setTimeout(() => {
+          setZenRowSlideOpen((prev) => {
+            const next = { ...prev };
+            delete next[messageId];
+            return next;
+          });
+          setZenRowFadeVisible((prev) => {
+            const next = { ...prev };
+            delete next[messageId];
+            return next;
+          });
+        }, ZEN_TOGGLE_FRAME_MS + ZEN_FADE_MS + ZEN_SLIDE_MS);
+
+        setRowTimer(messageId, fadeTimer);
+        setRowTimer(messageId, closeTimer);
+        setRowTimer(messageId, cleanupTimer);
+        deferZenTailRender(groupId);
+      }
+    }
+
+    prevZenMetaByMessageIdRef.current = currentMetaByMessageId;
+  }, [
+    clearRowTimers,
+    collapsingZenGroups,
+    demotingZenRows.rowIds,
+    displayMessages,
+    expandedZenGroups,
+    isStreaming,
+    setRowTimer,
+    zenRowFadeVisible,
+    zenRowSlideOpen,
+    deferZenTailRender,
+    zenGroupMeta.byIndex,
+    zenGroupSlideOpen,
+    zenMode,
+    zenRenderMode,
+  ]);
+
   const handleToggleZenGroup = useCallback((groupId: string) => {
     clearGroupTimers(groupId);
     setExpandedZenGroups((prev) => {
@@ -382,6 +587,14 @@ export function ChatViewport({
         timers.forEach((timer) => clearTimeout(timer));
       }
       animationTimersRef.current = {};
+      for (const timers of Object.values(rowAnimationTimersRef.current)) {
+        timers.forEach((timer) => clearTimeout(timer));
+      }
+      rowAnimationTimersRef.current = {};
+      for (const timer of Object.values(tailDeferTimersRef.current)) {
+        clearTimeout(timer);
+      }
+      tailDeferTimersRef.current = {};
       clearModeTimers();
     };
   }, [clearModeTimers]);
@@ -417,6 +630,21 @@ export function ChatViewport({
             const zenGroupCollapsing = zenMeta ? !!collapsingZenGroups[zenMeta.groupId] : false;
             const zenSlideOpen = zenMeta ? !!zenGroupSlideOpen[zenMeta.groupId] : false;
             const zenFadeVisible = zenMeta ? !!zenGroupFadeVisible[zenMeta.groupId] : false;
+            const zenCollapsedVisual = !zenGroupExpanded && !zenSlideOpen && !zenGroupCollapsing;
+            const isDemotingRowNow = !!(msg.id && demotingZenRows.rowIds.has(msg.id));
+            const rowSlideOverride = msg.id ? zenRowSlideOpen[msg.id] : undefined;
+            const rowFadeOverride = msg.id ? zenRowFadeVisible[msg.id] : undefined;
+            const freezeStreamingLayout = !!(msg.id && (isDemotingRowNow || rowSlideOverride !== undefined || rowFadeOverride !== undefined));
+            const effectiveRowSlideOpen = rowSlideOverride ?? (isDemotingRowNow ? true : zenSlideOpen);
+            const effectiveRowFadeVisible = rowFadeOverride ?? (isDemotingRowNow ? true : zenFadeVisible);
+            const deferTailRender = zenMode
+              && zenRenderMode
+              && !!zenMeta
+              && zenMeta.hasMultiple
+              && zenMeta.isTail
+              && zenCollapsedVisual
+              && (!!deferredZenTailByGroup[zenMeta.groupId] || demotingZenRows.groupIds.has(zenMeta.groupId));
+            if (deferTailRender) return null;
             const showZenTimestampToggle = zenMode
               && !!zenMeta
               && zenMeta.hasMultiple
@@ -449,10 +677,22 @@ export function ChatViewport({
                       : null}
                   </div>
                 )}
-                {isZenSiblingRow ? (
+                <div
+                  style={
+                    !isZenSiblingRow
+                      ? msg.id === sentAnimId
+                        ? { animation: "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both", transformOrigin: "bottom right" }
+                        : msg.id && fadeInIds.has(msg.id)
+                          ? { animation: "fadeIn 250ms ease-out" }
+                          : undefined
+                      : undefined
+                  }
+                  onAnimationEnd={!isZenSiblingRow && msg.id === sentAnimId ? onSentAnimationEnd : undefined}
+                >
                   <MessageRow
                     message={msg}
                     isStreaming={isStreaming && msg.id === streamingId}
+                    freezeStreamingLayout={freezeStreamingLayout}
                     subagentStore={subagentStore}
                     pinnedToolCallId={pinnedToolCallId}
                     onPin={onPin}
@@ -460,39 +700,12 @@ export function ChatViewport({
                     zenMode={zenRenderMode}
                     zenGroupCollapsible={false}
                     zenGroupExpanded={zenGroupExpanded}
-                    zenCollapsedByGroup
-                    zenGroupSlideOpen={zenSlideOpen}
-                    zenGroupFadeVisible={zenFadeVisible}
+                    zenCollapsedByGroup={isZenSiblingRow}
+                    zenGroupSlideOpen={effectiveRowSlideOpen}
+                    zenGroupFadeVisible={effectiveRowFadeVisible}
                     onZenGroupToggle={undefined}
                   />
-                ) : (
-                  <div
-                    style={
-                      msg.id === sentAnimId
-                        ? { animation: "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both", transformOrigin: "bottom right" }
-                        : msg.id && fadeInIds.has(msg.id)
-                          ? { animation: "fadeIn 250ms ease-out" }
-                          : undefined
-                    }
-                    onAnimationEnd={msg.id === sentAnimId ? onSentAnimationEnd : undefined}
-                  >
-                    <MessageRow
-                      message={msg}
-                      isStreaming={isStreaming && msg.id === streamingId}
-                      subagentStore={subagentStore}
-                      pinnedToolCallId={pinnedToolCallId}
-                      onPin={onPin}
-                      onUnpin={onUnpin}
-                      zenMode={zenRenderMode}
-                      zenGroupCollapsible={false}
-                      zenGroupExpanded={zenGroupExpanded}
-                      zenCollapsedByGroup={false}
-                      zenGroupSlideOpen={zenSlideOpen}
-                      zenGroupFadeVisible={zenFadeVisible}
-                      onZenGroupToggle={undefined}
-                    />
-                  </div>
-                )}
+                </div>
               </React.Fragment>
             );
           })}

@@ -218,7 +218,7 @@ const ZEN_FADE_MS = 400;
 
 function ThinkingPill({ text }: { text: string }) {
   const isEmpty = !text.trim();
-  const [mounted, setMounted] = useState(() => !isEmpty);
+  const [mounted, setMounted] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const lineCount = text.split("\n").length;
   const needsClamp = !isEmpty && lineCount >= THINKING_COLLAPSE_THRESHOLD;
@@ -227,7 +227,7 @@ function ThinkingPill({ text }: { text: string }) {
     if (mounted) return;
     const raf = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [mounted]);
 
   if (isEmpty) {
     return (
@@ -465,6 +465,7 @@ function useNativeClickInterceptor(containerRef: React.RefObject<HTMLDivElement 
 export function MessageRow({
   message,
   isStreaming,
+  freezeStreamingLayout = false,
   subagentStore,
   pinnedToolCallId,
   onPin,
@@ -479,6 +480,7 @@ export function MessageRow({
 }: {
   message: Message;
   isStreaming: boolean;
+  freezeStreamingLayout?: boolean;
   subagentStore?: SubagentStore;
   pinnedToolCallId?: string | null;
   onPin?: (info: { toolCallId: string | null; childSessionKey: string | null; taskName: string; model: string | null }) => void;
@@ -701,6 +703,7 @@ export function MessageRow({
   }
 
   const zenCollapsible = !isUser && zenMode && zenGroupCollapsible;
+  const streamingLayoutActive = isStreaming || freezeStreamingLayout;
   const renderAssistantBlock = (block: AssistantBlock) => (
     <React.Fragment key={block.key}>{block.node}</React.Fragment>
   );
@@ -756,25 +759,18 @@ export function MessageRow({
           </>
         ) : (
           /* Single-pass rendering: all parts in content array order for correct chronology */
-          <SmoothGrow active={isStreaming} className="flex flex-col gap-1.5">
-            {zenCollapsedByGroup ? (
-              <>
-                {zenCollapsible && renderZenToggle()}
-                <SlideContent open={effectiveZenSlideOpen}>
-                  <div
-                    className="flex flex-col gap-1.5 transition-opacity ease-out"
-                    style={{ opacity: effectiveZenFadeVisible ? 1 : 0, transitionDuration: `${ZEN_FADE_MS}ms` }}
-                  >
-                    {assistantBlocks.map(renderAssistantBlock)}
-                  </div>
-                </SlideContent>
-              </>
-            ) : (
-              <>
-                {zenCollapsible && renderZenToggle()}
+          <SmoothGrow active={streamingLayoutActive} className="flex flex-col gap-1.5">
+            {zenCollapsible && renderZenToggle()}
+            <SlideContent open={zenCollapsedByGroup ? effectiveZenSlideOpen : true}>
+              <div
+                className={`flex flex-col gap-1.5 ${zenCollapsedByGroup ? "transition-opacity ease-out" : ""}`}
+                style={zenCollapsedByGroup
+                  ? { opacity: effectiveZenFadeVisible ? 1 : 0, transitionDuration: `${ZEN_FADE_MS}ms` }
+                  : undefined}
+              >
                 {assistantBlocks.map(renderAssistantBlock)}
-              </>
-            )}
+              </div>
+            </SlideContent>
           </SmoothGrow>
         )}
       </div>

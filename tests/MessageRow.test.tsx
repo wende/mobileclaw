@@ -33,6 +33,27 @@ describe("MessageRow", () => {
     expect(screen.getByText("Hi there!")).toBeInTheDocument();
   });
 
+  it("slides in thinking blocks when they first appear", async () => {
+    const message: Message = {
+      role: "assistant",
+      content: [],
+      reasoning: "Thinking through the request",
+      id: "test-thinking-slide",
+    };
+
+    render(<MessageRow message={message} isStreaming />);
+
+    const initialGrid = findSlideGrid(screen.getByText("Thinking through the request"));
+    expect(initialGrid).not.toBeNull();
+    expect(initialGrid).toHaveStyle({ gridTemplateRows: "0fr" });
+
+    await waitFor(() => {
+      const openGrid = findSlideGrid(screen.getByText("Thinking through the request"));
+      expect(openGrid).not.toBeNull();
+      expect(openGrid).toHaveStyle({ gridTemplateRows: "1fr" });
+    });
+  });
+
   it("renders system message centered", () => {
     const message: Message = {
       role: "system",

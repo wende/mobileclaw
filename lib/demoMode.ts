@@ -83,17 +83,26 @@ interface SubagentActivity {
   events: { stream: string; data: Record<string, unknown>; delayMs: number }[];
 }
 
+interface DemoToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  result: string;
+  isError?: boolean;
+  delayMs?: number;
+  toolCallId?: string;
+  subagentActivity?: SubagentActivity;
+}
+
+interface DemoZenCycle {
+  thinking: string;
+  text: string;
+  toolCall?: DemoToolCall;
+}
+
 interface DemoResponse {
   thinking?: string;
-  toolCalls?: {
-    name: string;
-    args: Record<string, unknown>;
-    result: string;
-    isError?: boolean;
-    delayMs?: number;
-    toolCallId?: string;
-    subagentActivity?: SubagentActivity;
-  }[];
+  toolCalls?: DemoToolCall[];
+  zenCycles?: DemoZenCycle[];
   text: string;
   delayMs?: number; // Extra delay before text starts (e.g. for /compact simulation)
   instant?: boolean; // Deliver text all at once (slash command responses)
@@ -364,6 +373,35 @@ Building real-time collaborative systems is one of the most challenging areas in
 
 The most important principle is this: **design for failure**. Networks are unreliable, servers restart, clients go to sleep, and users do unexpected things. A system that handles these gracefully — with automatic reconnection, state recovery, and conflict resolution — will feel magical to users, even if the underlying architecture is straightforward.`,
   },
+  zen: {
+    text: "Zen demo complete.",
+    zenCycles: [
+      {
+        thinking: "Cycle one. I'll reason briefly, narrate the action, then call a tool so Zen mode can collapse previous blocks.",
+        text: "Cycle 1: validating inputs before touching files.",
+        toolCall: {
+          name: "read",
+          args: { file_path: "src/config/app.config.ts" },
+          result: "Read 1 file. Found api.timeout=30000 and retries=3.",
+          delayMs: 900,
+        },
+      },
+      {
+        thinking: "Cycle two. Same pattern again so you can see another think/talk/tool boundary in real time.",
+        text: "Cycle 2: running a lightweight check command.",
+        toolCall: {
+          name: "exec",
+          args: { command: "pnpm test --run tests/messageUtils.test.ts" },
+          result: "PASS tests/messageUtils.test.ts (21 tests).",
+          delayMs: 1100,
+        },
+      },
+      {
+        thinking: "Final cycle. I'll think and answer without another tool call so the last block remains visible.",
+        text: "Final cycle: done. In Zen mode, previous cycles collapse while this last block stays open.",
+      },
+    ],
+  },
   compact: {
     text: "Conversation compacted. Reduced from **47 messages** (12,840 tokens) to **summary + last 5 messages** (2,160 tokens). Context savings: **83%**.",
     delayMs: 5000,
@@ -394,14 +432,14 @@ The most important principle is this: **design for failure**. Networks are unrel
     instant: true,
   },
   help: {
-    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **long** / **essay** | Long-form streaming (~1 minute) |\n| **/compact** | Compacting animation (5s) |\n| **help** | This list |\n\nSlash commands render as expandable pills — try **/commands**, **/status**, **/model**, **/whoami**, or **/context**.\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
+    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **zen** / **focus** | Multi-cycle think → talk → tool stream for Zen mode |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **long** / **essay** | Long-form streaming (~1 minute) |\n| **/compact** | Compacting animation (5s) |\n| **help** | This list |\n\nSlash commands render as expandable pills — try **/commands**, **/status**, **/model**, **/whoami**, or **/context**.\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
     instant: true,
   },
 };
 
 const DEFAULT_RESPONSE: DemoResponse = {
   thinking: "The user sent a message that doesn't match any specific demo trigger. I'll let them know they're in demo mode and suggest what they can try.",
-  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `long` — long-form streaming (~1 minute)\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `/compact` — compacting animation\n- `help` — full command list",
+  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `zen` — multi-cycle think/talk/tool stream for Zen mode\n- `long` — long-form streaming (~1 minute)\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `/compact` — compacting animation\n- `help` — full command list",
 };
 
 // ── Match keywords ───────────────────────────────────────────────────────────
@@ -428,6 +466,8 @@ function matchResponse(input: string): DemoResponse {
     return RESPONSES.code;
   if (lower.includes("think") || lower.includes("reason") || lower.includes("logic") || lower.includes("puzzle"))
     return RESPONSES.think;
+  if (/\bzen\b/.test(lower) || lower.includes("focus mode") || lower.includes("zen mode"))
+    return RESPONSES.zen;
   if (lower.includes("error") || lower.includes("fail") || lower.includes("break"))
     return RESPONSES.error;
   if (lower.includes("research") || lower.includes("search") || lower.includes("look up") || lower.includes("find out"))
@@ -470,75 +510,89 @@ export function createDemoHandler(callbacks: DemoCallbacks) {
     const response = matchResponse(text);
     let delay = 300;
 
-    // Start streaming
-    timers.push(setTimeout(() => callbacks.onStreamStart(runId), delay));
-    delay += 200;
-
-    // Thinking (if present)
-    if (response.thinking) {
-      const thinkingWords = response.thinking.split(/(\s+)/);
+    const scheduleThinking = (targetRunId: string, thinking?: string) => {
+      if (!thinking) return;
+      const thinkingWords = thinking.split(/(\s+)/);
       let accumulated = "";
       for (let i = 0; i < thinkingWords.length; i++) {
         accumulated += thinkingWords[i];
         const snap = accumulated;
-        timers.push(setTimeout(() => callbacks.onThinking(runId, snap), delay));
+        timers.push(setTimeout(() => callbacks.onThinking(targetRunId, snap), delay));
         if (thinkingWords[i].trim()) delay += 15 + Math.random() * 10;
       }
       delay += 400;
-    }
+    };
 
-    // Tool calls (if present)
-    if (response.toolCalls) {
-      for (const tc of response.toolCalls) {
-        const argsStr = JSON.stringify(tc.args);
-        const toolCallId = tc.toolCallId || `demo-tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const scheduleToolCall = (targetRunId: string, tc: DemoToolCall) => {
+      const argsStr = JSON.stringify(tc.args);
+      const toolCallId = tc.toolCallId || `demo-tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
-        // Register spawn before tool start so the link is ready
-        if (tc.name === "sessions_spawn" && tc.toolCallId) {
-          timers.push(setTimeout(() => callbacks.onRegisterSpawn?.(toolCallId), delay));
-        }
-
-        timers.push(setTimeout(() => callbacks.onToolStart(runId, tc.name, argsStr, tc.toolCallId ? toolCallId : undefined), delay));
-
-        // Simulate subagent activity if defined
-        if (tc.subagentActivity && callbacks.onSubagentEvent) {
-          const sessionKey = `demo-subagent-${toolCallId}`;
-          const toolStartDelay = delay;
-          for (const evt of tc.subagentActivity.events) {
-            const evtDelay = toolStartDelay + evt.delayMs;
-            timers.push(setTimeout(() => {
-              callbacks.onSubagentEvent!(sessionKey, evt.stream, evt.data, Date.now());
-            }, evtDelay));
-          }
-        }
-
-        delay += tc.delayMs ?? 1000;
-        timers.push(setTimeout(() => callbacks.onToolEnd(runId, tc.name, tc.result, !!tc.isError), delay));
-        delay += 300;
+      if (tc.name === "sessions_spawn" && tc.toolCallId) {
+        timers.push(setTimeout(() => callbacks.onRegisterSpawn?.(toolCallId), delay));
       }
-    }
 
-    // Extra delay (e.g. for /compact simulation)
-    if (response.delayMs) delay += response.delayMs;
+      timers.push(setTimeout(() => callbacks.onToolStart(targetRunId, tc.name, argsStr, tc.toolCallId ? toolCallId : undefined), delay));
 
-    // Deliver text — instant for slash commands, streamed word-by-word otherwise
-    if (response.instant) {
-      timers.push(setTimeout(() => callbacks.onTextDelta(runId, response.text, response.text), delay));
-    } else {
-      const words = response.text.split(/(\s+)/);
+      if (tc.subagentActivity && callbacks.onSubagentEvent) {
+        const sessionKey = `demo-subagent-${toolCallId}`;
+        const toolStartDelay = delay;
+        for (const evt of tc.subagentActivity.events) {
+          const evtDelay = toolStartDelay + evt.delayMs;
+          timers.push(setTimeout(() => {
+            callbacks.onSubagentEvent!(sessionKey, evt.stream, evt.data, Date.now());
+          }, evtDelay));
+        }
+      }
+
+      delay += tc.delayMs ?? 1000;
+      timers.push(setTimeout(() => callbacks.onToolEnd(targetRunId, tc.name, tc.result, !!tc.isError), delay));
+      delay += 300;
+    };
+
+    const scheduleText = (targetRunId: string, fullText: string, instant = false) => {
+      if (instant) {
+        timers.push(setTimeout(() => callbacks.onTextDelta(targetRunId, fullText, fullText), delay));
+        return;
+      }
+      const words = fullText.split(/(\s+)/);
       let accumulated = "";
       for (let i = 0; i < words.length; i++) {
         accumulated += words[i];
         const snap = accumulated;
-        timers.push(setTimeout(() => callbacks.onTextDelta(runId, words[i], snap), delay));
-        // Variable delay: longer for punctuation, shorter for whitespace
+        timers.push(setTimeout(() => callbacks.onTextDelta(targetRunId, words[i], snap), delay));
         if (!words[i].trim()) continue;
         if (/[.!?]$/.test(words[i])) delay += 80 + Math.random() * 60;
         else if (/[,;:]$/.test(words[i])) delay += 40 + Math.random() * 30;
         else delay += 20 + Math.random() * 25;
       }
+    };
+
+    if (response.zenCycles && response.zenCycles.length > 0) {
+      for (let i = 0; i < response.zenCycles.length; i++) {
+        const cycle = response.zenCycles[i];
+        const cycleRunId = `${runId}-zen-${i + 1}`;
+        timers.push(setTimeout(() => callbacks.onStreamStart(cycleRunId), delay));
+        delay += 180;
+        scheduleThinking(cycleRunId, cycle.thinking);
+        scheduleText(cycleRunId, cycle.text, false);
+        if (cycle.toolCall) {
+          scheduleToolCall(cycleRunId, cycle.toolCall);
+        }
+        delay += 120;
+        timers.push(setTimeout(() => callbacks.onStreamEnd(cycleRunId), delay));
+        delay += 320;
+      }
+      return;
     }
 
+    timers.push(setTimeout(() => callbacks.onStreamStart(runId), delay));
+    delay += 200;
+    scheduleThinking(runId, response.thinking);
+    if (response.toolCalls) {
+      for (const tc of response.toolCalls) scheduleToolCall(runId, tc);
+    }
+    if (response.delayMs) delay += response.delayMs;
+    scheduleText(runId, response.text, !!response.instant);
     delay += 200;
     timers.push(setTimeout(() => callbacks.onStreamEnd(runId), delay));
   }

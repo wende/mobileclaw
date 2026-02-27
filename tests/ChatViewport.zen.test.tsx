@@ -1,6 +1,6 @@
 import React from "react";
-import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 
 import { ChatViewport } from "@/components/chat/ChatViewport";
 import type { Message } from "@/types/chat";
@@ -15,7 +15,13 @@ function findSlideGrid(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
-function renderViewport(messages: Message[], zenMode = true) {
+function renderViewport(
+  messages: Message[],
+  options?: { zenMode?: boolean; isStreaming?: boolean; streamingId?: string | null },
+) {
+  const zenMode = options?.zenMode ?? true;
+  const isStreaming = options?.isStreaming ?? false;
+  const streamingId = options?.streamingId ?? null;
   return render(
     <ChatViewport
       isDetached={false}
@@ -32,8 +38,8 @@ function renderViewport(messages: Message[], zenMode = true) {
       sentAnimId={null}
       onSentAnimationEnd={() => {}}
       fadeInIds={new Set<string>()}
-      isStreaming={false}
-      streamingId={null}
+      isStreaming={isStreaming}
+      streamingId={streamingId}
       subagentStore={{} as ReturnType<typeof useSubagentStore>}
       pinnedToolCallId={null}
       onPin={() => {}}
@@ -88,5 +94,66 @@ describe("ChatViewport zen grouping", () => {
     expect(screen.getByText("older block")).toBeInTheDocument();
     expect(screen.getByText("new block")).toBeInTheDocument();
     expect(screen.queryByTestId("zen-toggle")).not.toBeInTheDocument();
+  });
+
+  it("fades and slides out a prior cycle when it gets collapsed during streaming", async () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = renderViewport(
+        [{ role: "assistant", content: [{ type: "text", text: "cycle one" }], id: "a1", timestamp: 1_000 }],
+        { zenMode: true, isStreaming: true, streamingId: "a1" },
+      );
+
+      rerender(
+        <ChatViewport
+          isDetached={false}
+          isNative={false}
+          historyLoaded
+          inputZoneHeight="4rem"
+          bottomPad="4rem"
+          scrollRef={React.createRef<HTMLDivElement>()}
+          bottomRef={React.createRef<HTMLDivElement>()}
+          pullContentRef={React.createRef<HTMLDivElement>()}
+          pullSpinnerRef={React.createRef<HTMLDivElement>()}
+          onScroll={() => {}}
+          displayMessages={[
+            { role: "assistant", content: [{ type: "text", text: "cycle one" }], id: "a1", timestamp: 1_000 },
+            { role: "assistant", content: [{ type: "text", text: "cycle two" }], id: "a2", timestamp: 1_500 },
+          ]}
+          sentAnimId={null}
+          onSentAnimationEnd={() => {}}
+          fadeInIds={new Set<string>()}
+          isStreaming
+          streamingId="a2"
+          subagentStore={{} as ReturnType<typeof useSubagentStore>}
+          pinnedToolCallId={null}
+          onPin={() => {}}
+          onUnpin={() => {}}
+          zenMode
+          awaitingResponse={false}
+          thinkingStartTime={null}
+          quotePopup={null}
+          quotePopupRef={React.createRef<HTMLButtonElement>()}
+          onAcceptQuote={() => {}}
+        />,
+      );
+
+      // Immediately after demotion, prior row should remain open for fade-out.
+      const initiallyOpenGrid = findSlideGrid(screen.getByText("cycle one"));
+      expect(initiallyOpenGrid).not.toBeNull();
+      expect(initiallyOpenGrid).toHaveStyle({ gridTemplateRows: "1fr" });
+      expect(document.querySelectorAll('[data-message-role="assistant"]')).toHaveLength(1);
+
+      act(() => {
+        vi.advanceTimersByTime(700);
+      });
+
+      const collapsedGrid = findSlideGrid(screen.getByText("cycle one"));
+      expect(collapsedGrid).not.toBeNull();
+      expect(collapsedGrid).toHaveStyle({ gridTemplateRows: "0fr" });
+      expect(document.querySelectorAll('[data-message-role="assistant"]')).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

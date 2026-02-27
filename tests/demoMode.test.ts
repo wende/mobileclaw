@@ -96,6 +96,18 @@ describe("createDemoHandler", () => {
     expect(callbacks.onToolStart).not.toHaveBeenCalled();
   });
 
+  it("streams zen keyword as multiple think/talk/tool cycles", () => {
+    const handler = createDemoHandler(callbacks);
+    handler.sendMessage("show me zen mode");
+    vi.advanceTimersByTime(60_000);
+
+    expect(callbacks.onStreamStart).toHaveBeenCalledTimes(3);
+    expect(callbacks.onStreamEnd).toHaveBeenCalledTimes(3);
+    expect(callbacks.onThinking).toHaveBeenCalled();
+    expect(callbacks.onToolStart).toHaveBeenCalledTimes(2);
+    expect(callbacks.onToolEnd).toHaveBeenCalledTimes(2);
+  });
+
   it("streams text deltas", () => {
     const handler = createDemoHandler(callbacks);
     handler.sendMessage("help");
