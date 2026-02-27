@@ -4,14 +4,14 @@ import React, { useMemo, useState, useEffect, useLayoutEffect, useCallback, useR
 
 import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
+import { ZenToggle } from "@/components/ZenToggle";
 import { formatMessageTime, getMessageSide } from "@/lib/messageUtils";
 import { STOP_REASON_INJECTED } from "@/lib/constants";
+import { ZEN_SLIDE_MS, ZEN_FADE_MS, ZEN_TOGGLE_FRAME_MS } from "@/lib/chat/zenUi";
 import type { Message } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
 
-const ZEN_SLIDE_MS = 200;
-const ZEN_FADE_MS = 400;
-const ZEN_TOGGLE_FRAME_MS = 16;
+const TIME_GAP_THRESHOLD_MS = 10 * 60 * 1000;
 const ZEN_COLLAPSE_TOTAL_MS = ZEN_TOGGLE_FRAME_MS + ZEN_FADE_MS + ZEN_SLIDE_MS;
 
 interface ChatViewportProps {
@@ -118,14 +118,6 @@ export function ChatViewport({
 
     for (let idx = 0; idx < displayMessages.length; idx++) {
       const msg = displayMessages[idx];
-      const side = getMessageSide(msg.role);
-      const prevSide = idx > 0 ? getMessageSide(displayMessages[idx - 1].role) : null;
-      const prevTimestamp = idx > 0 ? displayMessages[idx - 1].timestamp : null;
-      const isNewTurn = side !== "center" && side !== prevSide;
-      const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
-      const isTimeGap = timGap > 10 * 60 * 1000;
-      const showTimestamp = side !== "center" && (isNewTurn || isTimeGap);
-
       const isZenEligibleAssistant =
         msg.role === "assistant"
         && !msg.isCommandResponse
@@ -135,6 +127,24 @@ export function ChatViewport({
       if (!isZenEligibleAssistant) {
         continue;
       }
+
+      const side = getMessageSide(msg.role);
+      let prevNonCenterIdx = idx - 1;
+      while (prevNonCenterIdx >= 0 && getMessageSide(displayMessages[prevNonCenterIdx].role) === "center") {
+        prevNonCenterIdx -= 1;
+      }
+      const prevNonCenterMsg = prevNonCenterIdx >= 0 ? displayMessages[prevNonCenterIdx] : null;
+      const prevSide = prevNonCenterMsg ? getMessageSide(prevNonCenterMsg.role) : null;
+      const prevTimestamp = prevNonCenterMsg?.timestamp ?? null;
+      const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
+      const isTimeGap = timGap > TIME_GAP_THRESHOLD_MS;
+      const isNewTurn = side !== "center" && side !== prevSide;
+      const prevNonEligibleAssistantBoundary = !!(
+        prevNonCenterMsg
+        && prevNonCenterMsg.role === "assistant"
+        && (prevNonCenterMsg.isCommandResponse || prevNonCenterMsg.isContext || prevNonCenterMsg.stopReason === STOP_REASON_INJECTED)
+      );
+      const showTimestamp = side !== "center" && (isNewTurn || isTimeGap || prevNonEligibleAssistantBoundary);
 
       if (!currentGroupId || showTimestamp) {
         flushGroup();
@@ -553,34 +563,6 @@ export function ChatViewport({
     });
   }, [clearGroupTimers, setGroupTimer]);
 
-  const renderZenTimestampToggle = useCallback((
-    groupId: string,
-    isExpandedVisual: boolean,
-  ) => (
-    <button
-      type="button"
-      onClick={() => handleToggleZenGroup(groupId)}
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
-      aria-label={isExpandedVisual ? "Collapse assistant steps" : "Expand assistant steps"}
-      data-testid="zen-toggle"
-    >
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="transition-transform duration-200"
-        style={{ transform: isExpandedVisual ? "rotate(180deg)" : "rotate(0deg)" }}
-      >
-        <path d="m6 9 6 6 6-6" />
-      </svg>
-    </button>
-  ), [handleToggleZenGroup]);
-
   useEffect(() => {
     return () => {
       for (const timers of Object.values(animationTimersRef.current)) {
@@ -623,7 +605,7 @@ export function ChatViewport({
             const prevTimestamp = idx > 0 ? displayMessages[idx - 1].timestamp : null;
             const isNewTurn = side !== "center" && side !== prevSide;
             const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
-            const isTimeGap = timGap > 10 * 60 * 1000;
+            const isTimeGap = timGap > TIME_GAP_THRESHOLD_MS;
             const showTimestamp = side !== "center" && (isNewTurn || isTimeGap);
             const zenMeta = zenGroupMeta.byIndex.get(idx);
             const zenGroupExpanded = zenMeta ? !!expandedZenGroups[zenMeta.groupId] : false;
@@ -657,7 +639,13 @@ export function ChatViewport({
                   <div className="flex items-center justify-center gap-1 py-1">
                     <span className="text-2xs text-muted-foreground/60">{formatMessageTime(msg.timestamp)}</span>
                     {showZenTimestampToggle && zenMeta
-                      ? renderZenTimestampToggle(zenMeta.groupId, zenToggleExpandedVisual)
+                      ? (
+                        <ZenToggle
+                          expanded={zenToggleExpandedVisual}
+                          onClick={() => handleToggleZenGroup(zenMeta.groupId)}
+                          className="shrink-0"
+                        />
+                      )
                       : null}
                   </div>
                 )}
@@ -673,7 +661,13 @@ export function ChatViewport({
                       )}
                     </p>
                     {showZenTimestampToggle && zenMeta
-                      ? renderZenTimestampToggle(zenMeta.groupId, zenToggleExpandedVisual)
+                      ? (
+                        <ZenToggle
+                          expanded={zenToggleExpandedVisual}
+                          onClick={() => handleToggleZenGroup(zenMeta.groupId)}
+                          className="shrink-0"
+                        />
+                      )
                       : null}
                   </div>
                 )}

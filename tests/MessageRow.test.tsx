@@ -2,15 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MessageRow } from "@/components/MessageRow";
 import type { Message } from "@/types/chat";
-
-function findSlideGrid(el: HTMLElement): HTMLElement | null {
-  let node: HTMLElement | null = el;
-  while (node) {
-    if (node.style?.gridTemplateRows) return node;
-    node = node.parentElement;
-  }
-  return null;
-}
+import { findSlideGrid } from "./utils/zenDom";
 
 describe("MessageRow", () => {
   it("renders user message text", () => {
@@ -189,6 +181,32 @@ describe("MessageRow", () => {
     expect(toggle).toHaveAttribute("aria-label", "Expand assistant steps");
     fireEvent.click(toggle);
     expect(onZenGroupToggle).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Final answer")).toBeInTheDocument();
+  });
+
+  it("renders zen toggle in expanded state with collapse semantics", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Final answer" }],
+      id: "zen-toggle-expanded",
+    };
+
+    render(
+      <MessageRow
+        message={message}
+        isStreaming={false}
+        zenMode
+        zenGroupCollapsible
+        zenGroupExpanded
+        onZenGroupToggle={() => {}}
+      />,
+    );
+
+    const toggle = screen.getByTestId("zen-toggle");
+    expect(toggle).toHaveAttribute("aria-label", "Collapse assistant steps");
+    const chevron = toggle.querySelector("svg");
+    expect(chevron).not.toBeNull();
+    expect(chevron).toHaveStyle({ transform: "rotate(180deg)" });
     expect(screen.getByText("Final answer")).toBeInTheDocument();
   });
 

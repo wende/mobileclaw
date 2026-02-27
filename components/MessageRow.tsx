@@ -11,8 +11,10 @@ import { StreamingText } from "@/components/StreamingText";
 import { ToolCallPill } from "@/components/ToolCallPill";
 import { ImageThumbnails } from "@/components/ImageThumbnails";
 import { SmoothGrow } from "@/components/SmoothGrow";
+import { ZenToggle } from "@/components/ZenToggle";
 import type { SubagentStore } from "@/hooks/useSubagentStore";
 import { isNativeMode, postLinkTap, postImageTap } from "@/lib/nativeBridge";
+import { ZEN_SLIDE_MS, ZEN_FADE_MS } from "@/lib/chat/zenUi";
 
 // ── File Thumbnails ──────────────────────────────────────────────────────────
 
@@ -213,8 +215,6 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
 // ── ThinkingPill ─────────────────────────────────────────────────────────────
 
 const THINKING_COLLAPSE_THRESHOLD = 5;
-const ZEN_SLIDE_MS = 200;
-const ZEN_FADE_MS = 400;
 
 function ThinkingPill({ text }: { text: string }) {
   const isEmpty = !text.trim();
@@ -707,39 +707,12 @@ export function MessageRow({
   const renderAssistantBlock = (block: AssistantBlock) => (
     <React.Fragment key={block.key}>{block.node}</React.Fragment>
   );
-  const zenToggleLabel = zenGroupExpanded ? "Collapse assistant steps" : "Expand assistant steps";
-  const renderZenToggle = () => (
-    <div className="flex">
-      <button
-        type="button"
-        onClick={onZenGroupToggle}
-        className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
-        aria-label={zenToggleLabel}
-        data-testid="zen-toggle"
-      >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="transition-transform duration-200"
-          style={{ transform: zenGroupExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      </button>
-    </div>
-  );
 
   const effectiveZenSlideOpen = zenCollapsedByGroup ? zenGroupSlideOpen : zenGroupExpanded;
   const effectiveZenFadeVisible = zenCollapsedByGroup ? zenGroupFadeVisible : zenGroupExpanded;
   const collapsedZenSibling = !isUser && zenMode && zenCollapsedByGroup && !effectiveZenSlideOpen;
 
-  const rowContent = (
+  return (
     <div
       ref={messageRef}
       data-message-role={message.role}
@@ -760,7 +733,11 @@ export function MessageRow({
         ) : (
           /* Single-pass rendering: all parts in content array order for correct chronology */
           <SmoothGrow active={streamingLayoutActive} className="flex flex-col gap-1.5">
-            {zenCollapsible && renderZenToggle()}
+            {zenCollapsible && (
+              <div className="flex">
+                <ZenToggle expanded={zenGroupExpanded} onClick={onZenGroupToggle} />
+              </div>
+            )}
             <SlideContent open={zenCollapsedByGroup ? effectiveZenSlideOpen : true}>
               <div
                 className={`flex flex-col gap-1.5 ${zenCollapsedByGroup ? "transition-opacity ease-out" : ""}`}
@@ -776,6 +753,4 @@ export function MessageRow({
       </div>
     </div>
   );
-
-  return rowContent;
 }

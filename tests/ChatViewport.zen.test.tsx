@@ -3,17 +3,10 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 
 import { ChatViewport } from "@/components/chat/ChatViewport";
+import { STOP_REASON_INJECTED } from "@/lib/constants";
 import type { Message } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
-
-function findSlideGrid(el: HTMLElement): HTMLElement | null {
-  let node: HTMLElement | null = el;
-  while (node) {
-    if (node.style?.gridTemplateRows) return node;
-    node = node.parentElement;
-  }
-  return null;
-}
+import { findSlideGrid } from "./utils/zenDom";
 
 function renderViewport(
   messages: Message[],
@@ -61,7 +54,7 @@ describe("ChatViewport zen grouping", () => {
       { role: "assistant", content: [{ type: "text", text: "assistant second" }], id: "a2", timestamp: 1_500 },
     ];
 
-    renderViewport(messages, true);
+    renderViewport(messages, { zenMode: true });
 
     const firstCollapsedGrid = findSlideGrid(screen.getByText("assistant first"));
     expect(firstCollapsedGrid).not.toBeNull();
@@ -89,11 +82,58 @@ describe("ChatViewport zen grouping", () => {
       { role: "assistant", content: [{ type: "text", text: "new block" }], id: "a2", timestamp: 1_000 + 11 * 60 * 1_000 },
     ];
 
-    renderViewport(messages, true);
+    renderViewport(messages, { zenMode: true });
 
     expect(screen.getByText("older block")).toBeInTheDocument();
     expect(screen.getByText("new block")).toBeInTheDocument();
     expect(screen.queryByTestId("zen-toggle")).not.toBeInTheDocument();
+  });
+
+  it("splits zen groups when a user message interrupts assistant rows", () => {
+    const messages: Message[] = [
+      { role: "assistant", content: [{ type: "text", text: "a1" }], id: "a1", timestamp: 1_000 },
+      { role: "assistant", content: [{ type: "text", text: "a2" }], id: "a2", timestamp: 1_200 },
+      { role: "user", content: [{ type: "text", text: "u1" }], id: "u1", timestamp: 1_300 },
+      { role: "assistant", content: [{ type: "text", text: "a3" }], id: "a3", timestamp: 1_500 },
+      { role: "assistant", content: [{ type: "text", text: "a4" }], id: "a4", timestamp: 1_700 },
+    ];
+
+    renderViewport(messages, { zenMode: true });
+    expect(screen.getAllByTestId("zen-toggle")).toHaveLength(2);
+  });
+
+  it("does not include injected assistant rows in zen grouping", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "injected assistant" }],
+        id: "inj",
+        timestamp: 1_000,
+        stopReason: STOP_REASON_INJECTED,
+      },
+      { role: "assistant", content: [{ type: "text", text: "normal one" }], id: "n1", timestamp: 1_300 },
+      { role: "assistant", content: [{ type: "text", text: "normal two" }], id: "n2", timestamp: 1_500 },
+    ];
+
+    renderViewport(messages, { zenMode: true });
+    expect(screen.getByText("injected assistant")).toBeInTheDocument();
+    const firstNormalGrid = findSlideGrid(screen.getByText("normal one"));
+    expect(firstNormalGrid).not.toBeNull();
+    expect(firstNormalGrid).toHaveStyle({ gridTemplateRows: "0fr" });
+    expect(screen.getByText("normal two")).toBeVisible();
+  });
+
+  it("skips center-side rows when computing assistant zen boundaries", () => {
+    const messages: Message[] = [
+      { role: "assistant", content: [{ type: "text", text: "before center" }], id: "a1", timestamp: 1_000 },
+      { role: "assistant", content: [{ type: "text", text: "tail before center" }], id: "a2", timestamp: 1_100 },
+      { role: "system", content: [{ type: "text", text: "center system message" }], id: "s1", timestamp: 1_200 },
+      { role: "assistant", content: [{ type: "text", text: "after center" }], id: "a3", timestamp: 1_300 },
+      { role: "assistant", content: [{ type: "text", text: "tail after center" }], id: "a4", timestamp: 1_400 },
+    ];
+
+    renderViewport(messages, { zenMode: true });
+    expect(screen.getAllByTestId("zen-toggle")).toHaveLength(1);
   });
 
   it("fades and slides out a prior cycle when it gets collapsed during streaming", async () => {

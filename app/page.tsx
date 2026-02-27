@@ -191,7 +191,7 @@ export default function Home() {
       }
     };
     zenPinRafRef.current = requestAnimationFrame(pinTick);
-  }, [pinLockUntilRef, pinnedToBottomRef, scrollRef, toggleZenMode]);
+  }, [pinLockUntilRef, pinnedToBottomRef, scrollRef, toggleZenMode, zenPinRafRef]);
 
   useEffect(() => {
     return () => {
