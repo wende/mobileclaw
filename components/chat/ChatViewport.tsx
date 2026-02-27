@@ -348,6 +348,34 @@ export function ChatViewport({
     });
   }, [clearGroupTimers, setGroupTimer]);
 
+  const renderZenTimestampToggle = useCallback((
+    groupId: string,
+    isExpandedVisual: boolean,
+  ) => (
+    <button
+      type="button"
+      onClick={() => handleToggleZenGroup(groupId)}
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+      aria-label={isExpandedVisual ? "Collapse assistant steps" : "Expand assistant steps"}
+      data-testid="zen-toggle"
+    >
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="transition-transform duration-200"
+        style={{ transform: isExpandedVisual ? "rotate(180deg)" : "rotate(0deg)" }}
+      >
+        <path d="m6 9 6 6 6-6" />
+      </svg>
+    </button>
+  ), [handleToggleZenGroup]);
+
   useEffect(() => {
     return () => {
       for (const timers of Object.values(animationTimersRef.current)) {
@@ -389,31 +417,37 @@ export function ChatViewport({
             const zenGroupCollapsing = zenMeta ? !!collapsingZenGroups[zenMeta.groupId] : false;
             const zenSlideOpen = zenMeta ? !!zenGroupSlideOpen[zenMeta.groupId] : false;
             const zenFadeVisible = zenMeta ? !!zenGroupFadeVisible[zenMeta.groupId] : false;
-            const showZenToggle = zenMode
+            const showZenTimestampToggle = zenMode
               && !!zenMeta
               && zenMeta.hasMultiple
-              && (
-                ((zenGroupExpanded || zenSlideOpen || zenGroupCollapsing) && zenMeta.isHead)
-                || (!zenGroupExpanded && !zenSlideOpen && !zenGroupCollapsing && zenMeta.isTail)
-              );
+              && zenMeta.isHead;
+            const zenToggleExpandedVisual = zenGroupExpanded || zenSlideOpen || zenGroupCollapsing;
             const isZenSiblingRow = zenRenderMode && !!zenMeta && zenMeta.hasMultiple && !zenMeta.isTail;
             return (
               <React.Fragment key={msg.id || idx}>
                 {isTimeGap && !isNewTurn && msg.timestamp && (
-                  <div className="flex justify-center py-1">
+                  <div className="flex items-center justify-center gap-1 py-1">
                     <span className="text-2xs text-muted-foreground/60">{formatMessageTime(msg.timestamp)}</span>
+                    {showZenTimestampToggle && zenMeta
+                      ? renderZenTimestampToggle(zenMeta.groupId, zenToggleExpandedVisual)
+                      : null}
                   </div>
                 )}
                 {showTimestamp && isNewTurn && msg.timestamp && (
-                  <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
-                    {formatMessageTime(msg.timestamp)}
-                    {msg.role === "assistant" && msg.runDuration && msg.runDuration > 0 && (
-                      <span className="ml-1">&middot; Worked for {msg.runDuration}s</span>
-                    )}
-                    {msg.role === "assistant" && !msg.runDuration && msg.thinkingDuration && msg.thinkingDuration > 0 && (
-                      <span className="ml-1">&middot; {msg.thinkingDuration}s</span>
-                    )}
-                  </p>
+                  <div className={`flex items-center gap-1 ${side === "right" ? "justify-end" : "justify-start"}`}>
+                    <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
+                      {formatMessageTime(msg.timestamp)}
+                      {msg.role === "assistant" && msg.runDuration && msg.runDuration > 0 && (
+                        <span className="ml-1">&middot; Worked for {msg.runDuration}s</span>
+                      )}
+                      {msg.role === "assistant" && !msg.runDuration && msg.thinkingDuration && msg.thinkingDuration > 0 && (
+                        <span className="ml-1">&middot; {msg.thinkingDuration}s</span>
+                      )}
+                    </p>
+                    {showZenTimestampToggle && zenMeta
+                      ? renderZenTimestampToggle(zenMeta.groupId, zenToggleExpandedVisual)
+                      : null}
+                  </div>
                 )}
                 {isZenSiblingRow ? (
                   <MessageRow
@@ -424,12 +458,12 @@ export function ChatViewport({
                     onPin={onPin}
                     onUnpin={onUnpin}
                     zenMode={zenRenderMode}
-                    zenGroupCollapsible={showZenToggle}
+                    zenGroupCollapsible={false}
                     zenGroupExpanded={zenGroupExpanded}
                     zenCollapsedByGroup
                     zenGroupSlideOpen={zenSlideOpen}
                     zenGroupFadeVisible={zenFadeVisible}
-                    onZenGroupToggle={showZenToggle && zenMeta ? () => handleToggleZenGroup(zenMeta.groupId) : undefined}
+                    onZenGroupToggle={undefined}
                   />
                 ) : (
                   <div
@@ -450,12 +484,12 @@ export function ChatViewport({
                       onPin={onPin}
                       onUnpin={onUnpin}
                       zenMode={zenRenderMode}
-                      zenGroupCollapsible={showZenToggle}
+                      zenGroupCollapsible={false}
                       zenGroupExpanded={zenGroupExpanded}
                       zenCollapsedByGroup={false}
                       zenGroupSlideOpen={zenSlideOpen}
                       zenGroupFadeVisible={zenFadeVisible}
-                      onZenGroupToggle={showZenToggle && zenMeta ? () => handleToggleZenGroup(zenMeta.groupId) : undefined}
+                      onZenGroupToggle={undefined}
                     />
                   </div>
                 )}

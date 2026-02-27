@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 import { ChatViewport } from "@/components/chat/ChatViewport";
 import type { Message } from "@/types/chat";
@@ -61,6 +61,7 @@ describe("ChatViewport zen grouping", () => {
     expect(firstCollapsedGrid).not.toBeNull();
     expect(firstCollapsedGrid).toHaveStyle({ gridTemplateRows: "0fr" });
     expect(screen.getByText("assistant second")).toBeVisible();
+    expect(screen.getByTestId("zen-toggle").closest('[data-message-role="assistant"]')).toBeNull();
 
     fireEvent.click(screen.getByTestId("zen-toggle"));
     await waitFor(() => {
@@ -73,11 +74,7 @@ describe("ChatViewport zen grouping", () => {
     const secondAssistantRow = screen.getByText("assistant second").closest('[data-message-role="assistant"]');
     expect(firstAssistantRow).not.toBeNull();
     expect(secondAssistantRow).not.toBeNull();
-
-    if (firstAssistantRow && secondAssistantRow) {
-      expect(within(firstAssistantRow).getByTestId("zen-toggle")).toBeInTheDocument();
-      expect(within(secondAssistantRow).queryByTestId("zen-toggle")).not.toBeInTheDocument();
-    }
+    expect(screen.getByTestId("zen-toggle").closest('[data-message-role="assistant"]')).toBeNull();
   });
 
   it("starts a new zen block when a new timestamp heading is shown", () => {

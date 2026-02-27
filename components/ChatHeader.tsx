@@ -116,10 +116,20 @@ export function ChatHeader({
         }`}
         aria-label={zenMode ? "Disable zen mode" : "Enable zen mode"}
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M4 8h16" />
-          <path d="M7 12h10" />
-          <path d="M10 16h4" />
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 100 100"
+          fill="none"
+          preserveAspectRatio="xMidYMid meet"
+          className="block"
+          aria-hidden="true"
+        >
+          <g stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="50" cy="50" r="46" />
+            <path d="M50 4 A23 23 0 0 1 50 50 A23 23 0 0 0 50 96" />
+          </g>
         </svg>
       </button>
       <div className="flex shrink-0 items-center gap-1.5 animate-[fadeIn_300ms_ease-out]" title={connectionLabel}>
