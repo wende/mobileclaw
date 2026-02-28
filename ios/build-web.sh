@@ -20,8 +20,10 @@ echo "Building Next.js static export..."
 cd "$PROJECT_ROOT"
 
 rm -rf "$API_BACKUP"
-mv "$API_DIR" "$API_BACKUP"
-mkdir -p "$API_DIR"
+if [ -d "$API_DIR" ]; then
+  mv "$API_DIR" "$API_BACKUP"
+  mkdir -p "$API_DIR"
+fi
 
 # Clean stale build cache that references moved API routes
 rm -rf .next

@@ -59,6 +59,8 @@ describe("ChatViewport zen grouping", () => {
     const firstCollapsedGrid = findSlideGrid(screen.getByText("assistant first"));
     expect(firstCollapsedGrid).not.toBeNull();
     expect(firstCollapsedGrid).toHaveStyle({ gridTemplateRows: "0fr" });
+    const collapsedAssistantRow = screen.getByText("assistant first").closest('[data-message-role="assistant"]');
+    expect(collapsedAssistantRow?.parentElement).toHaveStyle({ marginBottom: "-0.75rem" });
     expect(screen.getByText("assistant second")).toBeVisible();
     expect(screen.getByTestId("zen-toggle").closest('[data-message-role="assistant"]')).toBeNull();
 

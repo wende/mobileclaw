@@ -32,4 +32,5 @@ ios/MobileClaw/Resources/web/
 
 # Claude worktrees
 .claude/worktrees/
+.codex/
 worktrees
