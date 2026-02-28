@@ -86,7 +86,7 @@ final class DemoModeHandler {
             for chunk in chunks {
                 let delta = chunk
                 schedule(after: delay) { [self] in
-                    bridge.send(.streamReasoningDelta(runId: runId, delta: delta, ts: ts()))
+                    bridge.send(.streamReasoningDelta(runId: runId, delta: delta, ts: ts(), blockStart: false))
                 }
                 let trimmed = chunk.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { delay += 0.02 }

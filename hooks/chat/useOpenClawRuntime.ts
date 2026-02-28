@@ -41,6 +41,7 @@ import type { useSubagentStore } from "@/hooks/useSubagentStore";
 interface StreamActions {
   appendContentDelta: (runId: string, delta: string, ts: number) => void;
   appendThinkingDelta: (runId: string, delta: string, ts: number) => void;
+  startThinkingBlock: (runId: string, ts: number) => void;
   addToolCall: (runId: string, name: string, ts: number, toolCallId?: string, args?: string) => void;
   resolveToolCall: (runId: string, name: string, toolCallId?: string, result?: string, isError?: boolean) => void;
 }
@@ -73,6 +74,27 @@ interface UseOpenClawRuntimeOptions extends StreamActions {
   subagentStore: ReturnType<typeof useSubagentStore>;
 }
 
+function isReasoningBlockStart(data: Record<string, unknown>): boolean {
+  const directFlags = [
+    data.newBlock,
+    data.new_block,
+    data.blockStart,
+    data.block_start,
+    data.segmentStart,
+    data.segment_start,
+  ];
+  if (directFlags.some((v) => v === true)) return true;
+
+  const markers = [data.phase, data.type, data.kind, data.event, data.action, data.state]
+    .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    .map((v) => v.trim().toLowerCase());
+
+  if (markers.some((v) => v === "start" || v === "begin")) return true;
+
+  const joined = markers.join(" ");
+  return /new[_ -]?block|block[_ -]?start|new[_ -]?segment|segment[_ -]?start|start[_ -]?block|start[_ -]?segment/.test(joined);
+}
+
 export function useOpenClawRuntime({
   backendMode,
   isNative,
@@ -101,6 +123,7 @@ export function useOpenClawRuntime({
   subagentStore,
   appendContentDelta,
   appendThinkingDelta,
+  startThinkingBlock,
   addToolCall,
   resolveToolCall,
 }: UseOpenClawRuntimeOptions) {
@@ -611,9 +634,14 @@ export function useOpenClawRuntime({
     }
 
     if (payload.stream === "reasoning") {
-      const delta = (payload.data.delta || payload.data.text || payload.data.content || "") as string;
-      if (!delta) return;
-      appendThinkingDelta(payload.runId, delta, payload.ts);
+      if (isReasoningBlockStart(payload.data)) {
+        startThinkingBlock(payload.runId, payload.ts);
+      }
+      const deltaRaw = payload.data.delta ?? payload.data.text ?? payload.data.content;
+      const delta = typeof deltaRaw === "string" ? deltaRaw : "";
+      if (delta.length > 0) {
+        appendThinkingDelta(payload.runId, delta, payload.ts);
+      }
     }
 
     if (payload.stream === "content") {
@@ -625,6 +653,7 @@ export function useOpenClawRuntime({
     addToolCall,
     appendContentDelta,
     appendThinkingDelta,
+    startThinkingBlock,
     markRunEnd,
     markRunStart,
     requestHistory,

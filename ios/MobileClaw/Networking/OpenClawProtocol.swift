@@ -341,7 +341,7 @@ final class OpenClawProtocol {
                     bridge.send(.streamContentDelta(runId: runId, delta: text, ts: ts))
                 }
                 if let reasoning, !reasoning.isEmpty {
-                    bridge.send(.streamReasoningDelta(runId: runId, delta: reasoning, ts: ts))
+                    bridge.send(.streamReasoningDelta(runId: runId, delta: reasoning, ts: ts, blockStart: false))
                 }
             }
 
@@ -423,8 +423,11 @@ final class OpenClawProtocol {
                 textSourceByRunId[runId] = .agent
             }
             let delta = (data["delta"] ?? data["text"] ?? data["content"]) as? String ?? ""
+            if isReasoningBlockStart(data) {
+                bridge.send(.streamReasoningDelta(runId: runId, delta: "", ts: ts, blockStart: true))
+            }
             if !delta.isEmpty {
-                bridge.send(.streamReasoningDelta(runId: runId, delta: delta, ts: ts))
+                bridge.send(.streamReasoningDelta(runId: runId, delta: delta, ts: ts, blockStart: false))
             }
 
         case "tool":
@@ -611,6 +614,42 @@ final class OpenClawProtocol {
             }.joined()
         }
         return nil
+    }
+
+    private func isReasoningBlockStart(_ data: [String: Any]) -> Bool {
+        let boolFlags: [Any?] = [
+            data["newBlock"],
+            data["new_block"],
+            data["blockStart"],
+            data["block_start"],
+            data["segmentStart"],
+            data["segment_start"],
+        ]
+        if boolFlags.contains(where: { ($0 as? Bool) == true }) {
+            return true
+        }
+
+        let markerKeys = ["phase", "type", "kind", "event", "action", "state"]
+        let markers = markerKeys.compactMap { key -> String? in
+            guard let value = data[key] as? String else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        if markers.contains("start") || markers.contains("begin") {
+            return true
+        }
+
+        let joined = markers.joined(separator: " ")
+        let patterns = [
+            "new[_ -]?block",
+            "block[_ -]?start",
+            "new[_ -]?segment",
+            "segment[_ -]?start",
+            "start[_ -]?block",
+            "start[_ -]?segment",
+        ]
+        return patterns.contains { joined.range(of: $0, options: .regularExpression) != nil }
     }
 
     private func extractError(_ json: [String: Any]) -> String {

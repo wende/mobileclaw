@@ -20,6 +20,7 @@ interface UseNativeBridgeMessageOptions {
   setThinkingStartTime: React.Dispatch<React.SetStateAction<number | null>>;
   appendContentDelta: (runId: string, delta: string, ts: number) => void;
   appendThinkingDelta: (runId: string, delta: string, ts: number) => void;
+  startThinkingBlock: (runId: string, ts: number) => void;
   addToolCall: (runId: string, name: string, ts: number, toolCallId?: string, args?: string) => void;
   resolveToolCall: (runId: string, name: string, toolCallId?: string, result?: string, isError?: boolean) => void;
   scrollToBottom: () => void;
@@ -37,6 +38,7 @@ export function useNativeBridgeMessage({
   setThinkingStartTime,
   appendContentDelta,
   appendThinkingDelta,
+  startThinkingBlock,
   addToolCall,
   resolveToolCall,
   scrollToBottom,
@@ -95,8 +97,13 @@ export function useNativeBridgeMessage({
         break;
       }
       case "stream:reasoningDelta": {
-        const { runId, delta, ts } = msg.payload as { runId: string; delta: string; ts: number };
-        appendThinkingDelta(runId, delta, ts);
+        const { runId, delta, ts, blockStart } = msg.payload as { runId: string; delta: string; ts: number; blockStart?: boolean };
+        if (blockStart || delta.length === 0) {
+          startThinkingBlock(runId, ts);
+        }
+        if (delta.length > 0) {
+          appendThinkingDelta(runId, delta, ts);
+        }
         break;
       }
       case "stream:toolStart": {
@@ -155,6 +162,7 @@ export function useNativeBridgeMessage({
     addToolCall,
     appendContentDelta,
     appendThinkingDelta,
+    startThinkingBlock,
     pinLockUntilRef,
     pinnedToBottomRef,
     resolveToolCall,

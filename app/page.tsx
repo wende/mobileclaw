@@ -17,6 +17,7 @@ import {
   appendThinkingDelta as appendThinkingDeltaToMessages,
   addToolCall as addToolCallToMessages,
   resolveToolCall as resolveToolCallInMessages,
+  startThinkingBlock as startThinkingBlockInMessages,
 } from "@/lib/chat/streamMutations";
 import { buildDisplayMessages } from "@/lib/chat/messageTransforms";
 
@@ -212,6 +213,15 @@ export default function Home() {
     });
   }, [beginContentArrival]);
 
+  const startThinkingBlock = useCallback((runId: string, ts: number) => {
+    beginContentArrival();
+    setMessages((prev) => {
+      const next = startThinkingBlockInMessages(prev, runId, ts);
+      if (next.created) setStreamingId(runId);
+      return next.messages;
+    });
+  }, [beginContentArrival]);
+
   const addToolCall = useCallback((runId: string, name: string, ts: number, toolCallId?: string, args?: string) => {
     beginContentArrival();
     setMessages((prev) => {
@@ -276,6 +286,7 @@ export default function Home() {
     subagentStore,
     appendContentDelta,
     appendThinkingDelta,
+    startThinkingBlock,
     addToolCall,
     resolveToolCall,
   });
@@ -293,6 +304,7 @@ export default function Home() {
     setThinkingStartTime,
     appendContentDelta,
     appendThinkingDelta,
+    startThinkingBlock,
     addToolCall,
     resolveToolCall,
     scrollToBottom,
