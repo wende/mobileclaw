@@ -17,6 +17,11 @@ final class OpenClawProtocol {
     private var sessionKey: String = "main"
     private var pendingHistoryJSON: String?
     private var textSourceByRunId: [String: TextStreamSource] = [:]
+    private var pendingSubhistoryByRequestId: [String: String] = [:]
+    private var fetchedSubhistorySessionKeys: Set<String> = []
+    private var fallbackSpawnToolCallIdByRunId: [String: String] = [:]
+
+    private let spawnToolName = "sessions_spawn"
 
     init(bridge: WebViewBridge, appState: AppState) {
         self.bridge = bridge
@@ -148,6 +153,16 @@ final class OpenClawProtocol {
             return
         }
 
+        // subhistory response
+        if id.hasPrefix("subhistory-") {
+            if ok, let p = payload, p["messages"] != nil {
+                handleSubhistoryResponse(requestId: id, payload: p)
+            } else {
+                pendingSubhistoryByRequestId.removeValue(forKey: id)
+            }
+            return
+        }
+
         // sessions.list response
         if id.hasPrefix("sessions-list-") {
             appState.sessionsLoading = false
@@ -163,6 +178,9 @@ final class OpenClawProtocol {
             appState.isRunActive = false
             appState.isStreaming = false
             bridge.send(.streamError(errorMessage: errorMsg))
+            pendingSubhistoryByRequestId.removeAll()
+            fetchedSubhistorySessionKeys.removeAll()
+            fallbackSpawnToolCallIdByRunId.removeAll()
             return
         }
 
@@ -178,6 +196,9 @@ final class OpenClawProtocol {
         sessionKey = (sessionDefaults?["mainSessionKey"] as? String) ?? (sessionDefaults?["mainKey"] as? String) ?? "main"
         appState.sessionKey = sessionKey
         appState.sessionSwitching = false
+        pendingSubhistoryByRequestId.removeAll()
+        fetchedSubhistorySessionKeys.removeAll()
+        fallbackSpawnToolCallIdByRunId.removeAll()
         requestHistory()
         requestSessionsList()
     }
@@ -235,7 +256,19 @@ final class OpenClawProtocol {
             pendingHistoryJSON = json
         }
 
+        for childKey in extractSpawnChildSessionKeys(from: rawMessages) {
+            guard !fetchedSubhistorySessionKeys.contains(childKey) else { continue }
+            fetchedSubhistorySessionKeys.insert(childKey)
+            requestSubhistory(for: childKey)
+        }
+
         appState.sessionSwitching = false
+    }
+
+    private func handleSubhistoryResponse(requestId: String, payload: [String: Any]) {
+        guard let childSessionKey = pendingSubhistoryByRequestId.removeValue(forKey: requestId),
+              let rawMessages = payload["messages"] as? [[String: Any]] else { return }
+        bridge.send(.subagentHistory(sessionKey: childSessionKey, messages: rawMessages))
     }
 
     private func handleSessionsListResponse(_ payload: Any?) {
@@ -355,6 +388,9 @@ final class OpenClawProtocol {
             bridge.send(.streamEnd)
             activeRunId = nil
             textSourceByRunId.removeValue(forKey: runId)
+            pendingSubhistoryByRequestId.removeAll()
+            fetchedSubhistorySessionKeys.removeAll()
+            fallbackSpawnToolCallIdByRunId.removeAll()
 
             if let queued = appState.queuedMessage {
                 appState.queuedMessage = nil
@@ -371,6 +407,9 @@ final class OpenClawProtocol {
             bridge.send(.streamEnd)
             activeRunId = nil
             textSourceByRunId.removeValue(forKey: runId)
+            pendingSubhistoryByRequestId.removeAll()
+            fetchedSubhistorySessionKeys.removeAll()
+            fallbackSpawnToolCallIdByRunId.removeAll()
 
         case "error":
             let errorMsg = payload["errorMessage"] as? String ?? "Chat error"
@@ -379,6 +418,9 @@ final class OpenClawProtocol {
             bridge.send(.streamError(errorMessage: errorMsg))
             activeRunId = nil
             textSourceByRunId.removeValue(forKey: runId)
+            pendingSubhistoryByRequestId.removeAll()
+            fetchedSubhistorySessionKeys.removeAll()
+            fallbackSpawnToolCallIdByRunId.removeAll()
 
         default:
             break
@@ -446,9 +488,19 @@ final class OpenClawProtocol {
         case "tool":
             let phase = data["phase"] as? String ?? ""
             let toolName = data["name"] as? String ?? ""
-            let toolCallId = (data["toolCallId"] ?? data["tool_call_id"]) as? String
 
             if phase == "start" && !toolName.isEmpty {
+                let rawToolCallId = (data["toolCallId"] ?? data["tool_call_id"]) as? String
+                let toolCallId: String?
+                if let rawToolCallId, !rawToolCallId.isEmpty {
+                    toolCallId = rawToolCallId
+                } else if toolName == spawnToolName {
+                    let fallback = "spawn-\(Int(Date().timeIntervalSince1970 * 1000))-\(randomHex(3))"
+                    fallbackSpawnToolCallIdByRunId[runId] = fallback
+                    toolCallId = fallback
+                } else {
+                    toolCallId = nil
+                }
                 let argsRaw = data["args"]
                 let args: String?
                 if let dict = argsRaw as? [String: Any],
@@ -460,6 +512,8 @@ final class OpenClawProtocol {
                 }
                 bridge.send(.streamToolStart(runId: runId, name: toolName, args: args, toolCallId: toolCallId, ts: ts))
             } else if phase == "result" && !toolName.isEmpty {
+                let rawToolCallId = (data["toolCallId"] ?? data["tool_call_id"]) as? String
+                let toolCallId = (rawToolCallId?.isEmpty == false ? rawToolCallId : nil) ?? (toolName == spawnToolName ? fallbackSpawnToolCallIdByRunId[runId] : nil)
                 let resultRaw = data["result"]
                 let result: String?
                 if let str = resultRaw as? String {
@@ -473,6 +527,9 @@ final class OpenClawProtocol {
                 }
                 let isError = data["isError"] as? Bool ?? false
                 bridge.send(.streamToolResult(runId: runId, name: toolName, toolCallId: toolCallId, result: result, isError: isError))
+                if toolName == spawnToolName {
+                    fallbackSpawnToolCallIdByRunId.removeValue(forKey: runId)
+                }
             }
 
         default:
@@ -527,6 +584,18 @@ final class OpenClawProtocol {
         send(req)
     }
 
+    private func requestSubhistory(for childSessionKey: String) {
+        let reqId = "subhistory-\(Int(Date().timeIntervalSince1970 * 1000))-\(randomHex(3))"
+        pendingSubhistoryByRequestId[reqId] = childSessionKey
+        let req: [String: Any] = [
+            "type": "req",
+            "id": reqId,
+            "method": "chat.history",
+            "params": ["sessionKey": childSessionKey],
+        ]
+        send(req)
+    }
+
     func requestSessionsList(limit: Int = 50) {
         appState.sessionsLoading = true
         let req: [String: Any] = [
@@ -555,6 +624,9 @@ final class OpenClawProtocol {
         appState.isStreaming = false
         bridge.send(.streamEnd)
         bridge.send(.subagentClear)
+        pendingSubhistoryByRequestId.removeAll()
+        fetchedSubhistorySessionKeys.removeAll()
+        fallbackSpawnToolCallIdByRunId.removeAll()
 
         if let selected = appState.sessions.first(where: { $0.key == key }),
            let model = selected.model,
@@ -576,6 +648,61 @@ final class OpenClawProtocol {
 
     private func extractUserText(_ msg: [String: Any]) -> String {
         extractText(from: msg["content"]) ?? ""
+    }
+
+    private func extractSpawnChildSessionKeys(from rawMessages: [[String: Any]]) -> [String] {
+        var keys = Set<String>()
+
+        for raw in rawMessages {
+            let role = raw["role"] as? String ?? ""
+
+            // Case 1: assistant toolCall parts with inline result payload.
+            if role == "assistant", let content = raw["content"] as? [[String: Any]] {
+                for part in content {
+                    let partType = part["type"] as? String
+                    guard partType == "tool_call" || partType == "toolCall" else { continue }
+                    guard part["name"] as? String == spawnToolName else { continue }
+
+                    if let result = part["result"] as? String,
+                       let data = result.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let childSessionKey = parsed["childSessionKey"] as? String,
+                       !childSessionKey.isEmpty {
+                        keys.insert(childSessionKey)
+                        continue
+                    }
+
+                    if let parsed = part["result"] as? [String: Any],
+                       let childSessionKey = parsed["childSessionKey"] as? String,
+                       !childSessionKey.isEmpty {
+                        keys.insert(childSessionKey)
+                    }
+                }
+            }
+
+            // Case 2: standalone tool result messages from gateway.
+            if role == "tool" || role == "toolResult" || role == "tool_result" {
+                let toolName = (raw["toolName"] as? String) ?? (raw["name"] as? String)
+                guard toolName == spawnToolName else { continue }
+
+                if let details = raw["details"] as? [String: Any],
+                   let childSessionKey = details["childSessionKey"] as? String,
+                   !childSessionKey.isEmpty {
+                    keys.insert(childSessionKey)
+                    continue
+                }
+
+                if let text = extractText(from: raw["content"]),
+                   let data = text.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let childSessionKey = parsed["childSessionKey"] as? String,
+                   !childSessionKey.isEmpty {
+                    keys.insert(childSessionKey)
+                }
+            }
+        }
+
+        return Array(keys)
     }
 
     private func parseSessionInfo(_ raw: [String: Any]) -> SessionInfo? {

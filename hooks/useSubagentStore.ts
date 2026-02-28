@@ -74,15 +74,19 @@ export function useSubagentStore(): SubagentStore {
     const { stream, data, ts } = payload;
 
     if (stream === "lifecycle") {
-      const phase = data.phase as string;
-      if (phase === "start") {
+      const phase = typeof data.phase === "string" ? data.phase.toLowerCase() : "";
+      const isStart = phase === "start" || phase === "begin";
+      const isEnd = phase === "end" || phase === "done" || phase === "complete" || phase === "completed" || phase === "stop" || phase === "finish" || phase === "finished";
+      const isError = phase === "error" || phase === "failed" || phase === "abort" || phase === "aborted";
+
+      if (isStart) {
         // New turn starting — cancel any pending "done" timer and reset to active
         cancelDoneTimer(sessionKey);
         autoLink(sessionKey);
         const session = ensureSession(sessionKey);
         session.status = "active";
         bump();
-      } else if (phase === "end") {
+      } else if (isEnd) {
         // lifecycle:end fires per-turn. Debounce: schedule "done" after a grace period.
         // If a new lifecycle:start fires within the window, the timer is cancelled.
         cancelDoneTimer(sessionKey);
@@ -96,7 +100,7 @@ export function useSubagentStore(): SubagentStore {
         }, DONE_GRACE_MS);
         doneTimersRef.current.set(sessionKey, timer);
         bump();
-      } else if (phase === "error") {
+      } else if (isError) {
         cancelDoneTimer(sessionKey);
         const session = storeRef.current.get(sessionKey);
         if (session) session.status = "error";
@@ -158,11 +162,27 @@ export function useSubagentStore(): SubagentStore {
   }, []);
 
   const ingestChatEvent = useCallback((sessionKey: string, state: "final" | "aborted" | "error") => {
-    const session = storeRef.current.get(sessionKey);
-    if (!session) return;
-    // Don't mark "done" on chat:final — it fires after each turn in an agent loop.
-    if (state === "error") { cancelDoneTimer(sessionKey); session.status = "error"; }
-    else if (state === "aborted") { cancelDoneTimer(sessionKey); session.status = "done"; }
+    const session = ensureSession(sessionKey);
+    if (state === "final") {
+      // Some runtimes don't emit lifecycle:end for child sessions.
+      // Mirror lifecycle:end behavior: mark done after grace unless activity resumes.
+      cancelDoneTimer(sessionKey);
+      const timer = setTimeout(() => {
+        doneTimersRef.current.delete(sessionKey);
+        const current = storeRef.current.get(sessionKey);
+        if (current && current.status === "active") {
+          current.status = "done";
+          bump();
+        }
+      }, DONE_GRACE_MS);
+      doneTimersRef.current.set(sessionKey, timer);
+    } else if (state === "error") {
+      cancelDoneTimer(sessionKey);
+      session.status = "error";
+    } else if (state === "aborted") {
+      cancelDoneTimer(sessionKey);
+      session.status = "done";
+    }
     bump();
   }, []);
 

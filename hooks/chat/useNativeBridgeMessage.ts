@@ -2,7 +2,7 @@ import { useCallback } from "react";
 
 import { parseServerCommands } from "@/components/CommandSheet";
 import { PIN_LOCK_MS } from "@/hooks/useScrollManager";
-import { STOP_REASON_INJECTED } from "@/lib/constants";
+import { SPAWN_TOOL_NAME, STOP_REASON_INJECTED } from "@/lib/constants";
 import { getTextFromContent } from "@/lib/messageUtils";
 import { mergeAndNormalizeToolResults } from "@/lib/chat/messageTransforms";
 import type { BridgeMessage } from "@/lib/nativeBridge";
@@ -108,6 +108,9 @@ export function useNativeBridgeMessage({
       }
       case "stream:toolStart": {
         const { runId, name, args, toolCallId, ts } = msg.payload as { runId: string; name: string; args?: string; toolCallId?: string; ts: number };
+        if (name === SPAWN_TOOL_NAME && toolCallId) {
+          subagentStore.registerSpawn(toolCallId);
+        }
         addToolCall(runId, name, ts, toolCallId, args);
         break;
       }
@@ -187,6 +190,15 @@ export function useNativeBridgeMessage({
         if (payload.state === "final" || payload.state === "aborted" || payload.state === "error") {
           subagentStore.ingestChatEvent(payload.sessionKey, payload.state);
         }
+        break;
+      }
+      case "subagent:history": {
+        const payload = (msg.payload || {}) as {
+          sessionKey?: unknown;
+          messages?: unknown;
+        };
+        if (typeof payload.sessionKey !== "string" || !Array.isArray(payload.messages)) break;
+        subagentStore.loadFromHistory(payload.sessionKey, payload.messages as Array<Record<string, unknown>>);
         break;
       }
     }
