@@ -2,13 +2,13 @@ import { useCallback } from "react";
 
 import { parseServerCommands } from "@/components/CommandSheet";
 import { PIN_LOCK_MS } from "@/hooks/useScrollManager";
-import { STOP_REASON_INJECTED } from "@/lib/constants";
+import { SPAWN_TOOL_NAME, STOP_REASON_INJECTED } from "@/lib/constants";
 import { getTextFromContent } from "@/lib/messageUtils";
 import { mergeAndNormalizeToolResults } from "@/lib/chat/messageTransforms";
 import { mergeHistoryWithOptimistic } from "@/lib/chat/historyResponse";
 import { upsertChatEventMessage } from "@/lib/chat/chatEventUpsert";
 import type { BridgeMessage } from "@/lib/nativeBridge";
-import type { ChatEventPayload, Message } from "@/types/chat";
+import type { AgentEventPayload, ChatEventPayload, Message } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
 
 interface UseNativeBridgeMessageOptions {
@@ -120,6 +120,9 @@ export function useNativeBridgeMessage({
       }
       case "stream:toolStart": {
         const { runId, name, args, toolCallId, ts } = msg.payload as { runId: string; name: string; args?: string; toolCallId?: string; ts: number };
+        if (name === SPAWN_TOOL_NAME && toolCallId) {
+          subagentStore.registerSpawn(toolCallId);
+        }
         addToolCall(runId, name, ts, toolCallId, args);
         break;
       }
@@ -176,6 +179,48 @@ export function useNativeBridgeMessage({
       case "subagent:clear":
         subagentStore.clearAll();
         break;
+      case "subagent:agentEvent": {
+        const payload = (msg.payload || {}) as {
+          runId?: unknown;
+          sessionKey?: unknown;
+          stream?: unknown;
+          data?: unknown;
+          seq?: unknown;
+          ts?: unknown;
+        };
+        if (typeof payload.runId !== "string" || typeof payload.sessionKey !== "string" || typeof payload.stream !== "string") break;
+        if (typeof payload.ts !== "number" || typeof payload.data !== "object" || payload.data === null || Array.isArray(payload.data)) break;
+        const agentPayload: AgentEventPayload = {
+          runId: payload.runId,
+          sessionKey: payload.sessionKey,
+          stream: payload.stream,
+          data: payload.data as Record<string, unknown>,
+          seq: typeof payload.seq === "number" ? payload.seq : 0,
+          ts: payload.ts,
+        };
+        subagentStore.ingestAgentEvent(payload.sessionKey, agentPayload);
+        break;
+      }
+      case "subagent:chatEvent": {
+        const payload = (msg.payload || {}) as {
+          sessionKey?: unknown;
+          state?: unknown;
+        };
+        if (typeof payload.sessionKey !== "string") break;
+        if (payload.state === "final" || payload.state === "aborted" || payload.state === "error") {
+          subagentStore.ingestChatEvent(payload.sessionKey, payload.state);
+        }
+        break;
+      }
+      case "subagent:history": {
+        const payload = (msg.payload || {}) as {
+          sessionKey?: unknown;
+          messages?: unknown;
+        };
+        if (typeof payload.sessionKey !== "string" || !Array.isArray(payload.messages)) break;
+        subagentStore.loadFromHistory(payload.sessionKey, payload.messages as Array<Record<string, unknown>>);
+        break;
+      }
     }
   }, [
     addToolCall,
