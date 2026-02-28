@@ -436,6 +436,7 @@ final class OpenClawProtocol {
               let data = payload["data"] as? [String: Any] else { return }
 
         let ts = payload["ts"] as? Int ?? Int(Date().timeIntervalSince1970 * 1000)
+        let seq = payload["seq"] as? Int ?? 0
 
         if payloadSessionKey != sessionKey {
             bridge.send(.subagentAgentEvent(
@@ -443,6 +444,7 @@ final class OpenClawProtocol {
                 sessionKey: payloadSessionKey,
                 stream: stream,
                 data: data,
+                seq: seq,
                 ts: ts
             ))
             return
@@ -756,6 +758,8 @@ final class OpenClawProtocol {
         return nil
     }
 
+    // Cross-platform contract: this logic is mirrored in useOpenClawRuntime.ts.
+    // Both must check the same flags/markers to stay in sync.
     private func isReasoningBlockStart(_ data: [String: Any]) -> Bool {
         let boolFlags: [Any?] = [
             data["newBlock"],

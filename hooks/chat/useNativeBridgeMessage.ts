@@ -166,6 +166,7 @@ export function useNativeBridgeMessage({
           sessionKey?: unknown;
           stream?: unknown;
           data?: unknown;
+          seq?: unknown;
           ts?: unknown;
         };
         if (typeof payload.runId !== "string" || typeof payload.sessionKey !== "string" || typeof payload.stream !== "string") break;
@@ -175,7 +176,7 @@ export function useNativeBridgeMessage({
           sessionKey: payload.sessionKey,
           stream: payload.stream,
           data: payload.data as Record<string, unknown>,
-          seq: 0,
+          seq: typeof payload.seq === "number" ? payload.seq : 0,
           ts: payload.ts,
         };
         subagentStore.ingestAgentEvent(payload.sessionKey, agentPayload);

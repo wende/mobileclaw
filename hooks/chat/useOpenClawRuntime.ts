@@ -74,6 +74,8 @@ interface UseOpenClawRuntimeOptions extends StreamActions {
   subagentStore: ReturnType<typeof useSubagentStore>;
 }
 
+// Cross-platform contract: this logic is mirrored in OpenClawProtocol.swift.
+// Both must check the same flags/markers to stay in sync.
 function isReasoningBlockStart(data: Record<string, unknown>): boolean {
   const directFlags = [
     data.newBlock,

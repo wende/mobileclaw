@@ -142,4 +142,51 @@ describe("chat stream mutations", () => {
     });
     expect(next).toEqual(initial);
   });
+
+  it("passes through pre-normalized ContentPart[] without re-wrapping", () => {
+    const parts = [
+      { type: "text" as const, text: "hello" },
+      { type: "text" as const, text: " world" },
+    ];
+    const next = upsertFinalRunMessage([], "run-parts", {
+      role: "assistant",
+      content: parts,
+      timestamp: 999,
+    });
+    expect(next).toHaveLength(1);
+    expect(next[0].content).toEqual(parts);
+  });
+
+  it("normalizes a string content into a single text ContentPart", () => {
+    const next = upsertFinalRunMessage([], "run-str", {
+      role: "assistant",
+      content: "plain text",
+    });
+    expect(next[0].content).toEqual([{ type: "text", text: "plain text" }]);
+  });
+
+  it("treats empty string content as no-content (no new message created)", () => {
+    const next = upsertFinalRunMessage([], "run-empty-str", {
+      role: "assistant",
+      content: "",
+    });
+    expect(next).toHaveLength(0);
+  });
+
+  it("ignores payloads with role 'user'", () => {
+    const initial: Message[] = [{ role: "assistant", id: "run-u", content: [] }];
+    const next = upsertFinalRunMessage(initial, "run-u", {
+      role: "user",
+      content: "should be ignored",
+    });
+    expect(next).toEqual(initial);
+  });
+
+  it("ignores user role even when no prior message exists", () => {
+    const next = upsertFinalRunMessage([], "run-user-new", {
+      role: "user",
+      content: "should not create a message",
+    });
+    expect(next).toHaveLength(0);
+  });
 });
