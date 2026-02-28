@@ -5,6 +5,7 @@ import {
   appendContentDelta,
   appendThinkingDelta,
   resolveToolCall,
+  upsertFinalRunMessage,
 } from "@/lib/chat/streamMutations";
 import type { Message } from "@/types/chat";
 
@@ -73,5 +74,48 @@ describe("chat stream mutations", () => {
     const partByName = (byName[0].content as Array<{ status?: string; result?: string }>)[0];
     expect(partByName.status).toBe("success");
     expect(partByName.result).toBe("done");
+  });
+
+  it("fills an existing placeholder from a final-only payload", () => {
+    const initial: Message[] = [{
+      role: "assistant",
+      id: "run-final",
+      content: [],
+      isCommandResponse: true,
+    }];
+
+    const next = upsertFinalRunMessage(initial, "run-final", {
+      role: "assistant",
+      content: "Conversation compacted.",
+      timestamp: 1234,
+    });
+
+    expect(next).toHaveLength(1);
+    expect(next[0].isCommandResponse).toBe(true);
+    expect(next[0].timestamp).toBe(1234);
+    expect((next[0].content as Array<{ type: string; text?: string }>)[0].text).toBe("Conversation compacted.");
+  });
+
+  it("appends a message when final payload arrives without prior deltas", () => {
+    const next = upsertFinalRunMessage([], "run-new", {
+      role: "assistant",
+      content: "Final-only response",
+      timestamp: 555,
+      reasoning: "quick thought",
+    });
+
+    expect(next).toHaveLength(1);
+    expect(next[0].id).toBe("run-new");
+    expect(next[0].reasoning).toBe("quick thought");
+    expect((next[0].content as Array<{ type: string; text?: string }>)[0].text).toBe("Final-only response");
+  });
+
+  it("ignores empty final payloads when there is nothing to upsert", () => {
+    const initial: Message[] = [{ role: "assistant", id: "a1", content: [{ type: "text", text: "existing" }] }];
+    const next = upsertFinalRunMessage(initial, "run-empty", {
+      role: "assistant",
+      content: [],
+    });
+    expect(next).toEqual(initial);
   });
 });

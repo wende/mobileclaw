@@ -147,3 +147,54 @@ export function resolveToolCall(
     }),
   }));
 }
+
+function normalizeIncomingContent(content: ContentPart[] | string): ContentPart[] {
+  if (typeof content === "string") return [{ type: "text", text: content }];
+  return content;
+}
+
+function hasIncomingContent(content: ContentPart[] | string): boolean {
+  if (typeof content === "string") return content.length > 0;
+  return content.length > 0;
+}
+
+export function upsertFinalRunMessage(
+  messages: Message[],
+  runId: string,
+  incoming?: {
+    role: "user" | "assistant" | "system" | "tool";
+    content: ContentPart[] | string;
+    timestamp?: number;
+    reasoning?: string;
+  },
+): Message[] {
+  if (!incoming) return messages;
+  if (incoming.role === "user") return messages;
+
+  const nextContent = normalizeIncomingContent(incoming.content);
+  const shouldApplyContent = hasIncomingContent(incoming.content);
+  const idx = messages.findIndex((m) => m.id === runId);
+
+  if (idx >= 0) {
+    return updateAt(messages, idx, (target) => ({
+      ...target,
+      role: incoming.role,
+      content: shouldApplyContent ? nextContent : target.content,
+      timestamp: incoming.timestamp ?? target.timestamp,
+      reasoning: incoming.reasoning || target.reasoning,
+    }));
+  }
+
+  if (!shouldApplyContent && !incoming.reasoning) return messages;
+
+  return [
+    ...messages,
+    {
+      role: incoming.role,
+      content: shouldApplyContent ? nextContent : [],
+      id: runId,
+      timestamp: incoming.timestamp ?? Date.now(),
+      reasoning: incoming.reasoning,
+    } as Message,
+  ];
+}

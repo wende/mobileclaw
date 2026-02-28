@@ -75,6 +75,9 @@ export function useMessageSender({
     cancelCommandFetch();
     const isSlashCommand = text.trim().startsWith("/");
     setLastCommand(isSlashCommand ? text.trim().split(/\s/)[0].toLowerCase() : null);
+    const openClawRunId = backendMode === "openclaw"
+      ? `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      : null;
 
     if (!isDetachedRef.current) void requestNotificationPermission();
     pinnedToBottomRef.current = true;
@@ -97,7 +100,7 @@ export function useMessageSender({
     setSentAnimId(userMsg.id!);
 
     if (isSlashCommand) {
-      const placeholderId = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const placeholderId = openClawRunId || `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const placeholder: Message = { role: "assistant", content: [], id: placeholderId, timestamp: Date.now(), isCommandResponse: true };
       setMessages((prev) => [...prev, userMsg, placeholder]);
     } else {
@@ -151,7 +154,7 @@ export function useMessageSender({
     setAwaitingResponse(true);
     setThinkingStartTime(Date.now());
 
-    const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const runId = openClawRunId || `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     activeRunIdRef.current = runId;
 
     sendWS({

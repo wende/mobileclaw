@@ -25,6 +25,7 @@ import {
   mergeHistoryWithOptimistic,
   prepareHistoryMessages,
 } from "@/lib/chat/historyResponse";
+import { upsertFinalRunMessage } from "@/lib/chat/streamMutations";
 import type {
   AgentEventPayload,
   BackendMode,
@@ -482,6 +483,10 @@ export function useOpenClawRuntime({
         break;
 
       case "final": {
+        if (payload.runId && payload.message) {
+          setMessages((prev) => upsertFinalRunMessage(prev, payload.runId, payload.message));
+        }
+
         const runDuration = markRunEnd();
         notifyForRun(activeRunIdRef.current);
         if (runDuration > 0 && payload.runId) {
