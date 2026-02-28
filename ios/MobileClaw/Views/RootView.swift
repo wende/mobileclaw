@@ -141,9 +141,14 @@ struct RootView: View {
                 sessionName: currentSessionName,
                 sessionSwitching: appState.sessionSwitching,
                 isSessionDropdownOpen: showSessionDropdown,
+                zenMode: appState.zenMode,
                 onOpenSetup: {
                     showSessionDropdown = false
                     appState.showSetup = true
+                },
+                onToggleZenMode: {
+                    appState.zenMode.toggle()
+                    bridge.send(.zenSet(enabled: appState.zenMode))
                 },
                 onToggleSessionDropdown: {
                     guard appState.backendMode == .openclaw else { return }
@@ -225,6 +230,7 @@ struct RootView: View {
             // WebView is initialized, send current theme
             let isDark = UITraitCollection.current.userInterfaceStyle == .dark
             bridge.send(.themeSet(theme: isDark ? "dark" : "light"))
+            bridge.send(.zenSet(enabled: appState.zenMode))
             // Flush any history that arrived before WebView was ready
             if appState.backendMode == .demo {
                 demoHandler?.loadDemoHistory()

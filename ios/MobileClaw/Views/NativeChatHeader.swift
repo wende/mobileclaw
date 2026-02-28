@@ -7,7 +7,9 @@ struct NativeChatHeader: View {
     let sessionName: String
     let sessionSwitching: Bool
     let isSessionDropdownOpen: Bool
+    let zenMode: Bool
     let onOpenSetup: () -> Void
+    let onToggleZenMode: () -> Void
     let onToggleSessionDropdown: () -> Void
 
     var body: some View {
@@ -19,6 +21,24 @@ struct NativeChatHeader: View {
                 }
 
                 Spacer()
+
+                Button(action: onToggleZenMode) {
+                    Image(systemName: zenMode ? "circle.lefthalf.filled" : "circle")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(zenMode ? .primary : .secondary)
+                        .frame(width: 32, height: 32)
+                        .background(
+                            Circle()
+                                .fill(zenMode ? Color.accentColor.opacity(0.16) : Color(.secondarySystemBackground))
+                        )
+                        .overlay(
+                            Circle()
+                                .strokeBorder(Color(.separator).opacity(0.35), lineWidth: 0.5)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(zenMode ? "Disable zen mode" : "Enable zen mode")
+                .accessibilityHint("Collapse previous assistant blocks into the latest one")
 
                 // Connection status dot
                 Circle()
