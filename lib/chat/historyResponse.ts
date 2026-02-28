@@ -1,9 +1,8 @@
 import {
-  CONTEXT_STARTS_WITH,
-  CONTEXT_CONTAINS,
   GATEWAY_INJECTED_MODEL,
   SPAWN_TOOL_NAME,
   STOP_REASON_INJECTED,
+  isContextText,
   isToolCallPart,
 } from "@/lib/constants";
 import { getTextFromContent } from "@/lib/messageUtils";
