@@ -38,7 +38,7 @@ function renderViewport(
       onPin={() => {}}
       onUnpin={() => {}}
       zenMode={zenMode}
-      awaitingResponse={false}
+      isRunActive={false}
       thinkingStartTime={null}
       quotePopup={null}
       quotePopupRef={React.createRef<HTMLButtonElement>()}
@@ -172,7 +172,7 @@ describe("ChatViewport zen grouping", () => {
           onPin={() => {}}
           onUnpin={() => {}}
           zenMode
-          awaitingResponse={false}
+          isRunActive={false}
           thinkingStartTime={null}
           quotePopup={null}
           quotePopupRef={React.createRef<HTMLButtonElement>()}
