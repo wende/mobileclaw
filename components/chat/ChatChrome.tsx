@@ -19,6 +19,8 @@ interface ChatChromeProps {
   currentModel: string | null;
   theme: "light" | "dark";
   toggleTheme: () => void;
+  zenMode: boolean;
+  toggleZenMode: () => void;
   connectionState: ConnectionState;
   sessionName: string;
   onSessionPillClick: () => void;
@@ -44,6 +46,8 @@ export function ChatChrome({
   currentModel,
   theme,
   toggleTheme,
+  zenMode,
+  toggleZenMode,
   connectionState,
   sessionName,
   onSessionPillClick,
@@ -70,6 +74,8 @@ export function ChatChrome({
         currentModel={currentModel}
         theme={theme}
         toggleTheme={toggleTheme}
+        zenMode={zenMode}
+        toggleZenMode={toggleZenMode}
         connectionState={connectionState}
         backendMode={backendMode}
         isDemoMode={isDemoMode}

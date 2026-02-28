@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MessageRow } from "@/components/MessageRow";
 import type { Message } from "@/types/chat";
+import { findSlideGrid } from "./utils/zenDom";
 
 describe("MessageRow", () => {
   it("renders user message text", () => {
@@ -22,6 +23,27 @@ describe("MessageRow", () => {
     };
     render(<MessageRow message={message} isStreaming={false} />);
     expect(screen.getByText("Hi there!")).toBeInTheDocument();
+  });
+
+  it("slides in thinking blocks when they first appear", async () => {
+    const message: Message = {
+      role: "assistant",
+      content: [],
+      reasoning: "Thinking through the request",
+      id: "test-thinking-slide",
+    };
+
+    render(<MessageRow message={message} isStreaming />);
+
+    const initialGrid = findSlideGrid(screen.getByText("Thinking through the request"));
+    expect(initialGrid).not.toBeNull();
+    expect(initialGrid).toHaveStyle({ gridTemplateRows: "0fr" });
+
+    await waitFor(() => {
+      const openGrid = findSlideGrid(screen.getByText("Thinking through the request"));
+      expect(openGrid).not.toBeNull();
+      expect(openGrid).toHaveStyle({ gridTemplateRows: "1fr" });
+    });
   });
 
   it("renders system message centered", () => {
@@ -115,5 +137,128 @@ describe("MessageRow", () => {
     };
     render(<MessageRow message={message} isStreaming={false} />);
     expect(screen.getByText("Running...")).toBeInTheDocument();
+  });
+
+  it("renders full assistant content when zen mode is off", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [
+        { type: "text", text: "Step one" },
+        { type: "tool_call", name: "exec", arguments: "{\"command\":\"echo 1\"}", status: "success", result: "1" },
+        { type: "text", text: "Step two" },
+        { type: "tool_call", name: "exec", arguments: "{\"command\":\"echo 2\"}", status: "success", result: "2" },
+        { type: "text", text: "Final answer" },
+      ],
+      id: "zen-off",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} zenMode={false} />);
+    expect(screen.getByText("Step one")).toBeInTheDocument();
+    expect(screen.getByText("Step two")).toBeInTheDocument();
+    expect(screen.getByText("Final answer")).toBeInTheDocument();
+  });
+
+  it("renders zen toggle for block-collapsible rows and calls toggle handler", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Final answer" }],
+      id: "zen-toggle",
+    };
+    const onZenGroupToggle = vi.fn();
+
+    render(
+      <MessageRow
+        message={message}
+        isStreaming={false}
+        zenMode
+        zenGroupCollapsible
+        zenGroupExpanded={false}
+        onZenGroupToggle={onZenGroupToggle}
+      />,
+    );
+
+    const toggle = screen.getByTestId("zen-toggle");
+    expect(toggle).toHaveAttribute("aria-label", "Expand assistant steps");
+    fireEvent.click(toggle);
+    expect(onZenGroupToggle).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Final answer")).toBeInTheDocument();
+  });
+
+  it("renders zen toggle in expanded state with collapse semantics", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Final answer" }],
+      id: "zen-toggle-expanded",
+    };
+
+    render(
+      <MessageRow
+        message={message}
+        isStreaming={false}
+        zenMode
+        zenGroupCollapsible
+        zenGroupExpanded
+        onZenGroupToggle={() => {}}
+      />,
+    );
+
+    const toggle = screen.getByTestId("zen-toggle");
+    expect(toggle).toHaveAttribute("aria-label", "Collapse assistant steps");
+    const chevron = toggle.querySelector("svg");
+    expect(chevron).not.toBeNull();
+    expect(chevron).toHaveStyle({ transform: "rotate(180deg)" });
+    expect(screen.getByText("Final answer")).toBeInTheDocument();
+  });
+
+  it("hides collapsed sibling rows in zen mode and reveals when expanded", async () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Step one" }],
+      id: "zen-sibling",
+    };
+
+    const { rerender } = render(
+      <MessageRow
+        message={message}
+        isStreaming={false}
+        zenMode
+        zenCollapsedByGroup
+        zenGroupExpanded={false}
+        zenGroupSlideOpen={false}
+        zenGroupFadeVisible={false}
+      />,
+    );
+    const initialGrid = findSlideGrid(screen.getByText("Step one"));
+    expect(initialGrid).not.toBeNull();
+    expect(initialGrid).toHaveStyle({ gridTemplateRows: "0fr" });
+
+    rerender(
+      <MessageRow
+        message={message}
+        isStreaming={false}
+        zenMode
+        zenCollapsedByGroup
+        zenGroupExpanded
+        zenGroupSlideOpen
+        zenGroupFadeVisible
+      />,
+    );
+    await waitFor(() => {
+      const expandedGrid = findSlideGrid(screen.getByText("Step one"));
+      expect(expandedGrid).not.toBeNull();
+      expect(expandedGrid).toHaveStyle({ gridTemplateRows: "1fr" });
+    });
+  });
+
+  it("does not render zen chevron without a block-collapsible flag", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Just one group" }],
+      id: "zen-single",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} zenMode />);
+    expect(screen.getByText("Just one group")).toBeInTheDocument();
+    expect(screen.queryByTestId("zen-toggle")).not.toBeInTheDocument();
   });
 });

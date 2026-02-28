@@ -56,7 +56,7 @@ pnpm run build       # production build
 pnpm test            # run Vitest tests (63 tests)
 ```
 
-- Whenever making web changes for purposes of ios ALWAYS run `make build-web` after completing the task.
+- When developing features for iOS app *ONLY* run `make build-web` after completing the task.
 
 ## Backend Modes
 

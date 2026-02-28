@@ -28,6 +28,7 @@ ios/build/
 # Next.js static export
 out/
 ios/MobileClaw/Resources/web/
+.api_backup_for_export/
 
 # Claude worktrees
 .claude/worktrees/

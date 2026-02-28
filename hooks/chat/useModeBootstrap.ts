@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 
 import { DEMO_HISTORY } from "@/lib/demoMode";
 import type { LmStudioConfig } from "@/lib/lmStudio";
@@ -67,7 +67,12 @@ export function useModeBootstrap({
   isDetachedRef,
   isNativeRef,
 }: UseModeBootstrapOptions) {
+  const hasInitializedRef = useRef(false);
+
   useEffect(() => {
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+
     if (getSearchParam("detached") !== null) {
       setIsDetached(true);
       isDetachedRef.current = true;
@@ -94,6 +99,7 @@ export function useModeBootstrap({
     }
 
     if (getSearchParam("demo") !== null) {
+      resetThinkingState();
       setIsDemoMode(true);
       setBackendMode("demo");
       setMessages(DEMO_HISTORY);
