@@ -423,10 +423,10 @@ final class OpenClawProtocol {
                 textSourceByRunId[runId] = .agent
             }
             let delta = (data["delta"] ?? data["text"] ?? data["content"]) as? String ?? ""
-            if isReasoningBlockStart(data) {
-                bridge.send(.streamReasoningDelta(runId: runId, delta: "", ts: ts, blockStart: true))
-            }
-            if !delta.isEmpty {
+            let isStart = isReasoningBlockStart(data)
+            if isStart {
+                bridge.send(.streamReasoningDelta(runId: runId, delta: delta, ts: ts, blockStart: true))
+            } else if !delta.isEmpty {
                 bridge.send(.streamReasoningDelta(runId: runId, delta: delta, ts: ts, blockStart: false))
             }
 

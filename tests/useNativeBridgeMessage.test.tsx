@@ -51,4 +51,84 @@ describe("useNativeBridgeMessage", () => {
 
     expect(setZenModeEnabled).not.toHaveBeenCalled();
   });
+
+  it("starts a thinking block but does not append when blockStart is true and delta is empty", () => {
+    const options = createOptions(vi.fn());
+    const { result } = renderHook(() => useNativeBridgeMessage(options));
+
+    act(() => {
+      result.current({
+        type: "stream:reasoningDelta",
+        payload: { runId: "r1", delta: "", ts: 1000, blockStart: true },
+      });
+    });
+
+    expect(options.startThinkingBlock).toHaveBeenCalledTimes(1);
+    expect(options.startThinkingBlock).toHaveBeenCalledWith("r1", 1000);
+    expect(options.appendThinkingDelta).not.toHaveBeenCalled();
+  });
+
+  it("starts a thinking block and appends when blockStart is true and delta is non-empty", () => {
+    const options = createOptions(vi.fn());
+    const { result } = renderHook(() => useNativeBridgeMessage(options));
+
+    act(() => {
+      result.current({
+        type: "stream:reasoningDelta",
+        payload: { runId: "r2", delta: "Thinking...", ts: 2000, blockStart: true },
+      });
+    });
+
+    expect(options.startThinkingBlock).toHaveBeenCalledTimes(1);
+    expect(options.startThinkingBlock).toHaveBeenCalledWith("r2", 2000);
+    expect(options.appendThinkingDelta).toHaveBeenCalledTimes(1);
+    expect(options.appendThinkingDelta).toHaveBeenCalledWith("r2", "Thinking...", 2000);
+  });
+
+  it("only appends when blockStart is false and delta is non-empty", () => {
+    const options = createOptions(vi.fn());
+    const { result } = renderHook(() => useNativeBridgeMessage(options));
+
+    act(() => {
+      result.current({
+        type: "stream:reasoningDelta",
+        payload: { runId: "r3", delta: "More thinking...", ts: 3000, blockStart: false },
+      });
+    });
+
+    expect(options.startThinkingBlock).not.toHaveBeenCalled();
+    expect(options.appendThinkingDelta).toHaveBeenCalledTimes(1);
+    expect(options.appendThinkingDelta).toHaveBeenCalledWith("r3", "More thinking...", 3000);
+  });
+
+  it("only appends when blockStart is unset and delta is non-empty", () => {
+    const options = createOptions(vi.fn());
+    const { result } = renderHook(() => useNativeBridgeMessage(options));
+
+    act(() => {
+      result.current({
+        type: "stream:reasoningDelta",
+        payload: { runId: "r4", delta: "Streaming reasoning...", ts: 4000 },
+      });
+    });
+
+    expect(options.startThinkingBlock).not.toHaveBeenCalled();
+    expect(options.appendThinkingDelta).toHaveBeenCalledTimes(1);
+    expect(options.appendThinkingDelta).toHaveBeenCalledWith("r4", "Streaming reasoning...", 4000);
+  });
+
+  it("does nothing when blockStart is unset and delta is empty", () => {
+    const options = createOptions(vi.fn());
+    const { result } = renderHook(() => useNativeBridgeMessage(options));
+
+    act(() => {
+      result.current({
+        type: "stream:reasoningDelta",
+        payload: { runId: "r5", delta: "", ts: 5000 },
+      });
+    });
+
+    expect(options.startThinkingBlock).not.toHaveBeenCalled();
+    expect(options.appendThinkingDelta).not.toHaveBeenCalled();
+  });
 });

@@ -76,16 +76,16 @@ interface UseOpenClawRuntimeOptions extends StreamActions {
 
 function isReasoningBlockStart(data: Record<string, unknown>): boolean {
   const directFlags = [
-    data.newBlock,
-    data.new_block,
-    data.blockStart,
-    data.block_start,
-    data.segmentStart,
-    data.segment_start,
+    data["newBlock"],
+    data["new_block"],
+    data["blockStart"],
+    data["block_start"],
+    data["segmentStart"],
+    data["segment_start"],
   ];
   if (directFlags.some((v) => v === true)) return true;
 
-  const markers = [data.phase, data.type, data.kind, data.event, data.action, data.state]
+  const markers = [data["phase"], data["type"], data["kind"], data["event"], data["action"], data["state"]]
     .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
     .map((v) => v.trim().toLowerCase());
 

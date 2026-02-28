@@ -200,7 +200,7 @@ export function upsertFinalRunMessage(
       role: incoming.role,
       content: shouldApplyContent ? nextContent : target.content,
       timestamp: incoming.timestamp ?? target.timestamp,
-      reasoning: incoming.reasoning || target.reasoning,
+      reasoning: incoming.reasoning ?? target.reasoning,
     }));
   }
 

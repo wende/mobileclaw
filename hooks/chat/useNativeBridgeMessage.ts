@@ -100,7 +100,7 @@ export function useNativeBridgeMessage({
       }
       case "stream:reasoningDelta": {
         const { runId, delta, ts, blockStart } = msg.payload as { runId: string; delta: string; ts: number; blockStart?: boolean };
-        if (blockStart || delta.length === 0) {
+        if (blockStart) {
           startThinkingBlock(runId, ts);
         }
         if (delta.length > 0) {
