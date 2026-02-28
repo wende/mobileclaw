@@ -9,6 +9,7 @@ const getGitSha = () => {
 };
 
 const isExport = process.env.NEXT_EXPORT === '1';
+const nextDistDir = process.env.NEXT_DIST_DIR?.trim();
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -19,6 +20,7 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_GIT_SHA: getGitSha(),
   },
+  ...(nextDistDir && { distDir: nextDistDir }),
   ...(isExport && { output: 'export', assetPrefix: './' }),
 }
 

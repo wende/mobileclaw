@@ -112,8 +112,11 @@ export function ChatHeader({
         type="button"
         onClick={toggleZenMode}
         className={`flex h-8 w-8 items-center justify-center rounded-full border border-border transition-colors active:bg-accent ${
-          zenMode ? "bg-accent text-foreground" : "bg-card hover:bg-accent"
+          zenMode
+            ? "bg-accent text-foreground ring-1 ring-ring/60 hover:bg-accent/90"
+            : "bg-card hover:bg-accent"
         }`}
+        aria-pressed={zenMode}
         aria-label={zenMode ? "Disable zen mode" : "Enable zen mode"}
       >
         <svg
@@ -132,9 +135,8 @@ export function ChatHeader({
           </g>
         </svg>
       </button>
-      <div className="flex shrink-0 items-center gap-1.5 animate-[fadeIn_300ms_ease-out]" title={connectionLabel}>
+      <div className="flex shrink-0 items-center animate-[fadeIn_300ms_ease-out]" title={connectionLabel} aria-label={connectionLabel}>
         <span className={`h-2 w-2 rounded-full ${dotColor}`} />
-        <span className="text-2xs text-muted-foreground/60 font-mono">{process.env.NEXT_PUBLIC_GIT_SHA}</span>
       </div>
     </header>
   );

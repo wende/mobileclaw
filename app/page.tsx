@@ -612,7 +612,7 @@ export default function Home() {
         onPin={handlePinSubagent}
         onUnpin={handleUnpinSubagent}
         zenMode={zenMode}
-        awaitingResponse={awaitingResponse}
+        isRunActive={isRunActive}
         thinkingStartTime={thinkingStartTime}
         thinkingLabel={thinkingLabel}
         quotePopup={quotePopup}

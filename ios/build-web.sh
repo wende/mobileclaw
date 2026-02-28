@@ -6,6 +6,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEST="$SCRIPT_DIR/MobileClaw/Resources/web"
 API_DIR="$PROJECT_ROOT/app/api"
 API_BACKUP="$PROJECT_ROOT/.api_backup_for_export"
+DIST_DIR_REL=".next-ios"
+DIST_DIR="$PROJECT_ROOT/$DIST_DIR_REL"
 
 # Static export doesn't support API routes — move them aside during build
 cleanup() {
@@ -26,13 +28,23 @@ fi
 mkdir -p "$API_DIR"
 
 # Clean stale build cache that references moved API routes
-rm -rf .next
+rm -rf "$DIST_DIR" "$PROJECT_ROOT/out"
 
-NEXT_EXPORT=1 pnpm next build
+NEXT_EXPORT=1 NEXT_DIST_DIR="$DIST_DIR_REL" pnpm next build
 
 echo "Copying output to $DEST..."
 rm -rf "$DEST"
 mkdir -p "$DEST"
-cp -R out/ "$DEST/"
+EXPORT_DIR=""
+if [ -d "$PROJECT_ROOT/out" ]; then
+  EXPORT_DIR="$PROJECT_ROOT/out"
+elif [ -d "$DIST_DIR" ]; then
+  EXPORT_DIR="$DIST_DIR"
+else
+  echo "Error: no export output found (checked '$PROJECT_ROOT/out' and '$DIST_DIR')."
+  exit 1
+fi
+
+cp -R "$EXPORT_DIR"/ "$DEST/"
 
 echo "Done. $(find "$DEST" -type f | wc -l | tr -d ' ') files copied."

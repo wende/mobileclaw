@@ -42,7 +42,7 @@ interface ChatViewportProps {
   }) => void;
   onUnpin: () => void;
   zenMode: boolean;
-  awaitingResponse: boolean;
+  isRunActive: boolean;
   thinkingStartTime: number | null;
   thinkingLabel?: string;
   quotePopup: { x: number; y: number; text: string } | null;
@@ -73,7 +73,7 @@ export function ChatViewport({
   onPin,
   onUnpin,
   zenMode,
-  awaitingResponse,
+  isRunActive,
   thinkingStartTime,
   thinkingLabel,
   quotePopup,
@@ -709,7 +709,7 @@ export function ChatViewport({
               </React.Fragment>
             );
           })}
-          <ThinkingIndicator visible={awaitingResponse} startTime={thinkingStartTime ?? undefined} label={thinkingLabel} />
+          <ThinkingIndicator visible={isRunActive} startTime={thinkingStartTime ?? undefined} label={thinkingLabel} />
           <div ref={bottomRef} />
         </div>
       </main>

@@ -22,9 +22,11 @@ final class WebViewBridge: NSObject, WKScriptMessageHandler {
     func send(_ message: SwiftToWebMessage) {
         guard let webView, isReady else { return }
         let json = message.toJSON()
-        let escaped = json.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
-        let js = "window.__bridge?.receive(JSON.parse('\(escaped)'))"
+        // Inject JSON directly as a JS expression — valid JSON is valid JS.
+        // This avoids the error-prone string-escaping path (JSON.parse('...'))
+        // that breaks on newlines, carriage returns, and other characters
+        // not handled by simple backslash/quote escaping.
+        let js = "window.__bridge?.receive(\(json))"
         DispatchQueue.main.async {
             webView.evaluateJavaScript(js) { _, error in
                 if let error {

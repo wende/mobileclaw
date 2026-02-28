@@ -5,8 +5,10 @@ import { PIN_LOCK_MS } from "@/hooks/useScrollManager";
 import { SPAWN_TOOL_NAME, STOP_REASON_INJECTED } from "@/lib/constants";
 import { getTextFromContent } from "@/lib/messageUtils";
 import { mergeAndNormalizeToolResults } from "@/lib/chat/messageTransforms";
+import { mergeHistoryWithOptimistic } from "@/lib/chat/historyResponse";
+import { upsertChatEventMessage } from "@/lib/chat/chatEventUpsert";
 import type { BridgeMessage } from "@/lib/nativeBridge";
-import type { AgentEventPayload, Message } from "@/types/chat";
+import type { AgentEventPayload, ChatEventPayload, Message } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
 
 interface UseNativeBridgeMessageOptions {
@@ -62,7 +64,10 @@ export function useNativeBridgeMessage({
           }
         }
         const filtered = skip.size > 0 ? allMsgs.filter((_, i) => !skip.has(i)) : allMsgs;
-        setMessages(mergeAndNormalizeToolResults(filtered));
+        setMessages((prev) => {
+          const normalized = mergeAndNormalizeToolResults(filtered);
+          return mergeHistoryWithOptimistic(normalized, prev);
+        });
         setHistoryLoaded(true);
         break;
       }
@@ -76,6 +81,11 @@ export function useNativeBridgeMessage({
       case "messages:update": {
         const update = msg.payload as { id: string; patch: Partial<Message> };
         setMessages((prev) => prev.map((m) => (m.id === update.id ? { ...m, ...update.patch } : m)));
+        break;
+      }
+      case "chat:event": {
+        const payload = msg.payload as ChatEventPayload;
+        setMessages((prev) => upsertChatEventMessage(prev, payload));
         break;
       }
       case "messages:clear":

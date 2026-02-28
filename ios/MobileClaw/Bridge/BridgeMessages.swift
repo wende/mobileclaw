@@ -2,6 +2,7 @@ import Foundation
 
 // Messages sent from Swift → WebView (via evaluateJavaScript)
 enum SwiftToWebMessage {
+    case chatEvent(payload: [String: Any])
     case messagesHistory([ChatMessage])
     case messagesAppend(ChatMessage)
     case messagesUpdate(id: String, patch: [String: Any])
@@ -27,6 +28,9 @@ enum SwiftToWebMessage {
         var dict: [String: Any] = [:]
 
         switch self {
+        case .chatEvent(let payload):
+            dict["type"] = "chat:event"
+            dict["payload"] = payload
         case .messagesHistory(let messages):
             dict["type"] = "messages:history"
             dict["payload"] = messages.map { encodeMessage($0) }

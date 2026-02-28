@@ -4,16 +4,13 @@ import { parseServerCommands, ALL_COMMANDS, type Command } from "@/components/Co
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { useSessionSwitcher } from "@/hooks/useSessionSwitcher";
 import {
-  HEARTBEAT_MARKER,
   SPAWN_TOOL_NAME,
-  SYSTEM_MESSAGE_PREFIX,
-  SYSTEM_PREFIX,
   WS_HELLO_OK,
-  isToolCallPart,
 } from "@/lib/constants";
 import { loadOrCreateDeviceIdentity, signDevicePayload, buildDeviceAuthPayload } from "@/lib/deviceIdentity";
 import { logAgentEvent, logChatEvent } from "@/lib/debugLog";
 import { getTextFromContent, updateAt } from "@/lib/messageUtils";
+import { upsertChatEventMessage } from "@/lib/chat/chatEventUpsert";
 import { mergeModels, parseConfigProviders, type ConfigParseResult } from "@/lib/parseBackendModels";
 import { useWebSocket, type WebSocketMessage } from "@/lib/useWebSocket";
 import { mergeAndNormalizeToolResults } from "@/lib/chat/messageTransforms";
@@ -25,13 +22,11 @@ import {
   mergeHistoryWithOptimistic,
   prepareHistoryMessages,
 } from "@/lib/chat/historyResponse";
-import { upsertFinalRunMessage } from "@/lib/chat/streamMutations";
 import type {
   AgentEventPayload,
   BackendMode,
   ChatEventPayload,
   ConnectChallengePayload,
-  ContentPart,
   Message,
   ModelChoice,
   WSIncomingMessage,
@@ -438,113 +433,69 @@ export function useOpenClawRuntime({
     switch (payload.state) {
       case "delta":
         if (payload.message) {
-          beginContentArrival();
-          setIsStreaming(true);
-          activeRunIdRef.current = payload.runId;
-          const msg = payload.message;
-
-          setMessages((prev: Message[]) => {
-            const existingIdx = prev.findIndex((m) => m.id === payload.runId);
-            const newContent = typeof msg.content === "string"
-              ? [{ type: "text" as const, text: msg.content }]
-              : msg.content;
-
-            if (existingIdx >= 0) {
-              return updateAt(prev, existingIdx, (existing) => {
-                const newText = typeof msg.content === "string"
-                  ? msg.content
-                  : getTextFromContent(msg.content);
-                const parts = Array.isArray(existing.content) ? [...existing.content] : [];
-
-                if (newText) {
-                  const lastToolIdx = parts.findLastIndex((p: ContentPart) => isToolCallPart(p));
-                  const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
-
-                  if (lastTextIdx > lastToolIdx) {
-                    parts[lastTextIdx] = { ...parts[lastTextIdx], text: newText };
-                  } else {
-                    parts.push({ type: "text" as const, text: newText });
-                  }
-                }
-
-                return {
-                  ...existing,
-                  content: parts,
-                  reasoning: msg.reasoning || existing.reasoning,
-                };
-              });
-            }
-
-            if (msg.role === "user") {
-              const newText = typeof msg.content === "string"
-                ? msg.content
-                : getTextFromContent(msg.content);
-              const norm = (t: string) => t.replace(/\s+/g, " ").trim();
-              const normNew = norm(newText);
-              const isDuplicate = prev.some(
-                (m) => m.role === "user" && norm(getTextFromContent(m.content)) === normNew,
-              );
-              if (isDuplicate) return prev;
-              const isCtx = !!(newText && (newText.startsWith(SYSTEM_PREFIX) || newText.startsWith(SYSTEM_MESSAGE_PREFIX) || newText.includes(HEARTBEAT_MARKER)));
-              return [...prev, {
-                role: "user",
-                content: newContent,
-                id: payload.runId,
-                timestamp: msg.timestamp,
-                isContext: isCtx,
-              } as Message];
-            }
-
+          if (payload.message.role === "assistant") {
+            beginContentArrival();
+            setIsStreaming(true);
+            activeRunIdRef.current = payload.runId;
             setStreamingId(payload.runId);
-            return [...prev, {
-              role: msg.role,
-              content: newContent,
-              id: payload.runId,
-              timestamp: msg.timestamp,
-              reasoning: msg.reasoning,
-            } as Message];
-          });
+          }
+
+          setMessages((prev: Message[]) => upsertChatEventMessage(prev, payload));
         }
         break;
 
       case "final": {
-        if (payload.runId && payload.message) {
-          setMessages((prev) => upsertFinalRunMessage(prev, payload.runId, payload.message));
+        if (payload.message) {
+          setMessages((prev) => upsertChatEventMessage(prev, payload));
         }
 
-        const runDuration = markRunEnd();
-        notifyForRun(activeRunIdRef.current);
-        if (runDuration > 0 && payload.runId) {
-          setMessages((prev) => {
-            const idx = prev.findIndex((m) => m.id === payload.runId);
-            if (idx < 0) return prev;
-            return updateAt(prev, idx, (m) => ({ ...m, runDuration }));
-          });
+        const hasActiveRun = !!activeRunIdRef.current;
+        const isActiveRunFinal = !!payload.runId && payload.runId === activeRunIdRef.current;
+        const shouldFinalizeRuntime = !hasActiveRun || isActiveRunFinal;
+
+        if (shouldFinalizeRuntime) {
+          const runDuration = markRunEnd();
+          notifyForRun(payload.runId || activeRunIdRef.current);
+          if (runDuration > 0 && payload.runId) {
+            setMessages((prev) => {
+              const idx = prev.findIndex((m) => m.id === payload.runId);
+              if (idx < 0) return prev;
+              return updateAt(prev, idx, (m) => ({ ...m, runDuration }));
+            });
+          }
+
+          stopHistoryPolling();
+          clearStreamingRuntimeState({ clearRunId: true });
+          thinkTagStateRef.current = { insideThinkTag: false, tagBuffer: "" };
+          subagentStore.clearAll();
+          handleUnpinSubagent();
+          fetchedSubhistoryRef.current.clear();
         }
 
-        stopHistoryPolling();
-        clearStreamingRuntimeState({ clearRunId: true });
-        thinkTagStateRef.current = { insideThinkTag: false, tagBuffer: "" };
-        subagentStore.clearAll();
-        handleUnpinSubagent();
-        fetchedSubhistoryRef.current.clear();
-
-        if (!queuedMessageRef.current) {
-          requestHistory();
-        }
+        if (!queuedMessageRef.current) requestHistory();
         break;
       }
 
-      case "aborted":
+      case "aborted": {
+        if (activeRunIdRef.current && payload.runId && payload.runId !== activeRunIdRef.current) {
+          if (!queuedMessageRef.current) requestHistory();
+          break;
+        }
         markRunEnd();
         stopHistoryPolling();
         clearStreamingRuntimeState({ clearRunId: true });
         subagentStore.clearAll();
         handleUnpinSubagent();
         fetchedSubhistoryRef.current.clear();
+        if (!queuedMessageRef.current) requestHistory();
         break;
+      }
 
       case "error": {
+        if (activeRunIdRef.current && payload.runId && payload.runId !== activeRunIdRef.current) {
+          if (!queuedMessageRef.current) requestHistory();
+          break;
+        }
         markRunEnd();
         stopHistoryPolling();
         clearStreamingRuntimeState({ clearRunId: true });
@@ -560,6 +511,7 @@ export function useOpenClawRuntime({
         subagentStore.clearAll();
         handleUnpinSubagent();
         fetchedSubhistoryRef.current.clear();
+        if (!queuedMessageRef.current) requestHistory();
         break;
       }
     }

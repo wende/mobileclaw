@@ -21,13 +21,22 @@ export function isNativeMode(): boolean {
 /** Register a handler for messages from Swift. */
 export function registerBridgeHandler(fn: BridgeHandler) {
   handler = fn;
-  // Expose the receiver on window for Swift's evaluateJavaScript
-  (window as any).__bridge = {
-    receive(msg: BridgeMessage | string) {
-      const parsed = typeof msg === "string" ? JSON.parse(msg) : msg;
-      handler?.(parsed);
-    },
-  };
+  // Expose the receiver on window for Swift's evaluateJavaScript.
+  // Only create the bridge object once; handler updates take effect
+  // automatically since receive() reads the module-level `handler` var.
+  if (!(window as any).__bridge) {
+    (window as any).__bridge = {
+      receive(msg: BridgeMessage | string) {
+        const parsed = typeof msg === "string" ? JSON.parse(msg) : msg;
+        handler?.(parsed);
+      },
+    };
+  }
+}
+
+/** Update the bridge handler without re-creating the bridge object. */
+export function updateBridgeHandler(fn: BridgeHandler) {
+  handler = fn;
 }
 
 /** Send a message from Web to Swift. */

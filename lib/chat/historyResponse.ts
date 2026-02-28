@@ -198,7 +198,8 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
   });
 
   const previousServerCount = previousMessages.filter((message) => !(message.role === "user" && message.id?.startsWith("u-"))).length;
-  if (finalMessages.length < previousServerCount) return enriched;
+  // If history briefly lags behind already-rendered realtime events, do not roll UI back.
+  if (finalMessages.length < previousServerCount) return previousMessages;
 
   const optimisticPending = previousMessages.filter(
     (message) =>

@@ -89,6 +89,7 @@ export function SetupDialog({
   // by background reconnection.  Resets when the dialog opens or on error.
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [phase, setPhase] = useState<"idle" | "entering" | "open" | "closing" | "closed">("idle");
+  const gitSha = process.env.NEXT_PUBLIC_GIT_SHA?.trim();
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -543,6 +544,11 @@ export function SetupDialog({
         {mode === "openclaw" && (
           <p className="mt-3 text-center text-xs text-muted-foreground/60">
             Leave empty to use demo mode without a server
+          </p>
+        )}
+        {gitSha && (
+          <p className="mt-2 text-center text-2xs font-mono text-muted-foreground/50">
+            Build {gitSha}
           </p>
         )}
       </div>

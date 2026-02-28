@@ -9,6 +9,7 @@ instrumentation-client.ts
 node_modules/
 tsconfig.tsbuildinfo
 .next/
+.next-ios/
 .env*.local
 .DS_Store
 .mcp.json

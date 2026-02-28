@@ -2,11 +2,6 @@ import Foundation
 
 @MainActor
 final class OpenClawProtocol {
-    private enum TextStreamSource {
-        case chat
-        case agent
-    }
-
     let bridge: WebViewBridge
     let appState: AppState
     var sendMessage: ((String) -> Void)?
@@ -16,7 +11,8 @@ final class OpenClawProtocol {
     private var activeRunId: String?
     private var sessionKey: String = "main"
     private var pendingHistoryJSON: String?
-    private var textSourceByRunId: [String: TextStreamSource] = [:]
+    private var historyPollTimer: Timer?
+    private var lastLoggedHistoryCount: Int?
     private var pendingSubhistoryByRequestId: [String: String] = [:]
     private var fetchedSubhistorySessionKeys: Set<String> = []
     private var fallbackSpawnToolCallIdByRunId: [String: String] = [:]
@@ -28,17 +24,21 @@ final class OpenClawProtocol {
         self.appState = appState
     }
 
+    deinit {
+        stopHistoryPolling()
+    }
+
     // MARK: - Incoming message router
 
     func handleMessage(_ data: Data) {
-        if let raw = String(data: data, encoding: .utf8) {
-            print("[Protocol] RAW: \(raw)")
-        }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["type"] as? String else {
-            print("[Protocol] Invalid message")
+            let preview = String(data: data, encoding: .utf8) ?? "<binary>"
+            let short = preview.count > 240 ? String(preview.prefix(240)) + "..." : preview
+            print("[Protocol] Invalid message (\(data.count)B): \(short)")
             return
         }
+        logInboundFrame(json, bytes: data.count)
 
         switch type {
         case "event":
@@ -194,6 +194,7 @@ final class OpenClawProtocol {
         let snapshot = payload["snapshot"] as? [String: Any]
         let sessionDefaults = snapshot?["sessionDefaults"] as? [String: Any]
         sessionKey = (sessionDefaults?["mainSessionKey"] as? String) ?? (sessionDefaults?["mainKey"] as? String) ?? "main"
+        lastLoggedHistoryCount = nil
         appState.sessionKey = sessionKey
         appState.sessionSwitching = false
         pendingSubhistoryByRequestId.removeAll()
@@ -341,10 +342,9 @@ final class OpenClawProtocol {
 
     private func handleChatEvent(_ payload: [String: Any]) {
         guard let state = payload["state"] as? String,
-              let runId = payload["runId"] as? String,
               let payloadSessionKey = payload["sessionKey"] as? String else { return }
 
-        if payloadSessionKey != sessionKey {
+        if !sessionKeysMatch(payloadSessionKey, sessionKey) {
             if state == "final" || state == "aborted" || state == "error" {
                 bridge.send(.subagentChatEvent(sessionKey: payloadSessionKey, state: state))
             }
@@ -352,49 +352,42 @@ final class OpenClawProtocol {
         }
 
         let ts = Int(Date().timeIntervalSince1970 * 1000)
+        let runId = payload["runId"] as? String ?? "chat-\(ts)-\(randomHex(3))"
+
+        // Forward the raw chat event so web uses the same upsert logic as PWA.
+        bridge.send(.chatEvent(payload: payload))
 
         switch state {
         case "delta":
             if let message = payload["message"] as? [String: Any] {
-                let content = message["content"]
-                let role = message["role"] as? String ?? "assistant"
-                let reasoning = message["reasoning"] as? String
+                let role = (message["role"] as? String ?? "assistant").lowercased()
 
-                if role == "user" { return }
-
-                appState.isStreaming = true
-                appState.isRunActive = true
-                activeRunId = runId
-
-                // Pick one authoritative source per run to avoid duplicate prefixes.
-                if textSourceByRunId[runId] == .agent {
-                    return
-                }
-                if textSourceByRunId[runId] == nil {
-                    textSourceByRunId[runId] = .chat
-                }
-
-                if let text = extractText(from: content) {
-                    bridge.send(.streamContentDelta(runId: runId, delta: text, ts: ts))
-                }
-                if let reasoning, !reasoning.isEmpty {
-                    bridge.send(.streamReasoningDelta(runId: runId, delta: reasoning, ts: ts, blockStart: false))
+                if role == "assistant" {
+                    appState.isStreaming = true
+                    appState.isRunActive = true
+                    activeRunId = runId
+                    startHistoryPolling()
                 }
             }
 
         case "final":
-            appState.isRunActive = false
-            appState.isStreaming = false
-            bridge.send(.streamEnd)
-            activeRunId = nil
-            textSourceByRunId.removeValue(forKey: runId)
-            pendingSubhistoryByRequestId.removeAll()
-            fetchedSubhistorySessionKeys.removeAll()
-            fallbackSpawnToolCallIdByRunId.removeAll()
+            let hasActiveRun = activeRunId != nil
+            let isActiveRunFinal = activeRunId == runId
+            let shouldFinalizeRuntime = !hasActiveRun || isActiveRunFinal
 
-            if let queued = appState.queuedMessage {
+            if shouldFinalizeRuntime {
+                appState.isRunActive = false
+                appState.isStreaming = false
+                bridge.send(.streamEnd)
+                activeRunId = nil
+                stopHistoryPolling()
+            }
+
+            if shouldFinalizeRuntime, let queued = appState.queuedMessage {
                 appState.queuedMessage = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
+                    // Queued sends bypass RootView.handleSend, so append optimistically here.
+                    appendOptimisticUserMessage(text: queued.text)
                     self.sendChatMessage(text: queued.text)
                 }
             } else {
@@ -402,25 +395,25 @@ final class OpenClawProtocol {
             }
 
         case "aborted":
-            appState.isRunActive = false
-            appState.isStreaming = false
-            bridge.send(.streamEnd)
-            activeRunId = nil
-            textSourceByRunId.removeValue(forKey: runId)
-            pendingSubhistoryByRequestId.removeAll()
-            fetchedSubhistorySessionKeys.removeAll()
-            fallbackSpawnToolCallIdByRunId.removeAll()
+            if activeRunId == nil || activeRunId == runId {
+                appState.isRunActive = false
+                appState.isStreaming = false
+                bridge.send(.streamEnd)
+                activeRunId = nil
+                stopHistoryPolling()
+            }
+            requestHistory()
 
         case "error":
             let errorMsg = payload["errorMessage"] as? String ?? "Chat error"
-            appState.isRunActive = false
-            appState.isStreaming = false
-            bridge.send(.streamError(errorMessage: errorMsg))
-            activeRunId = nil
-            textSourceByRunId.removeValue(forKey: runId)
-            pendingSubhistoryByRequestId.removeAll()
-            fetchedSubhistorySessionKeys.removeAll()
-            fallbackSpawnToolCallIdByRunId.removeAll()
+            if activeRunId == nil || activeRunId == runId {
+                appState.isRunActive = false
+                appState.isStreaming = false
+                bridge.send(.streamError(errorMessage: errorMsg))
+                activeRunId = nil
+                stopHistoryPolling()
+            }
+            requestHistory()
 
         default:
             break
@@ -438,7 +431,7 @@ final class OpenClawProtocol {
         let ts = payload["ts"] as? Int ?? Int(Date().timeIntervalSince1970 * 1000)
         let seq = payload["seq"] as? Int ?? 0
 
-        if payloadSessionKey != sessionKey {
+        if !sessionKeysMatch(payloadSessionKey, sessionKey) {
             bridge.send(.subagentAgentEvent(
                 runId: runId,
                 sessionKey: payloadSessionKey,
@@ -454,31 +447,27 @@ final class OpenClawProtocol {
         case "lifecycle":
             let phase = data["phase"] as? String
             if phase == "start" {
+                let isExternalRun = activeRunId == nil
                 appState.isStreaming = true
                 appState.isRunActive = true
                 activeRunId = runId
+                if isExternalRun {
+                    startHistoryPolling()
+                }
                 bridge.send(.streamStart(runId: runId, ts: ts))
+            } else if phase == "end" || phase == "error" {
+                if historyPollTimer != nil {
+                    requestHistory()
+                }
             }
 
         case "content":
-            if textSourceByRunId[runId] == .chat {
-                return
-            }
-            if textSourceByRunId[runId] == nil {
-                textSourceByRunId[runId] = .agent
-            }
             let delta = (data["delta"] ?? data["text"] ?? data["content"]) as? String ?? ""
             if !delta.isEmpty {
                 bridge.send(.streamContentDelta(runId: runId, delta: delta, ts: ts))
             }
 
         case "reasoning":
-            if textSourceByRunId[runId] == .chat {
-                return
-            }
-            if textSourceByRunId[runId] == nil {
-                textSourceByRunId[runId] = .agent
-            }
             let delta = (data["delta"] ?? data["text"] ?? data["content"]) as? String ?? ""
             if isReasoningBlockStart(data) {
                 bridge.send(.streamReasoningDelta(runId: runId, delta: "", ts: ts, blockStart: true))
@@ -544,7 +533,6 @@ final class OpenClawProtocol {
     func sendChatMessage(text: String) {
         let runId = "run-\(Int(Date().timeIntervalSince1970 * 1000))-\(randomHex(4))"
         activeRunId = runId
-        textSourceByRunId.removeValue(forKey: runId)
         appState.isRunActive = true
         appState.isStreaming = true
         bridge.send(.thinkingShow)
@@ -618,12 +606,14 @@ final class OpenClawProtocol {
         }
 
         sessionKey = key
+        lastLoggedHistoryCount = nil
         appState.sessionKey = key
         appState.sessionSwitching = true
 
         activeRunId = nil
         appState.isRunActive = false
         appState.isStreaming = false
+        stopHistoryPolling()
         bridge.send(.streamEnd)
         bridge.send(.subagentClear)
         pendingSubhistoryByRequestId.removeAll()
@@ -646,6 +636,64 @@ final class OpenClawProtocol {
         guard let data = try? JSONSerialization.data(withJSONObject: dict),
               let string = String(data: data, encoding: .utf8) else { return }
         sendMessage?(string)
+    }
+
+    private func logInboundFrame(_ json: [String: Any], bytes: Int) {
+#if DEBUG
+        guard let type = json["type"] as? String else {
+            print("[Protocol] <= unknown (\(bytes)B)")
+            return
+        }
+
+        switch type {
+        case "event":
+            let event = json["event"] as? String ?? "?"
+            let payload = json["payload"] as? [String: Any]
+            if event == "chat", let payload {
+                let state = payload["state"] as? String ?? "?"
+                let runId = payload["runId"] as? String ?? "-"
+                let payloadSessionKey = payload["sessionKey"] as? String ?? "-"
+                let message = payload["message"] as? [String: Any]
+                let role = message?["role"] as? String ?? "-"
+                let textLen = extractText(from: message?["content"])?.count ?? 0
+                print("[Protocol] <= event.chat state=\(state) role=\(role) run=\(runId) session=\(payloadSessionKey) text=\(textLen)B frame=\(bytes)B")
+                return
+            }
+            if event == "agent", let payload {
+                let runId = payload["runId"] as? String ?? "-"
+                let payloadSessionKey = payload["sessionKey"] as? String ?? "-"
+                let stream = payload["stream"] as? String ?? "?"
+                let data = payload["data"] as? [String: Any]
+                let textLen = extractText(from: data)?.count ?? 0
+                print("[Protocol] <= event.agent stream=\(stream) run=\(runId) session=\(payloadSessionKey) text=\(textLen)B frame=\(bytes)B")
+                return
+            }
+            print("[Protocol] <= event.\(event) frame=\(bytes)B")
+
+        case "res":
+            let id = json["id"] as? String ?? "?"
+            let ok = json["ok"] as? Bool ?? false
+            if id.hasPrefix("history-"),
+               let payload = json["payload"] as? [String: Any],
+               let messages = payload["messages"] as? [Any] {
+                if lastLoggedHistoryCount == messages.count { return }
+                lastLoggedHistoryCount = messages.count
+                print("[Protocol] <= res.history id=\(id) ok=\(ok) messages=\(messages.count) frame=\(bytes)B")
+                return
+            }
+            print("[Protocol] <= res id=\(id) ok=\(ok) frame=\(bytes)B")
+
+        case "hello":
+            let sessionId = json["sessionId"] as? String ?? "-"
+            print("[Protocol] <= hello sessionId=\(sessionId) frame=\(bytes)B")
+
+        default:
+            print("[Protocol] <= \(type) frame=\(bytes)B")
+        }
+#else
+        _ = json
+        _ = bytes
+#endif
     }
 
     private func extractUserText(_ msg: [String: Any]) -> String {
@@ -707,6 +755,20 @@ final class OpenClawProtocol {
         return Array(keys)
     }
 
+    private func appendOptimisticUserMessage(text: String) {
+        let normalized = normalizeChatText(text)
+        guard !normalized.isEmpty else { return }
+
+        let ts = Int(Date().timeIntervalSince1970 * 1000)
+        let userMsg = ChatMessage(
+            role: .user,
+            content: [ContentPart(type: .text, text: text)],
+            timestamp: ts,
+            msgId: "u-\(ts)-\(randomHex(2))"
+        )
+        bridge.send(.messagesAppend(userMsg))
+    }
+
     private func parseSessionInfo(_ raw: [String: Any]) -> SessionInfo? {
         guard let key = raw["key"] as? String, !key.isEmpty else { return nil }
 
@@ -749,13 +811,46 @@ final class OpenClawProtocol {
 
     private func extractText(from content: Any?) -> String? {
         if let str = content as? String { return str }
+        if let dict = content as? [String: Any] {
+            if let text = dict["text"] as? String, !text.isEmpty { return text }
+            if let delta = dict["delta"] as? String, !delta.isEmpty { return delta }
+            if let value = dict["content"] as? String, !value.isEmpty { return value }
+        }
         if let parts = content as? [[String: Any]] {
             return parts.compactMap { part -> String? in
-                guard part["type"] as? String == "text" else { return nil }
-                return part["text"] as? String
+                if let text = part["text"] as? String, !text.isEmpty { return text }
+                if let delta = part["delta"] as? String, !delta.isEmpty { return delta }
+                if let value = part["content"] as? String, !value.isEmpty { return value }
+                return nil
             }.joined()
         }
         return nil
+    }
+
+    private func normalizeChatText(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private func startHistoryPolling() {
+        guard historyPollTimer == nil else { return }
+        historyPollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            self?.requestHistory()
+        }
+    }
+
+    private func stopHistoryPolling() {
+        historyPollTimer?.invalidate()
+        historyPollTimer = nil
+    }
+
+    private func sessionKeysMatch(_ incoming: String, _ current: String) -> Bool {
+        if incoming == current { return true }
+        if incoming == "main" && current.hasSuffix(":main") { return true }
+        if current == "main" && incoming.hasSuffix(":main") { return true }
+        return false
     }
 
     // Cross-platform contract: this logic is mirrored in useOpenClawRuntime.ts.

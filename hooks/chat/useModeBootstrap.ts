@@ -2,7 +2,7 @@ import { useEffect, useCallback, useRef } from "react";
 
 import { DEMO_HISTORY } from "@/lib/demoMode";
 import type { LmStudioConfig } from "@/lib/lmStudio";
-import { notifyWebViewReady, registerBridgeHandler, type BridgeMessage } from "@/lib/nativeBridge";
+import { notifyWebViewReady, registerBridgeHandler, updateBridgeHandler, type BridgeMessage } from "@/lib/nativeBridge";
 import type { Command } from "@/components/CommandSheet";
 import type { BackendMode, ConnectionConfig, Message } from "@/types/chat";
 
@@ -121,6 +121,16 @@ export function useModeBootstrap({
     setShowSetup,
     setUploadDisabled,
   ]);
+
+  // Keep the bridge handler fresh — the bootstrap effect only registers once,
+  // but handleNativeBridgeMessage may be recreated when its deps change.
+  useEffect(() => {
+    if (isNativeRef.current) {
+      updateBridgeHandler((msg: BridgeMessage) => {
+        handleNativeBridgeMessage(msg);
+      });
+    }
+  }, [handleNativeBridgeMessage, isNativeRef]);
 
   useEffect(() => {
     if (getSearchParam("demo") !== null) return;
