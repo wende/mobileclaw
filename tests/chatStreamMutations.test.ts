@@ -5,6 +5,7 @@ import {
   appendContentDelta,
   appendThinkingDelta,
   resolveToolCall,
+  startThinkingBlock,
 } from "@/lib/chat/streamMutations";
 import type { Message } from "@/types/chat";
 
@@ -38,6 +39,29 @@ describe("chat stream mutations", () => {
     expect(parts).toHaveLength(1);
     expect(parts[0].type).toBe("thinking");
     expect(parts[0].text).toBe("plan now");
+  });
+
+  it("starts a new empty thinking block and fills it with follow-up deltas", () => {
+    const initial: Message[] = [{ role: "assistant", id: "run-think", content: [{ type: "thinking", text: "first block" }] }];
+    const started = startThinkingBlock(initial, "run-think", Date.now());
+    const updated = appendThinkingDelta(started.messages, "run-think", " second", Date.now());
+
+    const parts = updated.messages[0].content as Array<{ type: string; text?: string }>;
+    expect(parts).toHaveLength(2);
+    expect(parts[0].text).toBe("first block");
+    expect(parts[1].type).toBe("thinking");
+    expect(parts[1].text).toBe(" second");
+  });
+
+  it("does not duplicate consecutive empty thinking placeholders", () => {
+    const initial: Message[] = [{ role: "assistant", id: "run-empty", content: [] }];
+    const step1 = startThinkingBlock(initial, "run-empty", Date.now());
+    const step2 = startThinkingBlock(step1.messages, "run-empty", Date.now());
+
+    const parts = step2.messages[0].content as Array<{ type: string; text?: string }>;
+    expect(parts).toHaveLength(1);
+    expect(parts[0].type).toBe("thinking");
+    expect(parts[0].text).toBe("");
   });
 
   it("handles cumulative snapshot deltas without duplicating text", () => {

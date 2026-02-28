@@ -88,6 +88,25 @@ export function appendThinkingDelta(messages: Message[], runId: string, delta: s
   };
 }
 
+export function startThinkingBlock(messages: Message[], runId: string, ts: number): EnsureResult {
+  const ensured = ensureStreamingMessage(messages, runId, ts);
+  const updated = ensured.messages;
+  const idx = updated.findIndex((m) => m.id === runId);
+  if (idx < 0) return ensured;
+  return {
+    created: ensured.created,
+    messages: updateAt(updated, idx, (target) => {
+      const parts = Array.isArray(target.content) ? [...target.content] : [];
+      const lastPart = parts[parts.length - 1];
+      if (lastPart?.type === "thinking" && !(lastPart.text || "").trim()) {
+        return target;
+      }
+      parts.push({ type: "thinking" as const, text: "" });
+      return { ...target, content: parts };
+    }),
+  };
+}
+
 export function addToolCall(
   messages: Message[],
   runId: string,

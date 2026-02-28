@@ -8,7 +8,7 @@ enum SwiftToWebMessage {
     case messagesClear
     case streamStart(runId: String, ts: Int)
     case streamContentDelta(runId: String, delta: String, ts: Int)
-    case streamReasoningDelta(runId: String, delta: String, ts: Int)
+    case streamReasoningDelta(runId: String, delta: String, ts: Int, blockStart: Bool)
     case streamToolStart(runId: String, name: String, args: String?, toolCallId: String?, ts: Int)
     case streamToolResult(runId: String, name: String, toolCallId: String?, result: String?, isError: Bool)
     case streamEnd
@@ -41,9 +41,11 @@ enum SwiftToWebMessage {
         case .streamContentDelta(let runId, let delta, let ts):
             dict["type"] = "stream:contentDelta"
             dict["payload"] = ["runId": runId, "delta": delta, "ts": ts]
-        case .streamReasoningDelta(let runId, let delta, let ts):
+        case .streamReasoningDelta(let runId, let delta, let ts, let blockStart):
             dict["type"] = "stream:reasoningDelta"
-            dict["payload"] = ["runId": runId, "delta": delta, "ts": ts]
+            var payload: [String: Any] = ["runId": runId, "delta": delta, "ts": ts]
+            if blockStart { payload["blockStart"] = true }
+            dict["payload"] = payload
         case .streamToolStart(let runId, let name, let args, let toolCallId, let ts):
             var payload: [String: Any] = ["runId": runId, "name": name, "ts": ts]
             if let args { payload["args"] = args }
@@ -92,4 +94,3 @@ enum SwiftToWebMessage {
         return dict
     }
 }
-
