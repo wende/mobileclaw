@@ -16,6 +16,7 @@ enum SwiftToWebMessage {
     case thinkingShow
     case thinkingHide
     case themeSet(theme: String)
+    case zenSet(enabled: Bool)
     case scrollToBottom
     case connectionState(ConnectionState)
     case subagentClear
@@ -70,6 +71,9 @@ enum SwiftToWebMessage {
         case .themeSet(let theme):
             dict["type"] = "theme:set"
             dict["payload"] = ["theme": theme]
+        case .zenSet(let enabled):
+            dict["type"] = "zen:set"
+            dict["payload"] = ["enabled": enabled]
         case .scrollToBottom:
             dict["type"] = "scroll:toBottom"
         case .connectionState(let state):

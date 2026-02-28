@@ -23,6 +23,7 @@ interface UseNativeBridgeMessageOptions {
   startThinkingBlock: (runId: string, ts: number) => void;
   addToolCall: (runId: string, name: string, ts: number, toolCallId?: string, args?: string) => void;
   resolveToolCall: (runId: string, name: string, toolCallId?: string, result?: string, isError?: boolean) => void;
+  setZenModeEnabled: (enabled: boolean) => void;
   scrollToBottom: () => void;
   subagentStore: ReturnType<typeof useSubagentStore>;
 }
@@ -41,6 +42,7 @@ export function useNativeBridgeMessage({
   startThinkingBlock,
   addToolCall,
   resolveToolCall,
+  setZenModeEnabled,
   scrollToBottom,
   subagentStore,
 }: UseNativeBridgeMessageOptions) {
@@ -151,6 +153,13 @@ export function useNativeBridgeMessage({
         else html.classList.remove("dark");
         break;
       }
+      case "zen:set": {
+        const { enabled } = (msg.payload ?? {}) as { enabled?: unknown };
+        if (typeof enabled === "boolean") {
+          setZenModeEnabled(enabled);
+        }
+        break;
+      }
       case "scroll:toBottom":
         scrollToBottom();
         break;
@@ -172,6 +181,7 @@ export function useNativeBridgeMessage({
     setIsStreaming,
     setMessages,
     setStreamingId,
+    setZenModeEnabled,
     setThinkingStartTime,
     subagentStore,
   ]);

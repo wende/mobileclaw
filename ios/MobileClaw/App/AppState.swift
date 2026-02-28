@@ -19,6 +19,9 @@ final class AppState {
     var isRunActive = false
     var isStreaming = false
     var isRefreshing = false
+    var zenMode: Bool = UserDefaults.standard.bool(forKey: "zenMode") {
+        didSet { UserDefaults.standard.set(zenMode, forKey: "zenMode") }
+    }
 
     // Messages — stored here so Swift can forward to WebView
     var messages: [ChatMessage] = []

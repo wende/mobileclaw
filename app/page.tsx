@@ -20,6 +20,7 @@ import {
   startThinkingBlock as startThinkingBlockInMessages,
 } from "@/lib/chat/streamMutations";
 import { buildDisplayMessages } from "@/lib/chat/messageTransforms";
+import { applyNativeZenMode } from "@/lib/chat/zenBridge";
 
 import type {
   BackendMode,
@@ -202,6 +203,10 @@ export default function Home() {
     };
   }, []);
 
+  const setZenModeEnabled = useCallback((enabled: boolean) => {
+    applyNativeZenMode({ enabled, current: zenMode, toggle: handleToggleZenMode });
+  }, [handleToggleZenMode, zenMode]);
+
   const [backendMode, setBackendMode] = useState<BackendMode>("openclaw");
   const lmStudioConfigRef = useRef<LmStudioConfig | null>(null);
   const lmStudioHandlerRef = useRef<ReturnType<typeof createLmStudioHandler> | null>(null);
@@ -353,6 +358,7 @@ export default function Home() {
     startThinkingBlock,
     addToolCall,
     resolveToolCall,
+    setZenModeEnabled,
     scrollToBottom,
     subagentStore,
   });
