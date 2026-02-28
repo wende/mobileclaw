@@ -22,8 +22,8 @@ cd "$PROJECT_ROOT"
 rm -rf "$API_BACKUP"
 if [ -d "$API_DIR" ]; then
   mv "$API_DIR" "$API_BACKUP"
-  mkdir -p "$API_DIR"
 fi
+mkdir -p "$API_DIR"
 
 # Clean stale build cache that references moved API routes
 rm -rf .next
