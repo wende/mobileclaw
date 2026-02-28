@@ -19,6 +19,8 @@ enum SwiftToWebMessage {
     case scrollToBottom
     case connectionState(ConnectionState)
     case subagentClear
+    case subagentAgentEvent(runId: String, sessionKey: String, stream: String, data: [String: Any], ts: Int)
+    case subagentChatEvent(sessionKey: String, state: String)
 
     func toJSON() -> String {
         var dict: [String: Any] = [:]
@@ -77,6 +79,21 @@ enum SwiftToWebMessage {
             dict["payload"] = ["state": state.rawValue]
         case .subagentClear:
             dict["type"] = "subagent:clear"
+        case .subagentAgentEvent(let runId, let sessionKey, let stream, let data, let ts):
+            dict["type"] = "subagent:agentEvent"
+            dict["payload"] = [
+                "runId": runId,
+                "sessionKey": sessionKey,
+                "stream": stream,
+                "data": data,
+                "ts": ts,
+            ]
+        case .subagentChatEvent(let sessionKey, let state):
+            dict["type"] = "subagent:chatEvent"
+            dict["payload"] = [
+                "sessionKey": sessionKey,
+                "state": state,
+            ]
         }
 
         guard let data = try? JSONSerialization.data(withJSONObject: dict),

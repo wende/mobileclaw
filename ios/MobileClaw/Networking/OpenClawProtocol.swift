@@ -311,8 +311,12 @@ final class OpenClawProtocol {
               let runId = payload["runId"] as? String,
               let payloadSessionKey = payload["sessionKey"] as? String else { return }
 
-        // Skip subagent events for now
-        guard payloadSessionKey == sessionKey else { return }
+        if payloadSessionKey != sessionKey {
+            if state == "final" || state == "aborted" || state == "error" {
+                bridge.send(.subagentChatEvent(sessionKey: payloadSessionKey, state: state))
+            }
+            return
+        }
 
         let ts = Int(Date().timeIntervalSince1970 * 1000)
 
@@ -389,9 +393,18 @@ final class OpenClawProtocol {
               let payloadSessionKey = payload["sessionKey"] as? String,
               let data = payload["data"] as? [String: Any] else { return }
 
-        guard payloadSessionKey == sessionKey else { return }
-
         let ts = payload["ts"] as? Int ?? Int(Date().timeIntervalSince1970 * 1000)
+
+        if payloadSessionKey != sessionKey {
+            bridge.send(.subagentAgentEvent(
+                runId: runId,
+                sessionKey: payloadSessionKey,
+                stream: stream,
+                data: data,
+                ts: ts
+            ))
+            return
+        }
 
         switch stream {
         case "lifecycle":
