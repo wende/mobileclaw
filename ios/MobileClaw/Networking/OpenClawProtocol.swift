@@ -11,7 +11,7 @@ final class OpenClawProtocol {
     private var activeRunId: String?
     private var sessionKey: String = "main"
     private var pendingHistoryJSON: String?
-    private var historyPollTimer: Timer?
+    nonisolated(unsafe) private var historyPollTimer: Timer?
     private var lastLoggedHistoryCount: Int?
     private var pendingSubhistoryByRequestId: [String: String] = [:]
     private var fetchedSubhistorySessionKeys: Set<String> = []
@@ -25,7 +25,8 @@ final class OpenClawProtocol {
     }
 
     deinit {
-        stopHistoryPolling()
+        historyPollTimer?.invalidate()
+        historyPollTimer = nil
     }
 
     // MARK: - Incoming message router
@@ -837,7 +838,9 @@ final class OpenClawProtocol {
     private func startHistoryPolling() {
         guard historyPollTimer == nil else { return }
         historyPollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            self?.requestHistory()
+            Task { @MainActor in
+                self?.requestHistory()
+            }
         }
     }
 

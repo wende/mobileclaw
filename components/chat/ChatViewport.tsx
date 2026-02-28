@@ -583,7 +583,7 @@ export function ChatViewport({
 
   return (
     <div ref={pullContentRef} className={`relative flex flex-1 flex-col min-h-0 ${isDetached ? "px-3 pt-3" : ""}`}>
-      {!isNative && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${isDetached ? "inset-x-3 top-3 rounded-t-2xl" : "inset-x-0 top-[60px]"}`} style={{ background: "linear-gradient(to bottom, var(--background) 40%, transparent)" }} />}
+
       {!isNative && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${isDetached ? "inset-x-3 rounded-b-2xl" : "inset-x-0"}`} style={{ bottom: isDetached ? inputZoneHeight : 0, background: "linear-gradient(to top, var(--background) 40%, transparent)" }} />}
       <main
         ref={scrollRef}
@@ -649,7 +649,7 @@ export function ChatViewport({
               : messageAnimationStyle;
             return (
               <React.Fragment key={msg.id || idx}>
-                {isTimeGap && !isNewTurn && msg.timestamp && (
+                {isTimeGap && !isNewTurn && !collapsedZenSibling && msg.timestamp && (
                   <div className="flex items-center justify-center gap-1 py-1">
                     <span className="text-2xs text-muted-foreground/60">{formatMessageTime(msg.timestamp)}</span>
                     {showZenTimestampToggle && zenMeta
@@ -663,7 +663,7 @@ export function ChatViewport({
                       : null}
                   </div>
                 )}
-                {showTimestamp && isNewTurn && msg.timestamp && (
+                {showTimestamp && isNewTurn && !collapsedZenSibling && msg.timestamp && (
                   <div className={`flex items-center gap-1 ${side === "right" ? "justify-end" : "justify-start"}`}>
                     <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
                       {formatMessageTime(msg.timestamp)}
