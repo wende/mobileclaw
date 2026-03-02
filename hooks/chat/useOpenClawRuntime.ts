@@ -880,7 +880,7 @@ export function useOpenClawRuntime({
   // ── Phase 2: Post state changes to native shell ──────────────────────────
   useEffect(() => {
     if (!isNativeRef.current) return;
-    import("@/lib/nativeBridge").then(({ postConnectionState }) => {
+    void import("@/lib/nativeBridge").then(({ postConnectionState }) => {
       postConnectionState(connectionState);
     });
   }, [connectionState, isNativeRef]);
@@ -888,7 +888,7 @@ export function useOpenClawRuntime({
   useEffect(() => {
     if (!isNativeRef.current) return;
     const isActive = !!activeRunIdRef.current;
-    import("@/lib/nativeBridge").then(({ postRunState }) => {
+    void import("@/lib/nativeBridge").then(({ postRunState }) => {
       postRunState(isActive, false);
     });
     // We can't directly depend on activeRunIdRef.current, but connectionState
@@ -897,7 +897,7 @@ export function useOpenClawRuntime({
 
   useEffect(() => {
     if (!isNativeRef.current) return;
-    import("@/lib/nativeBridge").then(({ postSessionsState }) => {
+    void import("@/lib/nativeBridge").then(({ postSessionsState }) => {
       postSessionsState(sessions, currentSessionKey);
     });
   }, [sessions, currentSessionKey, isNativeRef]);

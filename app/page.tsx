@@ -471,7 +471,7 @@ export default function Home() {
   // Post run state to native shell
   useEffect(() => {
     if (!isNativeRef.current) return;
-    import("@/lib/nativeBridge").then(({ postRunState }) => {
+    void import("@/lib/nativeBridge").then(({ postRunState }) => {
       postRunState(isRunActive, isStreaming);
     });
   }, [isRunActive, isStreaming, isNativeRef]);
@@ -479,7 +479,7 @@ export default function Home() {
   // Post model state to native shell
   useEffect(() => {
     if (!isNativeRef.current) return;
-    import("@/lib/nativeBridge").then(({ postModelState }) => {
+    void import("@/lib/nativeBridge").then(({ postModelState }) => {
       postModelState(currentModel);
     });
   }, [currentModel, isNativeRef]);
