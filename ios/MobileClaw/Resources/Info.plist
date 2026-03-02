@@ -37,10 +37,10 @@
     <array>
         <string>armv7</string>
     </array>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
     <key>NSAppTransportSecurity</key>
     <dict>
-        <key>NSAllowsLocalNetworking</key>
-        <true/>
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>

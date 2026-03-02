@@ -24,7 +24,7 @@ targets:
         INFOPLIST_FILE: MobileClaw/Resources/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "6.0"
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: "5N28UN29Z6"
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
