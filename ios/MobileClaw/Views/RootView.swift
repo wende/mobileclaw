@@ -60,7 +60,7 @@ struct RootView: View {
                         endPoint: .bottom
                     )
                 }
-                .frame(height: 120)
+                .frame(height: 180)
                 Spacer()
             }
             .ignoresSafeArea(.container)
@@ -275,12 +275,18 @@ struct RootView: View {
         demoHandler = nil
         showSessionDropdown = false
         appState.connectionError = nil
+        appState.isRunActive = false
+        appState.isStreaming = false
+        appState.pinnedSubagent = nil
         appState.backendMode = config.mode
         appState.sessionKey = "main"
         appState.sessionId = nil
         appState.sessions = []
         appState.sessionsLoading = false
         appState.sessionSwitching = false
+
+        // Clear messages from the WebView so stale content from the previous mode doesn't linger
+        bridge.send(.messagesClear)
 
         UserDefaults.standard.set(config.mode.rawValue, forKey: "backend-mode")
 

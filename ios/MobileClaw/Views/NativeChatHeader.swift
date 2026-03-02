@@ -59,8 +59,8 @@ struct NativeChatHeader: View {
                     Button(action: onToggleSessionDropdown) {
                         HStack(spacing: 4) {
                             Text(sessionName)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.primary)
                                 .lineLimit(1)
 
                             if sessionSwitching {
@@ -78,14 +78,14 @@ struct NativeChatHeader: View {
                     .buttonStyle(.plain)
                 } else {
                     Text("MobileClaw")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
                 }
 
                 if let currentModel, !currentModel.isEmpty {
                     Text(currentModel)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary.opacity(0.8))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
@@ -121,7 +121,8 @@ struct NativeChatHeader: View {
     }
 
     private var statusColor: Color {
-        switch connectionState {
+        if backendMode == .demo { return .blue }
+        return switch connectionState {
         case .connected: .green
         case .connecting, .reconnecting: .yellow
         case .disconnected: .gray
