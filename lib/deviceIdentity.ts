@@ -114,6 +114,53 @@ export async function signDevicePayload(privateKeyBase64Url: string, payload: st
   return base64UrlEncode(sig);
 }
 
+/**
+ * Sign a connect challenge, delegating to the native Keychain in iOS mode
+ * or using localStorage-based keys in PWA mode.
+ */
+export async function signConnectChallenge(
+  opts: {
+    nonce?: string;
+    token: string | null;
+    isNative: boolean;
+  },
+): Promise<{ id: string; publicKey: string; signature: string; signedAt: number; nonce?: string }> {
+  if (opts.isNative) {
+    // Delegate to Swift Keychain via bridge — private key never enters JS
+    const { requestNativeIdentitySign } = await import("@/lib/nativeBridge");
+    const result = await requestNativeIdentitySign(opts.nonce ?? "", opts.token);
+    return {
+      id: result.deviceId,
+      publicKey: result.publicKey,
+      signature: result.signature,
+      signedAt: result.signedAt,
+      nonce: opts.nonce,
+    };
+  }
+
+  // PWA mode — use localStorage-based Ed25519 keys
+  const identity = await loadOrCreateDeviceIdentity();
+  const signedAtMs = Date.now();
+  const payload = buildDeviceAuthPayload({
+    deviceId: identity.deviceId,
+    clientId: "openclaw-control-ui",
+    clientMode: "webchat",
+    role: "operator",
+    scopes: ["operator.read", "operator.write", "operator.admin", "operator.approvals", "operator.pairing"],
+    signedAtMs,
+    token: opts.token,
+    nonce: opts.nonce,
+  });
+  const signature = await signDevicePayload(identity.privateKey, payload);
+  return {
+    id: identity.deviceId,
+    publicKey: identity.publicKey,
+    signature,
+    signedAt: signedAtMs,
+    nonce: opts.nonce,
+  };
+}
+
 export type DeviceAuthPayloadParams = {
   deviceId: string;
   clientId: string;

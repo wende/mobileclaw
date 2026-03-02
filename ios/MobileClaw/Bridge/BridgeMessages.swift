@@ -2,79 +2,33 @@ import Foundation
 
 // Messages sent from Swift → WebView (via evaluateJavaScript)
 enum SwiftToWebMessage {
-    case chatEvent(payload: [String: Any])
-    case messagesHistory([ChatMessage])
+    // Kept: optimistic user message append (native input adds this before web sends)
     case messagesAppend(ChatMessage)
-    case messagesUpdate(id: String, patch: [String: Any])
-    case messagesClear
-    case streamStart(runId: String, ts: Int)
-    case streamContentDelta(runId: String, delta: String, ts: Int)
-    case streamReasoningDelta(runId: String, delta: String, ts: Int, blockStart: Bool)
-    case streamToolStart(runId: String, name: String, args: String?, toolCallId: String?, ts: Int)
-    case streamToolResult(runId: String, name: String, toolCallId: String?, result: String?, isError: Bool)
-    case streamEnd
-    case streamError(errorMessage: String)
-    case thinkingShow
-    case thinkingHide
+
+    // UI commands
     case themeSet(theme: String)
     case zenSet(enabled: Bool)
     case scrollToBottom
-    case connectionState(ConnectionState)
-    case subagentClear
-    case subagentAgentEvent(runId: String, sessionKey: String, stream: String, data: [String: Any], seq: Int, ts: Int)
-    case subagentChatEvent(sessionKey: String, state: String)
-    case subagentHistory(sessionKey: String, messages: [[String: Any]])
+
+    // Identity signing response (Phase 0)
+    case identitySignResponse(callbackId: String, deviceId: String, publicKey: String, signature: String, signedAt: Int, nonce: String)
+
+    // Config bridge — tell web to open its own connection (Phase 1)
+    case configConnection(mode: String, url: String, token: String?, model: String?)
+
+    // Actions routed from native UI through web (Phase 3)
+    case actionSend(text: String)
+    case actionAbort
+    case actionSwitchSession(key: String)
 
     func toJSON() -> String {
         var dict: [String: Any] = [:]
 
         switch self {
-        case .chatEvent(let payload):
-            dict["type"] = "chat:event"
-            dict["payload"] = payload
-        case .messagesHistory(let messages):
-            dict["type"] = "messages:history"
-            dict["payload"] = messages.map { encodeMessage($0) }
         case .messagesAppend(let message):
             dict["type"] = "messages:append"
             dict["payload"] = encodeMessage(message)
-        case .messagesUpdate(let id, let patch):
-            dict["type"] = "messages:update"
-            dict["payload"] = ["id": id, "patch": patch]
-        case .messagesClear:
-            dict["type"] = "messages:clear"
-        case .streamStart(let runId, let ts):
-            dict["type"] = "stream:start"
-            dict["payload"] = ["runId": runId, "ts": ts]
-        case .streamContentDelta(let runId, let delta, let ts):
-            dict["type"] = "stream:contentDelta"
-            dict["payload"] = ["runId": runId, "delta": delta, "ts": ts]
-        case .streamReasoningDelta(let runId, let delta, let ts, let blockStart):
-            dict["type"] = "stream:reasoningDelta"
-            var payload: [String: Any] = ["runId": runId, "delta": delta, "ts": ts]
-            if blockStart { payload["blockStart"] = true }
-            dict["payload"] = payload
-        case .streamToolStart(let runId, let name, let args, let toolCallId, let ts):
-            var payload: [String: Any] = ["runId": runId, "name": name, "ts": ts]
-            if let args { payload["args"] = args }
-            if let toolCallId { payload["toolCallId"] = toolCallId }
-            dict["type"] = "stream:toolStart"
-            dict["payload"] = payload
-        case .streamToolResult(let runId, let name, let toolCallId, let result, let isError):
-            var payload: [String: Any] = ["runId": runId, "name": name, "isError": isError]
-            if let toolCallId { payload["toolCallId"] = toolCallId }
-            if let result { payload["result"] = result }
-            dict["type"] = "stream:toolResult"
-            dict["payload"] = payload
-        case .streamEnd:
-            dict["type"] = "stream:end"
-        case .streamError(let errorMessage):
-            dict["type"] = "stream:error"
-            dict["payload"] = ["errorMessage": errorMessage]
-        case .thinkingShow:
-            dict["type"] = "thinking:show"
-        case .thinkingHide:
-            dict["type"] = "thinking:hide"
+
         case .themeSet(let theme):
             dict["type"] = "theme:set"
             dict["payload"] = ["theme": theme]
@@ -83,33 +37,35 @@ enum SwiftToWebMessage {
             dict["payload"] = ["enabled": enabled]
         case .scrollToBottom:
             dict["type"] = "scroll:toBottom"
-        case .connectionState(let state):
-            dict["type"] = "connection:state"
-            dict["payload"] = ["state": state.rawValue]
-        case .subagentClear:
-            dict["type"] = "subagent:clear"
-        case .subagentAgentEvent(let runId, let sessionKey, let stream, let data, let seq, let ts):
-            dict["type"] = "subagent:agentEvent"
+
+        case .identitySignResponse(let callbackId, let deviceId, let publicKey, let signature, let signedAt, let nonce):
+            dict["type"] = "identity:signResponse"
             dict["payload"] = [
-                "runId": runId,
-                "sessionKey": sessionKey,
-                "stream": stream,
-                "data": data,
-                "seq": seq,
-                "ts": ts,
+                "callbackId": callbackId,
+                "deviceId": deviceId,
+                "publicKey": publicKey,
+                "signature": signature,
+                "signedAt": signedAt,
+                "nonce": nonce,
             ]
-        case .subagentChatEvent(let sessionKey, let state):
-            dict["type"] = "subagent:chatEvent"
-            dict["payload"] = [
-                "sessionKey": sessionKey,
-                "state": state,
-            ]
-        case .subagentHistory(let sessionKey, let messages):
-            dict["type"] = "subagent:history"
-            dict["payload"] = [
-                "sessionKey": sessionKey,
-                "messages": messages,
-            ]
+
+        case .configConnection(let mode, let url, let token, let model):
+            dict["type"] = "config:connection"
+            var payload: [String: Any] = ["mode": mode, "url": url]
+            if let token { payload["token"] = token }
+            if let model { payload["model"] = model }
+            dict["payload"] = payload
+
+        case .actionSend(let text):
+            dict["type"] = "action:send"
+            dict["payload"] = ["text": text]
+
+        case .actionAbort:
+            dict["type"] = "action:abort"
+
+        case .actionSwitchSession(let key):
+            dict["type"] = "action:switchSession"
+            dict["payload"] = ["key": key]
         }
 
         guard let data = try? JSONSerialization.data(withJSONObject: dict),

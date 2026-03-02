@@ -23,10 +23,6 @@ final class AppState {
         didSet { UserDefaults.standard.set(zenMode, forKey: "zenMode") }
     }
 
-    // Messages — stored here so Swift can forward to WebView
-    var messages: [ChatMessage] = []
-    var streamingRunId: String?
-
     // Queued message
     var queuedMessage: QueuedMessage?
 

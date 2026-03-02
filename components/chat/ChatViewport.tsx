@@ -13,6 +13,7 @@ import type { useSubagentStore } from "@/hooks/useSubagentStore";
 
 const TIME_GAP_THRESHOLD_MS = 10 * 60 * 1000;
 const ZEN_COLLAPSE_TOTAL_MS = ZEN_TOGGLE_FRAME_MS + ZEN_FADE_MS + ZEN_SLIDE_MS;
+const IOS_TOP_MESSAGE_SPACER_HEIGHT = "clamp(2.75rem, 6.5dvh, 3.75rem)";
 
 interface ChatViewportProps {
   isDetached: boolean;
@@ -599,6 +600,7 @@ export function ChatViewport({
         style={{ ...(isNative ? {} : { overscrollBehavior: "none" as const }), ...(isDetached ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
       >
         <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
+          {isNative && <div aria-hidden="true" style={{ height: IOS_TOP_MESSAGE_SPACER_HEIGHT, flexShrink: 0 }} />}
           {displayMessages.map((msg, idx) => {
             const side = getMessageSide(msg.role);
             const prevSide = idx > 0 ? getMessageSide(displayMessages[idx - 1].role) : null;

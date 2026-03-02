@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -12,7 +12,6 @@
 		134C0C7C0E4BF4AB9B749249 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A3227A38F42070FA3803C1 /* RootView.swift */; };
 		209E46CB7C81B25DA2F398A2 /* DeviceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BEE03EB5CF9D50B0E4E4BCC /* DeviceIdentity.swift */; };
 		26B2EAB080F29600E2AFC7FF /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 505123C69A94B32971C8366B /* KeychainHelper.swift */; };
-		3BC0A4EE6320770332AD7F61 /* OpenClawProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C20D87247DA53EEB12FFD65 /* OpenClawProtocol.swift */; };
 		3D3CC13454487B2E6A3C53B5 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 30BC2522340E86468959C327 /* PrivacyInfo.xcprivacy */; };
 		3E827FC553F37C93F42FBBB5 /* NativeChatHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72FA83A36459C61E313C83AF /* NativeChatHeader.swift */; };
 		42B5697AFB05DB4F515B1A45 /* BridgeMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6CA14D749B18DC60338112D /* BridgeMessages.swift */; };
@@ -22,10 +21,8 @@
 		66B270A47919254032C2C039 /* contextPrefixes.json in Resources */ = {isa = PBXBuildFile; fileRef = E611848AB5434FDDB3EB9B61 /* contextPrefixes.json */; };
 		6A5AA42B0F09D4200945B6EC /* MobileClawApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C98C26439C6001665E1D8151 /* MobileClawApp.swift */; };
 		7698631545C89C924054CFA4 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D7B99027A294C5E2AFDDA7 /* AppState.swift */; };
-		8E747EA86C36F28D773EEF43 /* WebSocketManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14C9515108FA6901183C480 /* WebSocketManager.swift */; };
-		A2C09B289DE32ED1C5FEA5F8 /* DemoModeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55BD4198E254E214A4711668 /* DemoModeHandler.swift */; };
+		7B06BCEDE456BD5980CC1DB7 /* WebSocketProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A33B06A50196B0D1261DFEC /* WebSocketProxy.swift */; };
 		AA4AAAE9EB05B2CCDCA9A6CF /* NativeCommandSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A06DF75FB4160937F86E3A /* NativeCommandSheet.swift */; };
-		CB75300A0C2EE8021FAD7735 /* ContextPrefixes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 915FC33AF79FDB4466CAAA3C /* ContextPrefixes.swift */; };
 		CF636504806AA66EDA4540F1 /* NativeSubagentPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9449D33C9D8AD564BAE102F /* NativeSubagentPanel.swift */; };
 		D04ABCEC39DE83E7C0515D51 /* NativeSetupDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C90F05CAF98426227B6068C7 /* NativeSetupDialog.swift */; };
 		D17023B39483DF3F67774080 /* ChatWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4163307C6FADB868DD148C9E /* ChatWebView.swift */; };
@@ -35,23 +32,20 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0A33B06A50196B0D1261DFEC /* WebSocketProxy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketProxy.swift; sourceTree = "<group>"; };
 		15E155240F68B0123AAA7A20 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		20D7B99027A294C5E2AFDDA7 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		22A3227A38F42070FA3803C1 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		30BC2522340E86468959C327 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		30BC2522340E86468959C327 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		3BF300920EC8B0EA590122AB /* WebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewBridge.swift; sourceTree = "<group>"; };
 		4163307C6FADB868DD148C9E /* ChatWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWebView.swift; sourceTree = "<group>"; };
 		505123C69A94B32971C8366B /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
-		55BD4198E254E214A4711668 /* DemoModeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoModeHandler.swift; sourceTree = "<group>"; };
 		565180E6FAD79E9211BBE242 /* NativeChatInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatInput.swift; sourceTree = "<group>"; };
 		5F95B5399FD9C16CC21D6DF0 /* FadingBlurView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FadingBlurView.swift; sourceTree = "<group>"; };
 		72FA83A36459C61E313C83AF /* NativeChatHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeChatHeader.swift; sourceTree = "<group>"; };
 		76069FE864EAED6CF12468F0 /* NativeImageLightbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeImageLightbox.swift; sourceTree = "<group>"; };
 		7BEE03EB5CF9D50B0E4E4BCC /* DeviceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceIdentity.swift; sourceTree = "<group>"; };
-		7C20D87247DA53EEB12FFD65 /* OpenClawProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawProtocol.swift; sourceTree = "<group>"; };
-		915FC33AF79FDB4466CAAA3C /* ContextPrefixes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextPrefixes.swift; sourceTree = "<group>"; };
-		A14C9515108FA6901183C480 /* WebSocketManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketManager.swift; sourceTree = "<group>"; };
-		B1CC5E97FEB8885BBDFED6E2 /* MobileClaw.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MobileClaw.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1CC5E97FEB8885BBDFED6E2 /* MobileClaw.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MobileClaw.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B6CA14D749B18DC60338112D /* BridgeMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeMessages.swift; sourceTree = "<group>"; };
 		BC09DFF76258BE92D0AD1276 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
 		C8A06DF75FB4160937F86E3A /* NativeCommandSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommandSheet.swift; sourceTree = "<group>"; };
@@ -114,6 +108,7 @@
 			isa = PBXGroup;
 			children = (
 				B6CA14D749B18DC60338112D /* BridgeMessages.swift */,
+				0A33B06A50196B0D1261DFEC /* WebSocketProxy.swift */,
 				3BF300920EC8B0EA590122AB /* WebViewBridge.swift */,
 			);
 			path = Bridge;
@@ -131,11 +126,8 @@
 		A365924F5078B4DEB8B93625 /* Networking */ = {
 			isa = PBXGroup;
 			children = (
-				55BD4198E254E214A4711668 /* DemoModeHandler.swift */,
 				7BEE03EB5CF9D50B0E4E4BCC /* DeviceIdentity.swift */,
 				505123C69A94B32971C8366B /* KeychainHelper.swift */,
-				7C20D87247DA53EEB12FFD65 /* OpenClawProtocol.swift */,
-				A14C9515108FA6901183C480 /* WebSocketManager.swift */,
 			);
 			path = Networking;
 			sourceTree = "<group>";
@@ -144,7 +136,6 @@
 			isa = PBXGroup;
 			children = (
 				BC09DFF76258BE92D0AD1276 /* ChatMessage.swift */,
-				915FC33AF79FDB4466CAAA3C /* ContextPrefixes.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -190,7 +181,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					5E4B8640610A3CDD86EFD93D = {
 						DevelopmentTeam = 5N28UN29Z6;
@@ -208,6 +199,7 @@
 			);
 			mainGroup = 5B82FEF9C1F7E4F7502F232C;
 			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -239,8 +231,6 @@
 				42B5697AFB05DB4F515B1A45 /* BridgeMessages.swift in Sources */,
 				EC6E391273ADB5B5ADD8F83E /* ChatMessage.swift in Sources */,
 				D17023B39483DF3F67774080 /* ChatWebView.swift in Sources */,
-				CB75300A0C2EE8021FAD7735 /* ContextPrefixes.swift in Sources */,
-				A2C09B289DE32ED1C5FEA5F8 /* DemoModeHandler.swift in Sources */,
 				209E46CB7C81B25DA2F398A2 /* DeviceIdentity.swift in Sources */,
 				55D40E5D21FE591564D74A15 /* FadingBlurView.swift in Sources */,
 				26B2EAB080F29600E2AFC7FF /* KeychainHelper.swift in Sources */,
@@ -252,9 +242,8 @@
 				126882E13DEA8422592BBA05 /* NativeQueuePill.swift in Sources */,
 				D04ABCEC39DE83E7C0515D51 /* NativeSetupDialog.swift in Sources */,
 				CF636504806AA66EDA4540F1 /* NativeSubagentPanel.swift in Sources */,
-				3BC0A4EE6320770332AD7F61 /* OpenClawProtocol.swift in Sources */,
 				134C0C7C0E4BF4AB9B749249 /* RootView.swift in Sources */,
-				8E747EA86C36F28D773EEF43 /* WebSocketManager.swift in Sources */,
+				7B06BCEDE456BD5980CC1DB7 /* WebSocketProxy.swift in Sources */,
 				5EAF386EBD6DF305EFE6C922 /* WebViewBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -268,6 +257,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5N28UN29Z6;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = MobileClaw/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -288,6 +278,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5N28UN29Z6;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = MobileClaw/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -337,10 +328,8 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 5N28UN29Z6;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -354,7 +343,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -396,10 +384,8 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 5N28UN29Z6;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -420,7 +406,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;

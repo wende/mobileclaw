@@ -327,6 +327,7 @@ export default function Home() {
     setIsStreaming,
     setStreamingId,
     setHistoryLoaded,
+    onHistoryLoaded: scrollToBottom,
     beginContentArrival,
     setThinkingStartTime,
     markRunStart,
@@ -344,23 +345,22 @@ export default function Home() {
 
   const { quoteText, setQuoteText, quotePopup, quotePopupRef, handleAcceptQuote } = useQuoteSelection({ scrollRef });
 
+  // Use refs so the bridge handler can call these without circular deps.
+  const handleConnectRef = useRef<(config: ConnectionConfig) => void>(() => {});
+  const nativeSendRef = useRef<(text: string) => void>(() => {});
+  const nativeAbortRef = useRef<() => void>(() => {});
+  const nativeSessionSelectRef = useRef<(key: string) => void>(() => {});
+
   const handleNativeBridgeMessage = useNativeBridgeMessage({
     setMessages,
-    setHistoryLoaded,
     pinnedToBottomRef,
     pinLockUntilRef,
-    setIsStreaming,
-    setStreamingId,
-    setAwaitingResponse,
-    setThinkingStartTime,
-    appendContentDelta,
-    appendThinkingDelta,
-    startThinkingBlock,
-    addToolCall,
-    resolveToolCall,
     setZenModeEnabled,
     scrollToBottom,
-    subagentStore,
+    handleConnect: useCallback((config: ConnectionConfig) => handleConnectRef.current(config), []),
+    onNativeSend: useCallback((text: string) => nativeSendRef.current(text), []),
+    onNativeAbort: useCallback(() => nativeAbortRef.current(), []),
+    onNativeSessionSelect: useCallback((key: string) => nativeSessionSelectRef.current(key), []),
   });
 
   const { handleConnect } = useModeBootstrap({
@@ -387,6 +387,9 @@ export default function Home() {
     isDetachedRef,
     isNativeRef,
   });
+
+  // Keep the ref fresh so bridge messages can call handleConnect
+  handleConnectRef.current = handleConnect;
 
   const { demoHandlerRef } = useDemoRuntime({
     isDemoMode,
@@ -459,6 +462,22 @@ export default function Home() {
     return () => window.removeEventListener("beforeunload", save);
   }, [isRunActive]);
 
+  // Post run state to native shell
+  useEffect(() => {
+    if (!isNativeRef.current) return;
+    import("@/lib/nativeBridge").then(({ postRunState }) => {
+      postRunState(isRunActive, isStreaming);
+    });
+  }, [isRunActive, isStreaming, isNativeRef]);
+
+  // Post model state to native shell
+  useEffect(() => {
+    if (!isNativeRef.current) return;
+    import("@/lib/nativeBridge").then(({ postModelState }) => {
+      postModelState(currentModel);
+    });
+  }, [currentModel, isNativeRef]);
+
   const { hasUnreadTabMessage } = useUnreadTabIndicator({
     messages,
     historyLoaded,
@@ -508,6 +527,11 @@ export default function Home() {
     setAwaitingResponse,
     setIsStreaming,
   ]);
+
+  // Keep native bridge refs fresh
+  nativeSendRef.current = handleSendOrQueue;
+  nativeAbortRef.current = handleAbort;
+  nativeSessionSelectRef.current = handleSessionSelect;
 
   const displayMessages = useMemo(() => buildDisplayMessages(messages), [messages]);
 

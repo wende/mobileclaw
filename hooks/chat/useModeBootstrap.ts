@@ -136,10 +136,8 @@ export function useModeBootstrap({
     if (getSearchParam("demo") !== null) return;
     if (isDemoMode) return;
 
-    if (isNativeRef.current) {
-      setHistoryLoaded(true);
-      return;
-    }
+    // In native mode, web waits for config:connection from Swift — no auto-connect.
+    if (isNativeRef.current) return;
 
     const detached = getSearchParam("detached") !== null;
     const embedUrl = getSearchParam("url");

@@ -1,5 +1,6 @@
 import {
   GATEWAY_INJECTED_MODEL,
+  isInternalCommandFetchRunId,
   SPAWN_TOOL_NAME,
   STOP_REASON_INJECTED,
   isContextText,
@@ -26,6 +27,20 @@ function readAllText(content: unknown): string {
     .join("");
 }
 
+function readHistoryRunId(raw: RawHistoryMessage): string | undefined {
+  const candidates = [
+    raw.runId,
+    raw.run_id,
+    raw.idempotencyKey,
+    raw.idempotency_key,
+    raw.id,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
+}
+
 interface PrepareHistoryResult<TCommand extends { name: string }> {
   rawMessages: RawHistoryMessage[];
   inferredServerCommands?: TCommand[];
@@ -44,9 +59,21 @@ export function prepareHistoryMessages<TCommand extends { name: string }>({
 }: PrepareHistoryOptions<TCommand>): PrepareHistoryResult<TCommand> {
   const skipIndices = new Set<number>();
   let inferredServerCommands: TCommand[] | undefined;
+  const internalCommandRuns = new Set<string>();
 
   for (let i = 0; i < allRawMessages.length; i++) {
     const raw = allRawMessages[i];
+    const runId = readHistoryRunId(raw);
+    if (isInternalCommandFetchRunId(runId)) {
+      internalCommandRuns.add(runId);
+      skipIndices.add(i);
+      continue;
+    }
+
+    if (runId && internalCommandRuns.has(runId)) {
+      skipIndices.add(i);
+      continue;
+    }
 
     if (raw.role === "user") {
       const text = readPrimaryText(raw.content);

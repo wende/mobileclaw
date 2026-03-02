@@ -4,9 +4,6 @@ import SafariServices
 struct RootView: View {
     @Environment(AppState.self) private var appState
     @State private var bridge = WebViewBridge()
-    @State private var wsManager: WebSocketManager?
-    @State private var protocol_: OpenClawProtocol?
-    @State private var demoHandler: DemoModeHandler?
     @State private var safariURL: URL?
     @State private var showSessionDropdown = false
     @State private var pullRefreshProgress: CGFloat = 0
@@ -31,11 +28,7 @@ struct RootView: View {
                 refreshHaptic.impactOccurred()
                 appState.isRefreshing = true
                 pullRefreshProgress = 1
-                if appState.backendMode == .demo {
-                    demoHandler?.loadDemoHistory()
-                } else {
-                    protocol_?.requestHistory()
-                }
+                bridge.send(.scrollToBottom)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     appState.isRefreshing = false
                     pullRefreshProgress = 0
@@ -153,9 +146,6 @@ struct RootView: View {
                 onToggleSessionDropdown: {
                     guard appState.backendMode == .openclaw else { return }
                     showSessionDropdown.toggle()
-                    if showSessionDropdown {
-                        protocol_?.requestSessionsList()
-                    }
                 }
             )
         }
@@ -166,11 +156,14 @@ struct RootView: View {
                     loading: appState.sessionsLoading,
                     currentSessionKey: appState.sessionKey,
                     sessionSwitching: appState.sessionSwitching,
-                    onRefresh: { protocol_?.requestSessionsList() },
+                    onRefresh: { },
                     onSelect: { key in
                         showSessionDropdown = false
+                        guard key != appState.sessionKey else { return }
                         appState.pinnedSubagent = nil
-                        protocol_?.switchSession(to: key)
+                        appState.sessionSwitching = true
+                        appState.sessionKey = key
+                        bridge.send(.actionSwitchSession(key: key))
                     },
                     onDismiss: { showSessionDropdown = false }
                 )
@@ -227,22 +220,57 @@ struct RootView: View {
             appState.quoteText = nil
         }
         bridge.onWebViewReady = {
-            // WebView is initialized, send current theme
+            print("[Bridge] webview:ready received, isReady=\(bridge.isReady)")
+            // WebView is initialized, send current theme and then connection config
             let isDark = UITraitCollection.current.userInterfaceStyle == .dark
             bridge.send(.themeSet(theme: isDark ? "dark" : "light"))
             bridge.send(.zenSet(enabled: appState.zenMode))
-            // Flush any history that arrived before WebView was ready
-            if appState.backendMode == .demo {
-                demoHandler?.loadDemoHistory()
+            // Send pending config so web opens its own connection.
+            // Read from bridge (a class) to avoid SwiftUI @State closure capture issues.
+            if let pending = bridge.pendingConnectionConfig {
+                print("[Bridge] Sending pending config: mode=\(pending.mode) url=\(pending.url)")
+                bridge.pendingConnectionConfig = nil
+                bridge.send(.configConnection(
+                    mode: pending.mode,
+                    url: pending.url,
+                    token: pending.token,
+                    model: pending.model
+                ))
             } else {
-                protocol_?.flushPendingHistory()
+                print("[Bridge] No pending config to send!")
             }
+        }
+
+        // Phase 2: State reporting — web tells Swift about state changes
+        bridge.onConnectionState = { state in
+            print("[Bridge] state:connection -> \(state)")
+            appState.connectionState = ConnectionState(rawValue: state) ?? .disconnected
+            if state != "connected" {
+                showSessionDropdown = false
+                appState.sessionsLoading = false
+            }
+        }
+        bridge.onRunState = { isActive, isStreaming in
+            appState.isRunActive = isActive
+            appState.isStreaming = isStreaming
+        }
+        bridge.onModelState = { model in
+            appState.currentModel = model
+        }
+        bridge.onSessionsState = { rawSessions, currentKey in
+            appState.sessions = rawSessions.compactMap(parseSessionInfo)
+            if let currentKey {
+                appState.sessionKey = currentKey
+            }
+            appState.sessionsLoading = false
+            appState.sessionSwitching = false
         }
     }
 
     // MARK: - Connection
 
     private func restoreConnection() {
+        print("[Bridge] restoreConnection()")
         let savedMode = UserDefaults.standard.string(forKey: "backend-mode") ?? "openclaw"
 
         if savedMode == "demo" {
@@ -269,10 +297,7 @@ struct RootView: View {
     }
 
     private func handleConnect(config: ConnectionConfig) {
-        // Tear down previous connections
-        wsManager = nil
-        protocol_ = nil
-        demoHandler = nil
+        // Reset UI state
         showSessionDropdown = false
         appState.connectionError = nil
         appState.isRunActive = false
@@ -285,105 +310,42 @@ struct RootView: View {
         appState.sessionsLoading = false
         appState.sessionSwitching = false
 
-        // Clear messages from the WebView so stale content from the previous mode doesn't linger
-        bridge.send(.messagesClear)
-
+        // Save credentials
         UserDefaults.standard.set(config.mode.rawValue, forKey: "backend-mode")
-
-        switch config.mode {
-        case .demo:
-            handleDemoConnect()
-        case .openclaw:
-            handleOpenClawConnect(config: config)
-        case .lmstudio:
-            handleLMStudioConnect(config: config)
-        }
-    }
-
-    // MARK: - Demo Mode
-
-    private func handleDemoConnect() {
-        appState.connectionState = .connected
-        appState.currentModel = "claude-sonnet-4-5 (demo)"
-        appState.sessionKey = "main"
-        appState.sessions = []
-        bridge.send(.connectionState(.connected))
-
-        let handler = DemoModeHandler(bridge: bridge, appState: appState)
-        demoHandler = handler
-
-        // History will be loaded when WebView is ready (via onWebViewReady)
-        if bridge.isReady {
-            handler.loadDemoHistory()
-        }
-    }
-
-    // MARK: - OpenClaw
-
-    private func handleOpenClawConnect(config: ConnectionConfig) {
-        UserDefaults.standard.set(config.url, forKey: "gateway-url")
-        if let token = config.token {
-            KeychainHelper.save(key: "gateway-token", value: token)
-        }
-        appState.gatewayURL = config.url
-        appState.gatewayToken = config.token ?? ""
-        appState.sessionsLoading = false
-        appState.sessionSwitching = false
-
-        let wsURL = toWSURL(config.url)
-        print("[RootView] Connecting to: \(wsURL)")
-
-        let proto = OpenClawProtocol(bridge: bridge, appState: appState)
-        protocol_ = proto
-
-        let manager = WebSocketManager(
-            url: wsURL,
-            onMessage: { data in
-                Task { @MainActor in
-                    proto.handleMessage(data)
-                }
-            },
-            onStateChange: { state in
-                Task { @MainActor in
-                    appState.connectionState = state
-                    if state != .connected {
-                        showSessionDropdown = false
-                        appState.sessionsLoading = false
-                    }
-                    bridge.send(.connectionState(state))
-                }
+        if config.mode == .openclaw {
+            UserDefaults.standard.set(config.url, forKey: "gateway-url")
+            if let token = config.token {
+                KeychainHelper.save(key: "gateway-token", value: token)
             }
-        )
-        wsManager = manager
-        proto.sendMessage = { msg in manager.send(msg) }
-        proto.markEstablished = { manager.markEstablished() }
-        proto.token = config.token
+            appState.gatewayURL = config.url
+            appState.gatewayToken = config.token ?? ""
+        } else if config.mode == .lmstudio {
+            UserDefaults.standard.set(config.url, forKey: "gateway-url")
+            if let token = config.token {
+                KeychainHelper.save(key: "lmstudio-apikey", value: token)
+            }
+            if let model = config.model {
+                UserDefaults.standard.set(model, forKey: "lmstudio-model")
+            }
+        }
 
-        manager.connect()
+        // Store on bridge (class) so onWebViewReady can read it reliably.
+        let configTuple = (mode: config.mode.rawValue, url: config.url, token: config.token, model: config.model)
+        print("[Bridge] handleConnect: mode=\(configTuple.mode) url=\(configTuple.url) bridgeReady=\(bridge.isReady)")
+
+        if bridge.isReady {
+            bridge.send(.configConnection(
+                mode: configTuple.mode,
+                url: configTuple.url,
+                token: configTuple.token,
+                model: configTuple.model
+            ))
+        } else {
+            bridge.pendingConnectionConfig = configTuple
+        }
     }
 
-    // MARK: - LM Studio (placeholder)
-
-    private func handleLMStudioConnect(config: ConnectionConfig) {
-        // TODO: Implement LM Studio HTTP/SSE connection
-        appState.connectionState = .connected
-        appState.currentModel = config.model ?? "unknown"
-        appState.sessionKey = "main"
-        appState.sessions = []
-        appState.sessionsLoading = false
-        appState.sessionSwitching = false
-        bridge.send(.connectionState(.connected))
-        print("[RootView] LM Studio mode — not yet implemented")
-    }
-
-    private func toWSURL(_ url: String) -> String {
-        if url.hasPrefix("ws://") || url.hasPrefix("wss://") { return url }
-        return url
-            .replacingOccurrences(of: "http://", with: "ws://")
-            .replacingOccurrences(of: "https://", with: "wss://")
-    }
-
-    // MARK: - Send
+    // MARK: - Send (routes through web protocol stack)
 
     private func handleSend(text: String, attachments: [ImageAttachmentData]?) {
         if appState.isRunActive {
@@ -393,7 +355,7 @@ struct RootView: View {
             return
         }
 
-        // Add optimistic user message
+        // Add optimistic user message via bridge
         let userMsg = ChatMessage(
             role: .user,
             content: [ContentPart(type: .text, text: text)],
@@ -402,11 +364,8 @@ struct RootView: View {
         )
         bridge.send(.messagesAppend(userMsg))
 
-        if appState.backendMode == .demo {
-            demoHandler?.sendMessage(text: text)
-        } else {
-            protocol_?.sendChatMessage(text: text)
-        }
+        // Tell web to send via its protocol stack
+        bridge.send(.actionSend(text: text))
     }
 
     private func handleAbort() {
@@ -415,14 +374,49 @@ struct RootView: View {
             appState.queuedMessage = nil
         }
 
-        if appState.backendMode == .demo {
-            demoHandler?.stop()
-        } else {
-            protocol_?.sendAbort()
-        }
-        appState.isRunActive = false
-        appState.isStreaming = false
-        bridge.send(.streamEnd)
+        // Tell web to abort via its protocol stack
+        bridge.send(.actionAbort)
+    }
+
+    // MARK: - Helpers
+
+    private func parseSessionInfo(_ raw: [String: Any]) -> SessionInfo? {
+        guard let key = raw["key"] as? String, !key.isEmpty else { return nil }
+
+        let kind = SessionKind(rawValueOrFallback: raw["kind"] as? String)
+        let channel = raw["channel"] as? String ?? ""
+        let displayName = raw["displayName"] as? String
+        let updatedAt = toEpochMilliseconds(raw["updatedAt"])
+        let sessionId = raw["sessionId"] as? String
+        let model = raw["model"] as? String
+        let contextTokens = toInt(raw["contextTokens"])
+        let totalTokens = toInt(raw["totalTokens"])
+
+        return SessionInfo(
+            key: key,
+            kind: kind,
+            channel: channel,
+            displayName: displayName,
+            updatedAt: updatedAt,
+            sessionId: sessionId,
+            model: model,
+            contextTokens: contextTokens,
+            totalTokens: totalTokens
+        )
+    }
+
+    private func toInt(_ any: Any?) -> Int? {
+        if let value = any as? Int { return value }
+        if let value = any as? Double { return Int(value) }
+        if let value = any as? NSNumber { return value.intValue }
+        if let value = any as? String { return Int(value) }
+        return nil
+    }
+
+    private func toEpochMilliseconds(_ any: Any?) -> Int {
+        guard let raw = toInt(any) else { return 0 }
+        if raw > 0 && raw < 10_000_000_000 { return raw * 1000 }
+        return raw
     }
 }
 

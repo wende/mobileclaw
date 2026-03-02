@@ -112,8 +112,9 @@ export function SetupDialog({
 
       if (currentUrlWasSaved) {
         // Keep URL empty so the saved-server picker remains visible.
+        const matchingConfig = savedConfigs.find((config) => config.url === savedUrl);
         setUrl("");
-        setToken("");
+        setToken(matchingConfig?.token || "");
         setSaveOpenclawUrl(false);
         setSelectedSavedOpenclawUrl(savedUrl || "");
       } else {
@@ -181,7 +182,7 @@ export function SetupDialog({
         ? savedOpenclawConfigs.find((config) => config.url === selectedSavedOpenclawUrl)
         : undefined;
       const targetUrl = trimmed || selectedSavedConfig?.url || "";
-      const targetToken = token.trim() || undefined;
+      const targetToken = token.trim() || selectedSavedConfig?.token || undefined;
       const shouldRemember = trimmed ? saveOpenclawUrl : Boolean(selectedSavedConfig);
       // Allow empty URL for mock mode
       if (targetUrl) {

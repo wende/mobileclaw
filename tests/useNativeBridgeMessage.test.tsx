@@ -3,33 +3,26 @@ import { renderHook, act } from "@testing-library/react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
 import { useNativeBridgeMessage } from "@/hooks/chat/useNativeBridgeMessage";
-import type { Message } from "@/types/chat";
+import type { ConnectionConfig, Message } from "@/types/chat";
 
-function createOptions(setZenModeEnabled: (enabled: boolean) => void) {
+function createOptions(overrides: Partial<Parameters<typeof useNativeBridgeMessage>[0]> = {}) {
   return {
     setMessages: vi.fn() as Dispatch<SetStateAction<Message[]>>,
-    setHistoryLoaded: vi.fn() as Dispatch<SetStateAction<boolean>>,
     pinnedToBottomRef: { current: false } as MutableRefObject<boolean>,
     pinLockUntilRef: { current: 0 } as MutableRefObject<number>,
-    setIsStreaming: vi.fn(),
-    setStreamingId: vi.fn() as Dispatch<SetStateAction<string | null>>,
-    setAwaitingResponse: vi.fn(),
-    setThinkingStartTime: vi.fn() as Dispatch<SetStateAction<number | null>>,
-    appendContentDelta: vi.fn(),
-    appendThinkingDelta: vi.fn(),
-    startThinkingBlock: vi.fn(),
-    addToolCall: vi.fn(),
-    resolveToolCall: vi.fn(),
-    setZenModeEnabled,
+    setZenModeEnabled: vi.fn(),
     scrollToBottom: vi.fn(),
-    subagentStore: { clearAll: vi.fn() } as any,
+    handleConnect: vi.fn() as (config: ConnectionConfig) => void,
+    onNativeSend: vi.fn(),
+    onNativeAbort: vi.fn(),
+    ...overrides,
   };
 }
 
 describe("useNativeBridgeMessage", () => {
   it("applies zen mode when the native bridge sends zen:set", () => {
     const setZenModeEnabled = vi.fn();
-    const { result } = renderHook(() => useNativeBridgeMessage(createOptions(setZenModeEnabled)));
+    const { result } = renderHook(() => useNativeBridgeMessage(createOptions({ setZenModeEnabled })));
 
     act(() => {
       result.current({ type: "zen:set", payload: { enabled: true } });
@@ -41,7 +34,7 @@ describe("useNativeBridgeMessage", () => {
 
   it("ignores zen:set payloads without a boolean enabled field", () => {
     const setZenModeEnabled = vi.fn();
-    const { result } = renderHook(() => useNativeBridgeMessage(createOptions(setZenModeEnabled)));
+    const { result } = renderHook(() => useNativeBridgeMessage(createOptions({ setZenModeEnabled })));
 
     act(() => {
       result.current({ type: "zen:set", payload: { enabled: "yes" } });
@@ -52,83 +45,71 @@ describe("useNativeBridgeMessage", () => {
     expect(setZenModeEnabled).not.toHaveBeenCalled();
   });
 
-  it("starts a thinking block but does not append when blockStart is true and delta is empty", () => {
-    const options = createOptions(vi.fn());
-    const { result } = renderHook(() => useNativeBridgeMessage(options));
+  it("handles config:connection by calling handleConnect", () => {
+    const handleConnect = vi.fn();
+    const { result } = renderHook(() => useNativeBridgeMessage(createOptions({ handleConnect })));
 
     act(() => {
       result.current({
-        type: "stream:reasoningDelta",
-        payload: { runId: "r1", delta: "", ts: 1000, blockStart: true },
+        type: "config:connection",
+        payload: { mode: "openclaw", url: "ws://localhost:8080", token: "abc" },
       });
     });
 
-    expect(options.startThinkingBlock).toHaveBeenCalledTimes(1);
-    expect(options.startThinkingBlock).toHaveBeenCalledWith("r1", 1000);
-    expect(options.appendThinkingDelta).not.toHaveBeenCalled();
+    expect(handleConnect).toHaveBeenCalledTimes(1);
+    expect(handleConnect).toHaveBeenCalledWith({
+      mode: "openclaw",
+      url: "ws://localhost:8080",
+      token: "abc",
+      model: undefined,
+      remember: false,
+    });
   });
 
-  it("starts a thinking block and appends when blockStart is true and delta is non-empty", () => {
-    const options = createOptions(vi.fn());
-    const { result } = renderHook(() => useNativeBridgeMessage(options));
+  it("handles action:send by calling onNativeSend", () => {
+    const onNativeSend = vi.fn();
+    const { result } = renderHook(() => useNativeBridgeMessage(createOptions({ onNativeSend })));
 
     act(() => {
-      result.current({
-        type: "stream:reasoningDelta",
-        payload: { runId: "r2", delta: "Thinking...", ts: 2000, blockStart: true },
-      });
+      result.current({ type: "action:send", payload: { text: "hello" } });
     });
 
-    expect(options.startThinkingBlock).toHaveBeenCalledTimes(1);
-    expect(options.startThinkingBlock).toHaveBeenCalledWith("r2", 2000);
-    expect(options.appendThinkingDelta).toHaveBeenCalledTimes(1);
-    expect(options.appendThinkingDelta).toHaveBeenCalledWith("r2", "Thinking...", 2000);
+    expect(onNativeSend).toHaveBeenCalledWith("hello");
   });
 
-  it("only appends when blockStart is false and delta is non-empty", () => {
-    const options = createOptions(vi.fn());
-    const { result } = renderHook(() => useNativeBridgeMessage(options));
+  it("handles action:abort by calling onNativeAbort", () => {
+    const onNativeAbort = vi.fn();
+    const { result } = renderHook(() => useNativeBridgeMessage(createOptions({ onNativeAbort })));
 
     act(() => {
-      result.current({
-        type: "stream:reasoningDelta",
-        payload: { runId: "r3", delta: "More thinking...", ts: 3000, blockStart: false },
-      });
+      result.current({ type: "action:abort" });
     });
 
-    expect(options.startThinkingBlock).not.toHaveBeenCalled();
-    expect(options.appendThinkingDelta).toHaveBeenCalledTimes(1);
-    expect(options.appendThinkingDelta).toHaveBeenCalledWith("r3", "More thinking...", 3000);
+    expect(onNativeAbort).toHaveBeenCalledTimes(1);
   });
 
-  it("only appends when blockStart is unset and delta is non-empty", () => {
-    const options = createOptions(vi.fn());
-    const { result } = renderHook(() => useNativeBridgeMessage(options));
+  it("handles messages:append by adding to messages", () => {
+    const setMessages = vi.fn();
+    const { result } = renderHook(() => useNativeBridgeMessage(createOptions({ setMessages })));
 
     act(() => {
       result.current({
-        type: "stream:reasoningDelta",
-        payload: { runId: "r4", delta: "Streaming reasoning...", ts: 4000 },
+        type: "messages:append",
+        payload: { role: "user", content: [{ type: "text", text: "hi" }], id: "u-1" },
       });
     });
 
-    expect(options.startThinkingBlock).not.toHaveBeenCalled();
-    expect(options.appendThinkingDelta).toHaveBeenCalledTimes(1);
-    expect(options.appendThinkingDelta).toHaveBeenCalledWith("r4", "Streaming reasoning...", 4000);
+    expect(setMessages).toHaveBeenCalledTimes(1);
   });
 
-  it("does nothing when blockStart is unset and delta is empty", () => {
-    const options = createOptions(vi.fn());
-    const { result } = renderHook(() => useNativeBridgeMessage(options));
+  it("handles scroll:toBottom by calling scrollToBottom", () => {
+    const scrollToBottom = vi.fn();
+    const { result } = renderHook(() => useNativeBridgeMessage(createOptions({ scrollToBottom })));
 
     act(() => {
-      result.current({
-        type: "stream:reasoningDelta",
-        payload: { runId: "r5", delta: "", ts: 5000 },
-      });
+      result.current({ type: "scroll:toBottom" });
     });
 
-    expect(options.startThinkingBlock).not.toHaveBeenCalled();
-    expect(options.appendThinkingDelta).not.toHaveBeenCalled();
+    expect(scrollToBottom).toHaveBeenCalledTimes(1);
   });
 });

@@ -4,10 +4,11 @@ import { parseServerCommands, ALL_COMMANDS, type Command } from "@/components/Co
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { useSessionSwitcher } from "@/hooks/useSessionSwitcher";
 import {
+  isInternalCommandFetchRunId,
   SPAWN_TOOL_NAME,
   WS_HELLO_OK,
 } from "@/lib/constants";
-import { loadOrCreateDeviceIdentity, signDevicePayload, buildDeviceAuthPayload } from "@/lib/deviceIdentity";
+import { signConnectChallenge } from "@/lib/deviceIdentity";
 import { logAgentEvent, logChatEvent } from "@/lib/debugLog";
 import { getTextFromContent, updateAt } from "@/lib/messageUtils";
 import { upsertChatEventMessage } from "@/lib/chat/chatEventUpsert";
@@ -59,6 +60,7 @@ interface UseOpenClawRuntimeOptions extends StreamActions {
   setIsStreaming: (value: boolean) => void;
   setStreamingId: React.Dispatch<React.SetStateAction<string | null>>;
   setHistoryLoaded: React.Dispatch<React.SetStateAction<boolean>>;
+  onHistoryLoaded: () => void;
   beginContentArrival: () => void;
   setThinkingStartTime: React.Dispatch<React.SetStateAction<number | null>>;
   markRunStart: () => void;
@@ -114,6 +116,7 @@ export function useOpenClawRuntime({
   setIsStreaming,
   setStreamingId,
   setHistoryLoaded,
+  onHistoryLoaded,
   beginContentArrival,
   setThinkingStartTime,
   markRunStart,
@@ -265,26 +268,11 @@ export function useOpenClawRuntime({
 
     let device: { id: string; publicKey: string; signature: string; signedAt: number; nonce?: string } | undefined;
     try {
-      const identity = await loadOrCreateDeviceIdentity();
-      const signedAtMs = Date.now();
-      const payload = buildDeviceAuthPayload({
-        deviceId: identity.deviceId,
-        clientId,
-        clientMode,
-        role,
-        scopes,
-        signedAtMs,
+      device = await signConnectChallenge({
+        nonce,
         token: authToken ?? null,
-        nonce,
+        isNative: isNativeRef.current,
       });
-      const signature = await signDevicePayload(identity.privateKey, payload);
-      device = {
-        id: identity.deviceId,
-        publicKey: identity.publicKey,
-        signature,
-        signedAt: signedAtMs,
-        nonce,
-      };
     } catch (err) {
       console.warn("[Connect] Device identity failed, connecting without:", err);
     }
@@ -296,7 +284,7 @@ export function useOpenClawRuntime({
       params: {
         minProtocol: 3,
         maxProtocol: 3,
-        client: { id: clientId, version: "1.0.0", platform: navigator.platform ?? "web", mode: clientMode },
+        client: { id: clientId, version: "1.0.0", platform: isNativeRef.current ? "ios" : (navigator.platform ?? "web"), mode: clientMode },
         role,
         scopes,
         device,
@@ -304,7 +292,7 @@ export function useOpenClawRuntime({
         auth: authToken ? { token: authToken } : undefined,
       },
     });
-  }, [sendWS]);
+  }, [sendWS, isNativeRef]);
 
   const handleHelloOk = useCallback((resPayload: Record<string, unknown>) => {
     markEstablishedRef.current?.();
@@ -384,8 +372,10 @@ export function useOpenClawRuntime({
     onHistoryReceived();
     onHistoryLoadedAfterSwitch();
     setHistoryLoaded(true);
+    onHistoryLoaded();
   }, [
     clearStreamingRuntimeState,
+    onHistoryLoaded,
     onHistoryLoadedAfterSwitch,
     onHistoryReceived,
     sendWS,
@@ -402,38 +392,36 @@ export function useOpenClawRuntime({
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
     logChatEvent(payload);
 
-    if (commandsFetchActiveRef.current && payload.sessionKey === sessionKeyRef.current) {
-      if (payload.state === "delta" && payload.message) {
-        const text = typeof payload.message.content === "string"
-          ? payload.message.content
-          : getTextFromContent(payload.message.content);
-        commandsFetchBufferRef.current += text;
+    if (payload.sessionKey !== sessionKeyRef.current) {
+      if (payload.state === "final" || payload.state === "aborted" || payload.state === "error") {
+        subagentStore.ingestChatEvent(payload.sessionKey, payload.state);
       }
-      if (payload.state === "final") {
-        if (payload.message) {
+      return;
+    }
+
+    // Internal "/commands" fetch uses cmdfetch-* idempotency keys as run IDs.
+    // Suppress those events in all tabs to avoid polluting chat history/cross-tab UI.
+    if (isInternalCommandFetchRunId(payload.runId)) {
+      if (commandsFetchActiveRef.current) {
+        if ((payload.state === "delta" || payload.state === "final") && payload.message?.role === "assistant") {
           const text = typeof payload.message.content === "string"
             ? payload.message.content
             : getTextFromContent(payload.message.content);
           commandsFetchBufferRef.current += text;
         }
-        const parsed = parseServerCommands(commandsFetchBufferRef.current);
-        const coreNames = new Set(ALL_COMMANDS.map((c) => c.name));
-        const extra = parsed.filter((c) => !coreNames.has(c.name));
-        setServerCommands(extra);
-        try { localStorage.setItem("mc-server-commands", JSON.stringify(extra)); } catch {}
-        commandsFetchActiveRef.current = false;
-        commandsFetchBufferRef.current = "";
-      }
-      if (payload.state === "error" || payload.state === "aborted") {
-        commandsFetchActiveRef.current = false;
-        commandsFetchBufferRef.current = "";
-      }
-      return;
-    }
-
-    if (payload.sessionKey !== sessionKeyRef.current) {
-      if (payload.state === "final" || payload.state === "aborted" || payload.state === "error") {
-        subagentStore.ingestChatEvent(payload.sessionKey, payload.state);
+        if (payload.state === "final") {
+          const parsed = parseServerCommands(commandsFetchBufferRef.current);
+          const coreNames = new Set(ALL_COMMANDS.map((c) => c.name));
+          const extra = parsed.filter((c) => !coreNames.has(c.name));
+          setServerCommands(extra);
+          try { localStorage.setItem("mc-server-commands", JSON.stringify(extra)); } catch {}
+          commandsFetchActiveRef.current = false;
+          commandsFetchBufferRef.current = "";
+        }
+        if (payload.state === "error" || payload.state === "aborted") {
+          commandsFetchActiveRef.current = false;
+          commandsFetchBufferRef.current = "";
+        }
       }
       return;
     }
@@ -881,6 +869,31 @@ export function useOpenClawRuntime({
     requestServerCommands,
     switchSession,
   ]);
+
+  // ── Phase 2: Post state changes to native shell ──────────────────────────
+  useEffect(() => {
+    if (!isNativeRef.current) return;
+    import("@/lib/nativeBridge").then(({ postConnectionState }) => {
+      postConnectionState(connectionState);
+    });
+  }, [connectionState, isNativeRef]);
+
+  useEffect(() => {
+    if (!isNativeRef.current) return;
+    const isActive = !!activeRunIdRef.current;
+    import("@/lib/nativeBridge").then(({ postRunState }) => {
+      postRunState(isActive, false);
+    });
+    // We can't directly depend on activeRunIdRef.current, but connectionState
+    // changes indirectly trigger this. The streaming hooks below cover run state.
+  }, [connectionState, isNativeRef]);
+
+  useEffect(() => {
+    if (!isNativeRef.current) return;
+    import("@/lib/nativeBridge").then(({ postSessionsState }) => {
+      postSessionsState(sessions, currentSessionKey);
+    });
+  }, [sessions, currentSessionKey, isNativeRef]);
 
   return {
     connectionState,

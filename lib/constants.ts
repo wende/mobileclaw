@@ -48,6 +48,11 @@ export const LITTERBOX_UPLOAD_URL = "https://litterbox.catbox.moe/resources/inte
 // WebSocket protocol
 export const WS_HELLO_OK = "hello-ok";
 export const STOP_REASON_INJECTED = "injected";
+export const INTERNAL_COMMAND_FETCH_RUN_PREFIX = "cmdfetch-";
+
+export function isInternalCommandFetchRunId(runId: unknown): runId is string {
+  return typeof runId === "string" && runId.startsWith(INTERNAL_COMMAND_FETCH_RUN_PREFIX);
+}
 
 // Content part type helpers (normalizes "tool_call" vs "toolCall")
 export function isToolCallPart(p: { type: string }): boolean {

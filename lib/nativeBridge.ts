@@ -53,6 +53,103 @@ export function notifyWebViewReady() {
   postToNative({ type: "webview:ready" });
 }
 
+// ── Identity signing (Phase 0) ───────────────────────────────────────────────
+
+type IdentitySignResult = {
+  deviceId: string;
+  publicKey: string;
+  signature: string;
+  signedAt: number;
+  nonce: string;
+};
+
+const pendingIdentityCallbacks = new Map<string, {
+  resolve: (result: IdentitySignResult) => void;
+  reject: (err: Error) => void;
+}>();
+
+let identityCallbackCounter = 0;
+
+/**
+ * Ask the native shell to sign a connect challenge using Keychain-stored keys.
+ * Returns the signed device payload without exposing the private key to JS.
+ */
+export function requestNativeIdentitySign(
+  nonce: string,
+  token: string | null,
+): Promise<IdentitySignResult> {
+  const callbackId = `idcb-${++identityCallbackCounter}-${Date.now()}`;
+  return new Promise((resolve, reject) => {
+    pendingIdentityCallbacks.set(callbackId, { resolve, reject });
+    postToNative({
+      type: "identity:sign",
+      payload: { nonce, token, callbackId },
+    });
+    // Timeout after 5s
+    setTimeout(() => {
+      if (pendingIdentityCallbacks.has(callbackId)) {
+        pendingIdentityCallbacks.delete(callbackId);
+        reject(new Error("Native identity sign timed out"));
+      }
+    }, 5000);
+  });
+}
+
+/** Resolve a pending identity sign callback (called from bridge handler). */
+export function resolveIdentitySign(payload: Record<string, unknown>) {
+  const callbackId = payload.callbackId as string;
+  const pending = pendingIdentityCallbacks.get(callbackId);
+  if (!pending) return;
+  pendingIdentityCallbacks.delete(callbackId);
+  pending.resolve({
+    deviceId: payload.deviceId as string,
+    publicKey: payload.publicKey as string,
+    signature: payload.signature as string,
+    signedAt: payload.signedAt as number,
+    nonce: payload.nonce as string,
+  });
+}
+
+// ── State posting (Phase 2) ──────────────────────────────────────────────────
+
+export function postConnectionState(state: string) {
+  postToNative({ type: "state:connection", payload: { state } });
+}
+
+export function postRunState(isActive: boolean, isStreaming: boolean) {
+  postToNative({ type: "state:run", payload: { isActive, isStreaming } });
+}
+
+export function postModelState(model: string | null) {
+  postToNative({ type: "state:model", payload: { model } });
+}
+
+export function postSessionsState(sessions: unknown[], currentKey: string) {
+  postToNative({ type: "state:sessions", payload: { sessions, currentKey } });
+}
+
+// ── Action posting (Phase 3) ─────────────────────────────────────────────────
+
+export function postActionSend(text: string) {
+  postToNative({ type: "action:send", payload: { text } });
+}
+
+export function postActionAbort() {
+  postToNative({ type: "action:abort" });
+}
+
+export function postActionSwitchSession(key: string) {
+  postToNative({ type: "action:switchSession", payload: { key } });
+}
+
+export function postActionRequestHistory() {
+  postToNative({ type: "action:requestHistory" });
+}
+
+export function postActionRequestSessionsList() {
+  postToNative({ type: "action:requestSessionsList" });
+}
+
 // ── Outbound helpers (Web → Swift) ────────────────────────────────────────────
 
 export function postScrollPosition(distanceFromBottom: number) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hasHeartbeatOnOwnLine } from "@/lib/constants";
+import { hasHeartbeatOnOwnLine, isInternalCommandFetchRunId } from "@/lib/constants";
 
 describe("hasHeartbeatOnOwnLine", () => {
   it("matches HEARTBEAT_OK as the entire text", () => {
@@ -40,5 +40,21 @@ describe("hasHeartbeatOnOwnLine", () => {
 
   it("returns false when marker is absent", () => {
     expect(hasHeartbeatOnOwnLine("just some normal text")).toBe(false);
+  });
+});
+
+describe("isInternalCommandFetchRunId", () => {
+  it("returns true for cmdfetch run ids", () => {
+    expect(isInternalCommandFetchRunId("cmdfetch-123")).toBe(true);
+  });
+
+  it("returns false for user run ids", () => {
+    expect(isInternalCommandFetchRunId("run-123")).toBe(false);
+  });
+
+  it("returns false for non-string values", () => {
+    expect(isInternalCommandFetchRunId(undefined)).toBe(false);
+    expect(isInternalCommandFetchRunId(null)).toBe(false);
+    expect(isInternalCommandFetchRunId(42)).toBe(false);
   });
 });

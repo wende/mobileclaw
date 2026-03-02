@@ -23,6 +23,121 @@ struct ChatWebView: UIViewRepresentable {
         )
         config.userContentController.addUserScript(nativeModeScript)
 
+        // WebSocket polyfill: route WebSocket through Swift's URLSessionWebSocketTask
+        // to avoid CORS/Origin issues when loading from file:// or bundled content.
+        let wsPolyfill = WKUserScript(
+            source: """
+            (function() {
+                if (!window.__nativeMode) return;
+                const OrigWebSocket = window.WebSocket;
+                const bridge = () => window.webkit?.messageHandlers?.bridge;
+
+                function NativeWebSocket(url, protocols) {
+                    this.url = url;
+                    this.readyState = 0; // CONNECTING
+                    this.bufferedAmount = 0;
+                    this.extensions = '';
+                    this.protocol = '';
+                    this.binaryType = 'blob';
+                    this._listeners = { open: [], message: [], close: [], error: [] };
+                    this.onopen = null;
+                    this.onmessage = null;
+                    this.onclose = null;
+                    this.onerror = null;
+
+                    // Register as current instance
+                    window.__nativeWSInstance = this;
+                    window.__nativeWSCallback = {
+                        open: () => {
+                            this.readyState = 1; // OPEN
+                            const evt = new Event('open');
+                            this._listeners.open.forEach(fn => fn(evt));
+                            if (this.onopen) this.onopen(evt);
+                        },
+                        message: (data) => {
+                            const evt = new MessageEvent('message', { data: data });
+                            this._listeners.message.forEach(fn => fn(evt));
+                            if (this.onmessage) this.onmessage(evt);
+                        },
+                        close: (code, reason) => {
+                            this.readyState = 3; // CLOSED
+                            const evt = new CloseEvent('close', { code: code || 1000, reason: reason || '', wasClean: code === 1000 });
+                            this._listeners.close.forEach(fn => fn(evt));
+                            if (this.onclose) this.onclose(evt);
+                        },
+                        error: () => {
+                            const evt = new Event('error');
+                            this._listeners.error.forEach(fn => fn(evt));
+                            if (this.onerror) this.onerror(evt);
+                        }
+                    };
+
+                    bridge()?.postMessage({ type: 'ws:connect', payload: { url: url } });
+                }
+
+                NativeWebSocket.CONNECTING = 0;
+                NativeWebSocket.OPEN = 1;
+                NativeWebSocket.CLOSING = 2;
+                NativeWebSocket.CLOSED = 3;
+
+                NativeWebSocket.prototype.send = function(data) {
+                    if (this.readyState !== 1) throw new DOMException('WebSocket is not open', 'InvalidStateError');
+                    bridge()?.postMessage({ type: 'ws:send', payload: { data: String(data) } });
+                };
+
+                NativeWebSocket.prototype.close = function(code, reason) {
+                    if (this.readyState >= 2) return;
+                    this.readyState = 2; // CLOSING
+                    bridge()?.postMessage({ type: 'ws:close', payload: { code: code || 1000, reason: reason || '' } });
+                };
+
+                NativeWebSocket.prototype.addEventListener = function(type, fn) {
+                    if (this._listeners[type]) this._listeners[type].push(fn);
+                };
+
+                NativeWebSocket.prototype.removeEventListener = function(type, fn) {
+                    if (this._listeners[type]) {
+                        this._listeners[type] = this._listeners[type].filter(f => f !== fn);
+                    }
+                };
+
+                NativeWebSocket.prototype.dispatchEvent = function(evt) {
+                    const fns = this._listeners[evt.type] || [];
+                    fns.forEach(fn => fn(evt));
+                    return true;
+                };
+
+                window.WebSocket = NativeWebSocket;
+            })();
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(wsPolyfill)
+
+        // Forward JS console to Xcode console for debugging
+        #if DEBUG
+        let consoleForwarder = WKUserScript(
+            source: """
+            (function() {
+                const origLog = console.log, origWarn = console.warn, origErr = console.error;
+                function fwd(level, args) {
+                    try {
+                        const msg = Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+                        window.webkit?.messageHandlers?.bridge?.postMessage({ type: 'console', payload: { level: level, message: msg } });
+                    } catch {}
+                }
+                console.log = function() { fwd('log', arguments); origLog.apply(console, arguments); };
+                console.warn = function() { fwd('warn', arguments); origWarn.apply(console, arguments); };
+                console.error = function() { fwd('error', arguments); origErr.apply(console, arguments); };
+            })();
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(consoleForwarder)
+        #endif
+
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
 
