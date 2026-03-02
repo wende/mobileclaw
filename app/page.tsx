@@ -43,6 +43,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useZenMode } from "@/hooks/useZenMode";
 import { useSubagentStore } from "@/hooks/useSubagentStore";
 import { formatSessionName } from "@/hooks/useSessionSwitcher";
+import { useAppMode } from "@/hooks/useAppMode";
 
 import { useModeBootstrap } from "@/hooks/chat/useModeBootstrap";
 import { useOpenClawRuntime } from "@/hooks/chat/useOpenClawRuntime";
@@ -65,7 +66,7 @@ export default function Home() {
   const isStreamingRef = useRef(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sentAnimId, setSentAnimId] = useState<string | null>(null);
-  const isNativeRef = useRef(false);
+  const { isDetached, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
 
   const {
     scrollRef,
@@ -105,10 +106,6 @@ export default function Home() {
   const appRef = useRef<HTMLDivElement>(null);
   const floatingBarRef = useRef<HTMLDivElement>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
-  const [isDetached, setIsDetached] = useState(false);
-  const isDetachedRef = useRef(false);
-  const [isNative, setIsNative] = useState(false);
-  const [uploadDisabled, setUploadDisabled] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [isInitialConnecting, setIsInitialConnecting] = useState(false);
 
@@ -388,9 +385,6 @@ export default function Home() {
     setIsDemoMode,
     setShowSetup,
     setHistoryLoaded,
-    setIsDetached,
-    setIsNative,
-    setUploadDisabled,
     setIsInitialConnecting,
     setServerCommands,
     isDetachedRef,
@@ -577,8 +571,6 @@ export default function Home() {
       : queuedMessage
         ? (isDetached ? "7rem" : "13rem")
         : (isDetached ? "4rem" : "10rem");
-
-  const hideChrome = isDetached || isNative;
 
   const lastUserMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {

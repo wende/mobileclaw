@@ -35,9 +35,6 @@ interface UseModeBootstrapOptions {
   setIsDemoMode: React.Dispatch<React.SetStateAction<boolean>>;
   setShowSetup: React.Dispatch<React.SetStateAction<boolean>>;
   setHistoryLoaded: React.Dispatch<React.SetStateAction<boolean>>;
-  setIsDetached: React.Dispatch<React.SetStateAction<boolean>>;
-  setIsNative: React.Dispatch<React.SetStateAction<boolean>>;
-  setUploadDisabled: React.Dispatch<React.SetStateAction<boolean>>;
   setIsInitialConnecting: React.Dispatch<React.SetStateAction<boolean>>;
   setServerCommands: React.Dispatch<React.SetStateAction<Command[]>>;
   isDetachedRef: React.MutableRefObject<boolean>;
@@ -61,9 +58,6 @@ export function useModeBootstrap({
   setIsDemoMode,
   setShowSetup,
   setHistoryLoaded,
-  setIsDetached,
-  setIsNative,
-  setUploadDisabled,
   setIsInitialConnecting,
   setServerCommands,
   isDetachedRef,
@@ -75,29 +69,11 @@ export function useModeBootstrap({
     if (hasInitializedRef.current) return;
     hasInitializedRef.current = true;
 
-    if (getSearchParam("detached") !== null) {
-      setIsDetached(true);
-      isDetachedRef.current = true;
-      document.body.style.background = "transparent";
-      document.documentElement.style.background = "transparent";
-    }
-
-    const nativeFlag = (window as unknown as { __nativeMode?: boolean }).__nativeMode === true;
-    if (getSearchParam("native") !== null || nativeFlag) {
-      setIsNative(true);
-      isNativeRef.current = true;
-      document.body.classList.add("native");
-      document.body.style.background = "transparent";
-      document.documentElement.style.background = "transparent";
-      document.documentElement.classList.remove("native-loading");
+    if (isNativeRef.current) {
       registerBridgeHandler((msg: BridgeMessage) => {
         handleNativeBridgeMessage(msg);
       });
       notifyWebViewReady();
-    }
-
-    if (getSearchParam("upload") === "false") {
-      setUploadDisabled(true);
     }
 
     if (getSearchParam("demo") !== null) {
@@ -111,17 +87,14 @@ export function useModeBootstrap({
     }
   }, [
     handleNativeBridgeMessage,
-    isDetachedRef,
     isNativeRef,
+    resetThinkingState,
     setBackendMode,
     setCurrentModel,
     setHistoryLoaded,
     setIsDemoMode,
-    setIsDetached,
-    setIsNative,
     setMessages,
     setShowSetup,
-    setUploadDisabled,
   ]);
 
   // Keep the bridge handler fresh — the bootstrap effect only registers once,
@@ -141,7 +114,7 @@ export function useModeBootstrap({
     // In native mode, web waits for config:connection from Swift — no auto-connect.
     if (isNativeRef.current) return;
 
-    const detached = getSearchParam("detached") !== null;
+    const detached = isDetachedRef.current;
     const embedUrl = getSearchParam("url");
     if (detached && embedUrl) {
       gatewayTokenRef.current = getSearchParam("token");
@@ -204,6 +177,7 @@ export function useModeBootstrap({
   }, [
     connect,
     isDemoMode,
+    isDetachedRef,
     isNativeRef,
     gatewayTokenRef,
     lmStudioConfigRef,
