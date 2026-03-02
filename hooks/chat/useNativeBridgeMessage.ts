@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, startTransition } from "react";
 
 import { parseServerCommands } from "@/components/CommandSheet";
 import { PIN_LOCK_MS } from "@/hooks/useScrollManager";
@@ -66,11 +66,20 @@ export function useNativeBridgeMessage({
           }
         }
         const filtered = skip.size > 0 ? allMsgs.filter((_, i) => !skip.has(i)) : allMsgs;
-        setMessages((prev) => {
-          const normalized = mergeAndNormalizeToolResults(filtered);
-          return mergeHistoryWithOptimistic(normalized, prev);
+        // Use startTransition so React can yield to the browser during rendering,
+        // keeping scroll responsive while large histories render progressively.
+        pinnedToBottomRef.current = true;
+        pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
+        startTransition(() => {
+          setMessages((prev) => {
+            const normalized = mergeAndNormalizeToolResults(filtered);
+            return mergeHistoryWithOptimistic(normalized, prev);
+          });
+          setHistoryLoaded(true);
         });
-        setHistoryLoaded(true);
+        // Safety: re-snap scroll to bottom after post-render animations settle
+        // (e.g. slide-open transitions that increase content height).
+        setTimeout(() => scrollToBottom(), 350);
         break;
       }
       case "messages:append": {

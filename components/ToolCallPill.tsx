@@ -230,7 +230,8 @@ function SpawnPill({
   onPin?: (info: PinInfo) => void;
   onUnpin?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Start open when already complete (history load) — skip the expand animation
+  const [open, setOpen] = useState(() => !!result || status === "success" || status === "error");
   const parsed = parseArgs(args);
   const task = typeof parsed?.task === "string" ? parsed.task : null;
   const model = typeof parsed?.model === "string" ? parsed.model : null;
@@ -259,13 +260,13 @@ function SpawnPill({
 
   const hasFeed = !!subagentStore;
 
-  // Animate open on mount: render 0fr first, then transition to 1fr after paint
+  // Animate open on mount for streaming case only (not history)
   useEffect(() => {
-    if (!isPinned) {
+    if (!isPinned && !open) {
       const raf = requestAnimationFrame(() => setOpen(true));
       return () => cancelAnimationFrame(raf);
     }
-  }, [isPinned]);
+  }, [isPinned, open]);
 
   // Swipe left to pin/unpin
   const { offset, animating, pastThreshold, handlers } = useSwipeAction(
