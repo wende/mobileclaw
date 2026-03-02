@@ -238,6 +238,7 @@ export function useOpenClawRuntime({
   }, [backendMode, sendWS, setModelsLoading]);
 
   const requestServerCommands = useCallback(() => {
+    return; // disabled: /commands fetch causes unwanted side-effects
     if (backendMode !== "openclaw") return;
     commandsFetchActiveRef.current = true;
     commandsFetchBufferRef.current = "";
