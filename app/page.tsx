@@ -295,6 +295,8 @@ export default function Home() {
     isConnected,
     sendWS,
     fetchModels,
+    requestHistory,
+    requestSessionsList,
     cancelCommandFetch,
     sessionKeyRef,
     activeRunIdRef,
@@ -350,6 +352,8 @@ export default function Home() {
   const nativeSendRef = useRef<(text: string) => void>(() => {});
   const nativeAbortRef = useRef<() => void>(() => {});
   const nativeSessionSelectRef = useRef<(key: string) => void>(() => {});
+  const nativeRequestHistoryRef = useRef<() => void>(() => {});
+  const nativeRequestSessionsListRef = useRef<() => void>(() => {});
 
   const handleNativeBridgeMessage = useNativeBridgeMessage({
     setMessages,
@@ -361,6 +365,8 @@ export default function Home() {
     onNativeSend: useCallback((text: string) => nativeSendRef.current(text), []),
     onNativeAbort: useCallback(() => nativeAbortRef.current(), []),
     onNativeSessionSelect: useCallback((key: string) => nativeSessionSelectRef.current(key), []),
+    onNativeRequestHistory: useCallback(() => nativeRequestHistoryRef.current(), []),
+    onNativeRequestSessionsList: useCallback(() => nativeRequestSessionsListRef.current(), []),
   });
 
   const { handleConnect } = useModeBootstrap({
@@ -532,6 +538,12 @@ export default function Home() {
   nativeSendRef.current = handleSendOrQueue;
   nativeAbortRef.current = handleAbort;
   nativeSessionSelectRef.current = handleSessionSelect;
+  nativeRequestHistoryRef.current = () => {
+    void requestHistory();
+  };
+  nativeRequestSessionsListRef.current = () => {
+    requestSessionsList();
+  };
 
   const displayMessages = useMemo(() => buildDisplayMessages(messages), [messages]);
 

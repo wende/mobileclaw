@@ -16,6 +16,8 @@ interface UseNativeBridgeMessageOptions {
   onNativeSend: (text: string) => void;
   onNativeAbort: () => void;
   onNativeSessionSelect: (key: string) => void;
+  onNativeRequestHistory: () => void;
+  onNativeRequestSessionsList: () => void;
 }
 
 export function useNativeBridgeMessage({
@@ -28,6 +30,8 @@ export function useNativeBridgeMessage({
   onNativeSend,
   onNativeAbort,
   onNativeSessionSelect,
+  onNativeRequestHistory,
+  onNativeRequestSessionsList,
 }: UseNativeBridgeMessageOptions) {
   return useCallback((msg: BridgeMessage) => {
     switch (msg.type) {
@@ -65,6 +69,14 @@ export function useNativeBridgeMessage({
         onNativeSessionSelect(p.key);
         break;
       }
+      case "action:requestHistory": {
+        onNativeRequestHistory();
+        break;
+      }
+      case "action:requestSessionsList": {
+        onNativeRequestSessionsList();
+        break;
+      }
 
       // Optimistic user message from native input bar
       case "messages:append": {
@@ -97,6 +109,8 @@ export function useNativeBridgeMessage({
   }, [
     handleConnect,
     onNativeAbort,
+    onNativeRequestHistory,
+    onNativeRequestSessionsList,
     onNativeSessionSelect,
     onNativeSend,
     pinLockUntilRef,

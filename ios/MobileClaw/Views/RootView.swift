@@ -28,7 +28,9 @@ struct RootView: View {
                 refreshHaptic.impactOccurred()
                 appState.isRefreshing = true
                 pullRefreshProgress = 1
-                bridge.send(.scrollToBottom)
+                appState.sessionsLoading = true
+                bridge.send(.actionRequestHistory)
+                bridge.send(.actionRequestSessionsList)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     appState.isRefreshing = false
                     pullRefreshProgress = 0
@@ -156,7 +158,10 @@ struct RootView: View {
                     loading: appState.sessionsLoading,
                     currentSessionKey: appState.sessionKey,
                     sessionSwitching: appState.sessionSwitching,
-                    onRefresh: { },
+                    onRefresh: {
+                        appState.sessionsLoading = true
+                        bridge.send(.actionRequestSessionsList)
+                    },
                     onSelect: { key in
                         showSessionDropdown = false
                         guard key != appState.sessionKey else { return }

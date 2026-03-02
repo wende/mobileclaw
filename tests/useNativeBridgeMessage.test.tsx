@@ -2,7 +2,17 @@ import { describe, it, expect, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
+vi.mock("@/lib/nativeBridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/nativeBridge")>();
+  return {
+    ...actual,
+    resolveIdentitySign: vi.fn(),
+  };
+});
+
+import { PIN_LOCK_MS } from "@/hooks/useScrollManager";
 import { useNativeBridgeMessage } from "@/hooks/chat/useNativeBridgeMessage";
+import { resolveIdentitySign } from "@/lib/nativeBridge";
 import type { ConnectionConfig, Message } from "@/types/chat";
 
 function createOptions(overrides: Partial<Parameters<typeof useNativeBridgeMessage>[0]> = {}) {
@@ -16,6 +26,8 @@ function createOptions(overrides: Partial<Parameters<typeof useNativeBridgeMessa
     onNativeSend: vi.fn(),
     onNativeAbort: vi.fn(),
     onNativeSessionSelect: vi.fn(),
+    onNativeRequestHistory: vi.fn(),
+    onNativeRequestSessionsList: vi.fn(),
     ...overrides,
   };
 }
@@ -67,6 +79,25 @@ describe("useNativeBridgeMessage", () => {
     });
   });
 
+  it("handles identity:signResponse by calling resolveIdentitySign", () => {
+    const payload = {
+      callbackId: "idcb-1",
+      deviceId: "dev-1",
+      publicKey: "pk",
+      signature: "sig",
+      signedAt: 123,
+      nonce: "nonce-1",
+    };
+    const { result } = renderHook(() => useNativeBridgeMessage(createOptions()));
+
+    act(() => {
+      result.current({ type: "identity:signResponse", payload });
+    });
+
+    expect(resolveIdentitySign).toHaveBeenCalledTimes(1);
+    expect(resolveIdentitySign).toHaveBeenCalledWith(payload);
+  });
+
   it("handles action:send by calling onNativeSend", () => {
     const onNativeSend = vi.fn();
     const { result } = renderHook(() => useNativeBridgeMessage(createOptions({ onNativeSend })));
@@ -103,9 +134,38 @@ describe("useNativeBridgeMessage", () => {
     expect(onNativeSessionSelect).toHaveBeenCalledWith("session-2");
   });
 
-  it("handles messages:append by adding to messages", () => {
+  it("handles action:requestHistory by calling onNativeRequestHistory", () => {
+    const onNativeRequestHistory = vi.fn();
+    const { result } = renderHook(() =>
+      useNativeBridgeMessage(createOptions({ onNativeRequestHistory })),
+    );
+
+    act(() => {
+      result.current({ type: "action:requestHistory" });
+    });
+
+    expect(onNativeRequestHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("handles action:requestSessionsList by calling onNativeRequestSessionsList", () => {
+    const onNativeRequestSessionsList = vi.fn();
+    const { result } = renderHook(() =>
+      useNativeBridgeMessage(createOptions({ onNativeRequestSessionsList })),
+    );
+
+    act(() => {
+      result.current({ type: "action:requestSessionsList" });
+    });
+
+    expect(onNativeRequestSessionsList).toHaveBeenCalledTimes(1);
+  });
+
+  it("handles messages:append by adding to messages and updating scroll lock", () => {
     const setMessages = vi.fn();
-    const { result } = renderHook(() => useNativeBridgeMessage(createOptions({ setMessages })));
+    const options = createOptions({ setMessages });
+    const now = 1_700_000_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    const { result } = renderHook(() => useNativeBridgeMessage(options));
 
     act(() => {
       result.current({
@@ -115,6 +175,25 @@ describe("useNativeBridgeMessage", () => {
     });
 
     expect(setMessages).toHaveBeenCalledTimes(1);
+    expect(options.pinnedToBottomRef.current).toBe(true);
+    expect(options.pinLockUntilRef.current).toBe(now + PIN_LOCK_MS);
+    nowSpy.mockRestore();
+  });
+
+  it("handles theme:set by toggling the dark class", () => {
+    const { result } = renderHook(() => useNativeBridgeMessage(createOptions()));
+    const html = document.documentElement;
+    html.classList.remove("dark");
+
+    act(() => {
+      result.current({ type: "theme:set", payload: { theme: "dark" } });
+    });
+    expect(html.classList.contains("dark")).toBe(true);
+
+    act(() => {
+      result.current({ type: "theme:set", payload: { theme: "light" } });
+    });
+    expect(html.classList.contains("dark")).toBe(false);
   });
 
   it("handles scroll:toBottom by calling scrollToBottom", () => {

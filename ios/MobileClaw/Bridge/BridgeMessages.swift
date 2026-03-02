@@ -20,6 +20,8 @@ enum SwiftToWebMessage {
     case actionSend(text: String)
     case actionAbort
     case actionSwitchSession(key: String)
+    case actionRequestHistory
+    case actionRequestSessionsList
 
     func toJSON() -> String {
         var dict: [String: Any] = [:]
@@ -66,6 +68,12 @@ enum SwiftToWebMessage {
         case .actionSwitchSession(let key):
             dict["type"] = "action:switchSession"
             dict["payload"] = ["key": key]
+
+        case .actionRequestHistory:
+            dict["type"] = "action:requestHistory"
+
+        case .actionRequestSessionsList:
+            dict["type"] = "action:requestSessionsList"
         }
 
         guard let data = try? JSONSerialization.data(withJSONObject: dict),

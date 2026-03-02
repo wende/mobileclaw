@@ -124,7 +124,7 @@ export function postModelState(model: string | null) {
   postToNative({ type: "state:model", payload: { model } });
 }
 
-export function postSessionsState(sessions: unknown[], currentKey: string) {
+export function postSessionsState(sessions: unknown[], currentKey: string | null | undefined) {
   postToNative({ type: "state:sessions", payload: { sessions, currentKey } });
 }
 

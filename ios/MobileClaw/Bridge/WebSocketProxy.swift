@@ -10,13 +10,15 @@ final class WebSocketProxy: NSObject, URLSessionWebSocketDelegate {
         URLSession(configuration: .default, delegate: self, delegateQueue: .main)
     }()
     weak var webView: WKWebView?
-    private var didSendClose = false
+    private var didRequestClose = false
+    private var didNotifyClose = false
 
     func connect(urlString: String) {
         // Tear down any existing connection
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
-        didSendClose = false
+        didRequestClose = false
+        didNotifyClose = false
 
         guard let url = URL(string: urlString) else {
             print("[WSProxy] Invalid URL: \(urlString)")
@@ -51,10 +53,10 @@ final class WebSocketProxy: NSObject, URLSessionWebSocketDelegate {
     }
 
     func close(code: Int = 1000, reason: String = "") {
-        didSendClose = true
+        guard let currentTask = task else { return }
+        didRequestClose = true
         let closeCode = URLSessionWebSocketTask.CloseCode(rawValue: code) ?? .normalClosure
-        task?.cancel(with: closeCode, reason: reason.data(using: .utf8))
-        task = nil
+        currentTask.cancel(with: closeCode, reason: reason.data(using: .utf8))
     }
 
     // MARK: - Receive loop
@@ -100,6 +102,7 @@ final class WebSocketProxy: NSObject, URLSessionWebSocketDelegate {
         let reasonStr = reason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
         print("[WSProxy] Closed: \(code) \(reasonStr)")
         sendCloseToJS(code: code, reason: reasonStr)
+        task = nil
     }
 
     func urlSession(_ session: URLSession,
@@ -108,20 +111,25 @@ final class WebSocketProxy: NSObject, URLSessionWebSocketDelegate {
         guard sessionTask === task else { return }
         guard let error else { return }
         let nsError = error as NSError
-        // Ignore cancellation we triggered ourselves
-        if nsError.code == NSURLErrorCancelled && didSendClose { return }
+        if nsError.code == NSURLErrorCancelled && didRequestClose {
+            // Some cancellation paths only surface completion without didCloseWith.
+            sendCloseToJS(code: 1000, reason: "")
+            task = nil
+            return
+        }
 
         print("[WSProxy] Error: \(error.localizedDescription)")
         evalJS("window.__nativeWSCallback?.error()")
         let code = nsError.code == NSURLErrorCancelled ? 1000 : 1006
         sendCloseToJS(code: code, reason: error.localizedDescription)
+        task = nil
     }
 
     // MARK: - JS helpers
 
     private func sendCloseToJS(code: Int, reason: String) {
-        guard !didSendClose else { return }
-        didSendClose = true
+        guard !didNotifyClose else { return }
+        didNotifyClose = true
         let reasonEscaped = jsStringLiteral(reason)
         evalJS("window.__nativeWSCallback?.close(\(code), \(reasonEscaped))")
     }

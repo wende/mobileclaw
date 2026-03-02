@@ -148,6 +148,7 @@ export function useOpenClawRuntime({
 
   const pendingSubhistoryRef = useRef<Map<string, string>>(new Map());
   const fetchedSubhistoryRef = useRef<Set<string>>(new Set());
+  const hasAutoScrolledInitialHistoryRef = useRef(false);
 
   const modelsRequestedRef = useRef(false);
   const commandsFetchActiveRef = useRef(false);
@@ -311,6 +312,7 @@ export function useOpenClawRuntime({
     const sessionDefaults = snapshot?.sessionDefaults as Record<string, string> | undefined;
     const sessionKey = sessionDefaults?.mainSessionKey || sessionDefaults?.mainKey || "main";
     syncSessionKey(sessionKey);
+    hasAutoScrolledInitialHistoryRef.current = false;
 
     requestHistory();
     requestServerCommands();
@@ -372,12 +374,15 @@ export function useOpenClawRuntime({
     onHistoryReceived();
     onHistoryLoadedAfterSwitch();
     setHistoryLoaded(true);
-    onHistoryLoaded();
+    const shouldAutoScroll = !hasAutoScrolledInitialHistoryRef.current || sessionSwitching;
+    if (shouldAutoScroll) onHistoryLoaded();
+    hasAutoScrolledInitialHistoryRef.current = true;
   }, [
     clearStreamingRuntimeState,
     onHistoryLoaded,
     onHistoryLoadedAfterSwitch,
     onHistoryReceived,
+    sessionSwitching,
     sendWS,
     setAwaitingResponse,
     setCurrentModel,
@@ -747,6 +752,7 @@ export function useOpenClawRuntime({
     onClose: () => {
       stopHistoryPolling();
       clearStreamingRuntimeState();
+      hasAutoScrolledInitialHistoryRef.current = false;
     },
     onReconnecting: (attempt, delay) => {
       setConnectionError(null);
@@ -842,6 +848,7 @@ export function useOpenClawRuntime({
     subagentStore.clearAll();
     handleUnpinSubagent();
     fetchedSubhistoryRef.current.clear();
+    hasAutoScrolledInitialHistoryRef.current = false;
   }, [
     clearStreamingRuntimeState,
     handleUnpinSubagent,
