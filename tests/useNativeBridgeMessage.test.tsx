@@ -15,6 +15,7 @@ function createOptions(overrides: Partial<Parameters<typeof useNativeBridgeMessa
     handleConnect: vi.fn() as (config: ConnectionConfig) => void,
     onNativeSend: vi.fn(),
     onNativeAbort: vi.fn(),
+    onNativeSessionSelect: vi.fn(),
     ...overrides,
   };
 }
@@ -86,6 +87,20 @@ describe("useNativeBridgeMessage", () => {
     });
 
     expect(onNativeAbort).toHaveBeenCalledTimes(1);
+  });
+
+  it("handles action:switchSession by calling onNativeSessionSelect", () => {
+    const onNativeSessionSelect = vi.fn();
+    const { result } = renderHook(() =>
+      useNativeBridgeMessage(createOptions({ onNativeSessionSelect })),
+    );
+
+    act(() => {
+      result.current({ type: "action:switchSession", payload: { key: "session-2" } });
+    });
+
+    expect(onNativeSessionSelect).toHaveBeenCalledTimes(1);
+    expect(onNativeSessionSelect).toHaveBeenCalledWith("session-2");
   });
 
   it("handles messages:append by adding to messages", () => {
