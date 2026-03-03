@@ -63,9 +63,9 @@ const ZEN_BOTTOM_THRESHOLD_PX = 12;
 // Non-detached uses calc(svh + rem) so clearance scales with the composer's
 // own dvh-based sizing across device sizes.
 const BOTTOM_PAD_SVH = 4.5;
-const BOTTOM_PAD_BASE_REM = 4.5;
-const BOTTOM_PAD_QUEUED_REM = 7.5;
-const BOTTOM_PAD_PINNED_REM = 10.5;
+const BOTTOM_PAD_BASE_REM = 7.5;
+const BOTTOM_PAD_QUEUED_REM = 10.5;
+const BOTTOM_PAD_PINNED_REM = 13.5;
 // Detached mode has a separate spacer, so fixed rem is sufficient.
 const BOTTOM_PAD_DETACHED_BASE = "4rem";
 const BOTTOM_PAD_DETACHED_QUEUED = "7rem";

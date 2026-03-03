@@ -279,16 +279,31 @@ export function useScrollManager(
     el.scrollTop = el.scrollHeight;
   }, [messages, clearBounceTransform, isStreamingRef]);
 
-  // ResizeObserver: catch content-height changes when NOT streaming (e.g. images loading).
+  // ResizeObserver: catch content-height changes (e.g. images loading, zen collapses).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const content = el.firstElementChild;
+    const content = el.firstElementChild as HTMLElement | null;
     if (!content) return;
 
     const ro = new ResizeObserver(() => {
       if (isAnimatingScrollRef.current) return;
-      if (isStreamingRef.current) return;
+
+      if (isStreamingRef.current) {
+        // During streaming, only allow content to grow — never shrink.
+        // This prevents zen collapses from reducing scrollHeight and causing
+        // the scroll position to jump back up.
+        const currentHeight = content.offsetHeight;
+        const prevMin = parseFloat(content.style.minHeight) || 0;
+        if (currentHeight > prevMin) {
+          content.style.minHeight = `${currentHeight}px`;
+        }
+        return;
+      }
+
+      // Clear the streaming height lock when not streaming.
+      content.style.minHeight = "";
+
       if ((pinnedToBottomRef.current || scrollGraceRef.current) && el.scrollHeight > el.clientHeight) {
         el.scrollTop = el.scrollHeight;
         pinnedToBottomRef.current = true;
