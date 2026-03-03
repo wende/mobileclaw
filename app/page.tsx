@@ -59,6 +59,14 @@ const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null;
 const ZEN_TOGGLE_PIN_MS = 700;
 const ZEN_BOTTOM_THRESHOLD_PX = 12;
 
+// Bottom padding for the message list to clear the fixed composer bar.
+// The viewport component (svh) mirrors the composer's own dvh-based sizing
+// so clearance scales proportionally across device sizes.
+const BOTTOM_PAD_SVH = 4.5;
+const BOTTOM_PAD_BASE_REM = 4.5;
+const BOTTOM_PAD_QUEUED_REM = 7.5;
+const BOTTOM_PAD_PINNED_REM = 10.5;
+
 export default function Home() {
   const [openclawUrl, setOpenclawUrl] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -585,10 +593,10 @@ export default function Home() {
   const bottomPad = isNative
     ? "8rem"
     : pinnedSubagent
-      ? (isDetached ? "10rem" : "calc(4.5svh + 10.5rem)")
+      ? (isDetached ? "10rem" : `calc(${BOTTOM_PAD_SVH}svh + ${BOTTOM_PAD_PINNED_REM}rem)`)
       : queuedMessage
-        ? (isDetached ? "7rem" : "calc(4.5svh + 7.5rem)")
-        : (isDetached ? "4rem" : "calc(4.5svh + 4.5rem)");
+        ? (isDetached ? "7rem" : `calc(${BOTTOM_PAD_SVH}svh + ${BOTTOM_PAD_QUEUED_REM}rem)`)
+        : (isDetached ? "4rem" : `calc(${BOTTOM_PAD_SVH}svh + ${BOTTOM_PAD_BASE_REM}rem)`);
 
   const lastUserMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
