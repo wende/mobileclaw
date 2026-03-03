@@ -197,10 +197,11 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
       .map((message) => normalizeTextForMatch(getTextFromContent(message.content))),
   );
 
-  const prevAssistantLocals: { ts?: number; text: string; runDuration?: number; thinkingDuration?: number }[] = [];
+  const prevAssistantLocals: { id?: string; ts?: number; text: string; runDuration?: number; thinkingDuration?: number }[] = [];
   for (const message of previousMessages) {
-    if (message.role === "assistant" && (message.runDuration || message.thinkingDuration)) {
+    if (message.role === "assistant") {
       prevAssistantLocals.push({
+        id: message.id,
         ts: message.timestamp,
         text: normalizeTextForMatch(getTextFromContent(message.content)),
         runDuration: message.runDuration,
@@ -217,6 +218,7 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
       );
       if (prev) {
         const carry: Partial<Message> = {};
+        if (prev.id && prev.id !== message.id) carry.id = prev.id;
         if (prev.runDuration && !message.runDuration) carry.runDuration = prev.runDuration;
         if (prev.thinkingDuration && !message.thinkingDuration) carry.thinkingDuration = prev.thinkingDuration;
         if (Object.keys(carry).length > 0) return { ...message, ...carry };

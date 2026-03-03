@@ -37,6 +37,23 @@ describe("mergeHistoryWithOptimistic", () => {
     expect(merged[1].id).toBe("u-2000");
   });
 
+  it("preserves streaming assistant ID when history assigns a new hist-* ID", () => {
+    const previous: Message[] = [
+      { role: "user", id: "hist-0", timestamp: 1000, content: [{ type: "text", text: "Hi" }] },
+      { role: "assistant", id: "run-abc", timestamp: 1001, content: [{ type: "text", text: "Hello!" }] },
+    ];
+
+    const history: Message[] = [
+      { role: "user", id: "hist-0", timestamp: 1000, content: [{ type: "text", text: "Hi" }] },
+      { role: "assistant", id: "hist-1", timestamp: 1001, content: [{ type: "text", text: "Hello!" }] },
+    ];
+
+    const merged = mergeHistoryWithOptimistic(history, previous);
+    expect(merged).toHaveLength(2);
+    // The assistant message should keep its streaming ID, not hist-1 from server
+    expect(merged[1].id).toBe("run-abc");
+  });
+
   it("still appends optimistic user messages that are missing from history", () => {
     const previous: Message[] = [
       { role: "assistant", id: "hist-0", timestamp: 1000, content: [{ type: "text", text: "Ready" }] },
