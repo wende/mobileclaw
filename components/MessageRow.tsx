@@ -110,6 +110,8 @@ function stripFinalTags(text: string): string {
 // ── InjectedPill — expandable context pill for injected assistant messages ──
 
 const INJECTED_ICON_CLS = "shrink-0 opacity-50";
+const DEMO_SYSTEM_PILL_WRAP_CLS = "max-w-[85%] rounded-lg bg-secondary";
+const DEMO_SYSTEM_PILL_TEXT_CLS = "text-xs leading-[1.75rem] text-muted-foreground";
 
 function InjectedIcon({ type }: { type: "heartbeat" | "no_reply" | "info" }) {
   if (type === "heartbeat") return (
@@ -154,18 +156,22 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
   const hasRichContent = !!(parts && parts.some((p) => p.type === "thinking" || isToolCallPart(p))) || !!message?.reasoning;
 
   return (
-    <div className="flex -mt-1.5">
-      <div ref={outerRef} onTransitionEnd={handleTransitionEnd} className="max-w-[85%] w-fit rounded border border-border bg-card overflow-hidden transition-[width] duration-200 ease-out">
+    <div className="flex justify-center py-2">
+      <div
+        ref={outerRef}
+        onTransitionEnd={handleTransitionEnd}
+        className={`${DEMO_SYSTEM_PILL_WRAP_CLS} w-fit overflow-hidden transition-[width] duration-200 ease-out`}
+      >
         <button
           type="button"
           onClick={toggle}
-          className="w-full rounded-[inherit] cursor-pointer text-left px-3 py-1.5 text-xs font-medium text-muted-foreground flex items-center gap-1.5"
+          className={`w-full rounded-[inherit] cursor-pointer text-left px-4 py-2 font-medium ${DEMO_SYSTEM_PILL_TEXT_CLS} flex items-center gap-1.5`}
         >
           <InjectedIcon type={type} />
           <span className="truncate">{summary}</span>
           <svg
             width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            className="ml-auto shrink-0 opacity-40 transition-transform duration-200"
+            className="ml-auto shrink-0 opacity-35 transition-transform duration-200"
             style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}
           >
             <path d="m6 9 6 6 6-6" />
@@ -177,7 +183,7 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
             style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
           >
             <div className="overflow-hidden min-h-0">
-              <div ref={contentRef} className="border-t border-border px-3 py-2 text-xs leading-[1.75rem] text-muted-foreground">
+              <div ref={contentRef} className={`px-4 pb-2 ${DEMO_SYSTEM_PILL_TEXT_CLS}`}>
                 {hasRichContent ? (
                   <div className="flex flex-col gap-1.5">
                     {message?.reasoning && !hasThinkingParts && <ThinkingPill text={message.reasoning} />}
@@ -388,11 +394,12 @@ function ContextPill({ summary, iconEl, text }: { summary: string; iconEl: React
   const { toggle, mounted, expanded, outerRef, contentRef, handleTransitionEnd } = useExpandablePanel();
 
   return (
-    <div className="flex flex-row-reverse">
-      <div ref={outerRef} onTransitionEnd={handleTransitionEnd} className="max-w-[85%] md:max-w-[75%] w-fit rounded border border-border bg-primary overflow-hidden transition-[width] duration-200 ease-out">
+    <div className="flex justify-center py-2">
+      <div ref={outerRef} onTransitionEnd={handleTransitionEnd} className={`${DEMO_SYSTEM_PILL_WRAP_CLS} w-fit overflow-hidden transition-[width] duration-200 ease-out`}>
         <button
+          type="button"
           onClick={toggle}
-          className="cursor-pointer rounded-[inherit] w-full px-3 py-1.5 text-xs font-medium text-primary-foreground/70 flex items-center gap-1.5"
+          className={`cursor-pointer rounded-[inherit] w-full px-4 py-2 font-medium ${DEMO_SYSTEM_PILL_TEXT_CLS} flex items-center gap-1.5`}
         >
           {iconEl}
           <span className="truncate">{summary}</span>
@@ -410,7 +417,7 @@ function ContextPill({ summary, iconEl, text }: { summary: string; iconEl: React
             style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
           >
             <div className="overflow-hidden min-h-0">
-              <div ref={contentRef} className="border-t border-primary-foreground/15 px-3 py-2 text-xs leading-[1.75rem] whitespace-pre-wrap break-words text-primary-foreground/70">
+              <div ref={contentRef} className={`px-4 pb-2 whitespace-pre-wrap break-words ${DEMO_SYSTEM_PILL_TEXT_CLS}`}>
                 {text}
               </div>
             </div>
@@ -601,7 +608,7 @@ export function MessageRow({
   if (message.role === "system") {
     return text ? (
       <div className="flex justify-center py-2">
-        <div className="max-w-[85%] rounded-lg bg-secondary px-4 py-2 text-xs leading-[1.75rem] text-muted-foreground whitespace-pre-wrap break-words">
+        <div className={`${DEMO_SYSTEM_PILL_WRAP_CLS} px-4 py-2 whitespace-pre-wrap break-words ${DEMO_SYSTEM_PILL_TEXT_CLS}`}>
           <MarkdownContent text={text} />
         </div>
       </div>
