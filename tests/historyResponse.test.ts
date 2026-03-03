@@ -54,6 +54,33 @@ describe("mergeHistoryWithOptimistic", () => {
     expect(merged[1].id).toBe("run-abc");
   });
 
+  it("preserves command-response rendering flag across history reconciliation", () => {
+    const previous: Message[] = [
+      {
+        role: "assistant",
+        id: "run-cmd",
+        timestamp: 2000,
+        content: [{ type: "text", text: "Started a new conversation." }],
+        isCommandResponse: true,
+      },
+    ];
+
+    const history: Message[] = [
+      {
+        role: "assistant",
+        id: "hist-1",
+        timestamp: 2000,
+        content: [{ type: "text", text: "Started a new conversation." }],
+        stopReason: "injected",
+      },
+    ];
+
+    const merged = mergeHistoryWithOptimistic(history, previous);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].isCommandResponse).toBe(true);
+    expect(merged[0].id).toBe("run-cmd");
+  });
+
   it("does not carry hist-* IDs across index shifts (prevents duplicate keys)", () => {
     // Previous render had hist-40 = "Hello" and hist-41 = "World"
     const previous: Message[] = [
