@@ -6,7 +6,19 @@ import { getToolDisplay, parseArgs } from "@/lib/toolDisplay";
 import { SubagentActivityFeed } from "@/components/SubagentActivityFeed";
 import { SlideContent } from "@/components/SlideContent";
 import type { SubagentStore } from "@/hooks/useSubagentStore";
-import { isEditTool, isReadTool, isGatewayTool, SPAWN_TOOL_NAME, SQUIRCLE_RADIUS } from "@/lib/constants";
+import {
+  isEditTool,
+  isReadTool,
+  isGatewayTool,
+  SPAWN_TOOL_NAME,
+  SQUIRCLE_RADIUS,
+  TOOL_CALL_BUBBLE_BG,
+  TOOL_CALL_BUBBLE_TEXT,
+  TOOL_CALL_BUBBLE_MUTED,
+  TOOL_CALL_BUBBLE_BORDER,
+  TOOL_CALL_BUBBLE_BORDER_ERROR,
+  TOOL_CALL_BUBBLE_SHADOW,
+} from "@/lib/constants";
 import { useSwipeAction } from "@/hooks/useSwipeAction";
 
 interface PinInfo {
@@ -36,23 +48,17 @@ type ToolBubbleStyle = CSSProperties & {
   "--border"?: string;
 };
 
-const TOOL_BUBBLE_BG = "oklch(1 0 0)";
-const TOOL_BUBBLE_TEXT = "oklch(0.4 0 0)";
-const TOOL_BUBBLE_MUTED = "oklch(0.56 0 0)";
-const TOOL_BUBBLE_BORDER = "oklch(0.9 0 0)";
-const TOOL_BUBBLE_SHADOW = "none";
-
 function getToolBubbleStyle(resultError?: boolean): ToolBubbleStyle {
   return {
     borderRadius: `${SQUIRCLE_RADIUS}px`,
-    background: TOOL_BUBBLE_BG,
-    border: `1px solid ${resultError ? "oklch(0.78 0.06 25.723)" : TOOL_BUBBLE_BORDER}`,
-    boxShadow: TOOL_BUBBLE_SHADOW,
-    color: TOOL_BUBBLE_TEXT,
-    "--foreground": TOOL_BUBBLE_TEXT,
-    "--card-foreground": TOOL_BUBBLE_TEXT,
-    "--muted-foreground": TOOL_BUBBLE_MUTED,
-    "--border": TOOL_BUBBLE_BORDER,
+    background: TOOL_CALL_BUBBLE_BG,
+    border: `1px solid ${resultError ? TOOL_CALL_BUBBLE_BORDER_ERROR : TOOL_CALL_BUBBLE_BORDER}`,
+    boxShadow: TOOL_CALL_BUBBLE_SHADOW,
+    color: TOOL_CALL_BUBBLE_TEXT,
+    "--foreground": TOOL_CALL_BUBBLE_TEXT,
+    "--card-foreground": TOOL_CALL_BUBBLE_TEXT,
+    "--muted-foreground": TOOL_CALL_BUBBLE_MUTED,
+    "--border": TOOL_CALL_BUBBLE_BORDER,
   };
 }
 
