@@ -210,13 +210,18 @@ export default function Home() {
   const lmStudioHandlerRef = useRef<ReturnType<typeof createLmStudioHandler> | null>(null);
 
   const runStartTsRef = useRef<number>(0);
+  const lastRunDurationRef = useRef<number>(0);
   const markRunStart = useCallback(() => {
     runStartTsRef.current = Date.now();
+    lastRunDurationRef.current = 0;
   }, []);
   const markRunEnd = useCallback((): number => {
     const start = runStartTsRef.current;
+    if (!start) return lastRunDurationRef.current;
+    const duration = Math.round((Date.now() - start) / 1000);
     runStartTsRef.current = 0;
-    return start ? Math.round((Date.now() - start) / 1000) : 0;
+    lastRunDurationRef.current = duration;
+    return duration;
   }, []);
 
   const messagesRef = useRef<Message[]>([]);
@@ -576,10 +581,10 @@ export default function Home() {
   const bottomPad = isNative
     ? "8rem"
     : pinnedSubagent
-      ? (isDetached ? "10rem" : "16rem")
+      ? (isDetached ? "10rem" : "calc(4.5svh + 10.5rem)")
       : queuedMessage
-        ? (isDetached ? "7rem" : "13rem")
-        : (isDetached ? "4rem" : "10rem");
+        ? (isDetached ? "7rem" : "calc(4.5svh + 7.5rem)")
+        : (isDetached ? "4rem" : "calc(4.5svh + 4.5rem)");
 
   const lastUserMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {

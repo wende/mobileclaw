@@ -442,6 +442,9 @@ export function useOpenClawRuntime({
           if (payload.message.role === "assistant") {
             beginContentArrival();
             setIsStreaming(true);
+            if (!activeRunIdRef.current) {
+              markRunStart();
+            }
             activeRunIdRef.current = payload.runId;
             setStreamingId(payload.runId);
           }
@@ -465,8 +468,9 @@ export function useOpenClawRuntime({
           if (runDuration > 0 && payload.runId) {
             setMessages((prev) => {
               const idx = prev.findIndex((m) => m.id === payload.runId);
-              if (idx < 0) return prev;
-              return updateAt(prev, idx, (m) => ({ ...m, runDuration }));
+              const resolvedIdx = idx >= 0 ? idx : prev.findLastIndex((m) => m.role === "assistant");
+              if (resolvedIdx < 0) return prev;
+              return updateAt(prev, resolvedIdx, (m) => ({ ...m, runDuration }));
             });
           }
 
@@ -563,8 +567,9 @@ export function useOpenClawRuntime({
         if (runDuration > 0 && payload.runId) {
           setMessages((prev) => {
             const idx = prev.findIndex((m) => m.id === payload.runId);
-            if (idx < 0) return prev;
-            return updateAt(prev, idx, (m) => ({ ...m, runDuration }));
+            const resolvedIdx = idx >= 0 ? idx : prev.findLastIndex((m) => m.role === "assistant");
+            if (resolvedIdx < 0) return prev;
+            return updateAt(prev, resolvedIdx, (m) => ({ ...m, runDuration }));
           });
         }
         if (historyPollRef.current) {
