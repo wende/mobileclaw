@@ -475,7 +475,7 @@ export function useOpenClawRuntime({
         if (shouldFinalizeRuntime) {
           const runDuration = markRunEnd();
           notifyForRun(payload.runId || activeRunIdRef.current);
-          applyRunDuration(payload.runId!, runDuration);
+          applyRunDuration(payload.runId, runDuration);
 
           stopHistoryPolling();
           clearStreamingRuntimeState({ clearRunId: true });
