@@ -277,7 +277,7 @@ export function useScrollManager(
     }
     clearBounceTransform();
     el.scrollTop = el.scrollHeight;
-  }, [messages, clearBounceTransform, isStreamingRef]);
+  }, [messages, clearBounceTransform]);
 
   // ResizeObserver: catch content-height changes (e.g. images loading, zen collapses).
   useEffect(() => {
@@ -316,13 +316,30 @@ export function useScrollManager(
   // rAF loop: during streaming, smoothly scroll toward bottom.
   // Uses velocity with momentum — desired speed scales with gap size,
   // actual velocity smoothly blends toward desired. No stutters on retarget.
+  // All constants are normalized to 60fps so behavior is consistent at any refresh rate.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     let id: number;
+    // velocity in px-per-60fps-frame; multiplied by frameScale before applying
     let velocity = 0;
+    let lastTime = 0;
 
-    const tick = () => {
+    // Tuning constants (normalized to 60fps baseline)
+    const TARGET_FRAME_MS = 16.67;      // 60fps reference frame duration
+    const SCROLL_MIN_DIFF = 0.5;        // px — gap below which we consider "at bottom"
+    const SCROLL_VELOCITY_FACTOR = 0.04; // desired velocity as fraction of remaining gap
+    const SCROLL_MOMENTUM_FACTOR = 0.12; // per-frame blend toward desired velocity (60fps)
+    const SCROLL_MIN_VELOCITY = 0.5;     // px/frame minimum while actively scrolling
+
+    const tick = (timestamp: number) => {
+      const rawDelta = lastTime ? timestamp - lastTime : TARGET_FRAME_MS;
+      // Clamp to 50ms to prevent huge jumps after tab switch or system sleep
+      const deltaTime = Math.min(rawDelta, 50);
+      lastTime = timestamp;
+      // Scale factors: 1.0 at 60fps, 0.5 at 120fps, 2.0 at 30fps
+      const frameScale = deltaTime / TARGET_FRAME_MS;
+
       if (
         (pinnedToBottomRef.current || scrollGraceRef.current) &&
         (isStreamingRef.current || scrollGraceRef.current) &&
@@ -331,13 +348,13 @@ export function useScrollManager(
         const target = el.scrollHeight - el.clientHeight;
         const diff = target - el.scrollTop;
 
-        if (diff > 0.5) {
+        if (diff > SCROLL_MIN_DIFF) {
           // Desired velocity proportional to gap: more lines behind = faster
-          const desiredVelocity = diff * 0.04;
-          // Smoothly blend toward desired velocity (momentum)
-          velocity += (desiredVelocity - velocity) * 0.12;
-          velocity = Math.max(velocity, 0.5);
-          el.scrollTop = Math.min(el.scrollTop + velocity, target);
+          const desiredVelocity = diff * SCROLL_VELOCITY_FACTOR;
+          // Exponential smoothing toward desired velocity, frame-rate independent
+          velocity += (desiredVelocity - velocity) * (1 - Math.pow(1 - SCROLL_MOMENTUM_FACTOR, frameScale));
+          velocity = Math.max(velocity, SCROLL_MIN_VELOCITY);
+          el.scrollTop = Math.min(el.scrollTop + velocity * frameScale, target);
         } else {
           velocity = 0;
         }
@@ -348,7 +365,7 @@ export function useScrollManager(
     };
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
-  }, [isStreamingRef]);
+  }, []);
 
   // Unpin auto-scroll when user actively scrolls up (wheel or touch),
   // and apply elastic bounce when scrolling past the bottom.

@@ -20,6 +20,8 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
 
   // Keep a tail of fresh chars in a gradient-masked span so they fade in
   const KEEP_FRESH = 32;
+  const SETTLE_INTERVAL_MS = 80;
+  const FADE_WIDTH = "14em";
 
   // Track delta timing to calculate animation speed
   const deltaTimesRef = useRef<{ time: number; chars: number }[]>([]);
@@ -142,7 +144,7 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
       });
 
       // Settle text that has exited the gradient fade zone
-      if (frameTime - lastSettleTimeRef.current >= 80) {
+      if (frameTime - lastSettleTimeRef.current >= SETTLE_INTERVAL_MS) {
         lastSettleTimeRef.current = frameTime;
         const target = Math.max(settledLenRef.current, displayLenRef.current - KEEP_FRESH);
         if (target > settledLenRef.current) {
@@ -184,14 +186,22 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
   if (isStreaming) {
     if (visibleText.length > 0) {
       const clamped = Math.min(settledLen, displayLen);
+
+      // Nothing settled yet (first KEEP_FRESH chars or short replies): render all text
+      // normally to avoid layout issues with empty text in MarkdownContent (which renders
+      // a div.h-2 placeholder for empty strings, clipping the fresh cursor content).
+      if (clamped === 0) {
+        return <MarkdownContent text={visibleText} />;
+      }
+
       const settledText = visibleText.slice(0, clamped);
       const freshText = visibleText.slice(clamped);
 
       const cursor = freshText ? (
         <span
           style={{
-            WebkitMaskImage: 'linear-gradient(to right, black calc(100% - 14em), transparent)',
-            maskImage: 'linear-gradient(to right, black calc(100% - 14em), transparent)',
+            WebkitMaskImage: `linear-gradient(to right, black calc(100% - ${FADE_WIDTH}), transparent)`,
+            maskImage: `linear-gradient(to right, black calc(100% - ${FADE_WIDTH}), transparent)`,
           }}
         >
           {freshText}
