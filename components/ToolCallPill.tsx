@@ -197,7 +197,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
             {result && !isEdit && (
               <div className="border-t border-border px-3 py-2">
                 <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground/60">Result</span>
-                <pre className="mt-1 whitespace-pre-wrap break-words overflow-hidden">{result}</pre>
+                <pre className={`mt-1 whitespace-pre-wrap break-words ${result.split("\n").length > 8 ? "max-h-[10rem] overflow-y-auto scrollbar-hide" : "overflow-hidden"}`}>{result}</pre>
               </div>
             )}
           </div>
