@@ -5,7 +5,7 @@ import { ALL_COMMANDS, type Command } from "@/components/CommandSheet";
 import maps from "@/maps.json";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import type { ModelChoice, ImageAttachment } from "@/types/chat";
-import { SQUIRCLE_RADIUS, PILL_BASE_HEIGHT } from "@/lib/constants";
+import { SQUIRCLE_RADIUS, PILL_BASE_HEIGHT, RADIUS_TRANSITION } from "@/lib/constants";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB (litterbox allows up to 1GB)
 
@@ -524,7 +524,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
           minHeight: "46px",
           maxHeight: "calc(200px - 154px * var(--lp, 0))",
           borderRadius: `${cornerRadius}px`,
-          transition: "border-radius 300ms ease",
+          transition: RADIUS_TRANSITION,
           cursor: isPill ? "pointer" : "text",
           background: isPill
             ? "oklch(from var(--background) l c h / 0.30)"

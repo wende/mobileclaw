@@ -57,6 +57,7 @@ export function isInternalCommandFetchRunId(runId: unknown): runId is string {
 // UI design tokens
 export const SQUIRCLE_RADIUS = 22;
 export const PILL_BASE_HEIGHT = 48;
+export const RADIUS_TRANSITION = "border-radius 300ms ease";
 export const MESSAGE_SEND_ANIMATION = "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both";
 
 // Content part type helpers (normalizes "tool_call" vs "toolCall")
