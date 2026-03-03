@@ -14,8 +14,8 @@ export interface UseWebSocketOptions {
   onOpen?: () => void;
   onClose?: () => void;
   onError?: (error: Event) => void;
-  /** Called only when the very first connection attempt fails (server unreachable). */
-  onInitialConnectFail?: () => void;
+  /** Called only when the very first connection attempt fails (server unreachable or rejected). */
+  onInitialConnectFail?: (info?: { code: number; reason: string }) => void;
   /** Called on each initial retry attempt (before handshake succeeds). */
   onInitialRetrying?: (attempt: number) => void;
   /** Called when entering reconnect mode after a drop. */
@@ -101,6 +101,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         // Connection closed before protocol handshake completed — retry with
         // fixed interval before giving up and calling onInitialConnectFail.
         if (!everEstablishedRef.current) {
+          // Server-rejected closes (policy violation, etc.) — don't retry.
+          const nonRetryable = event.code === 1008 || event.code >= 4000;
+          if (nonRetryable) {
+            console.log(`[WS] Server rejected connection (${event.code}) — not retrying`);
+            initialRetryAttemptRef.current = 0;
+            urlRef.current = null;
+            setConnectionState("disconnected");
+            optionsRef.current.onInitialConnectFail?.({ code: event.code, reason: event.reason });
+            return;
+          }
+
           const attempt = initialRetryAttemptRef.current;
           if (attempt < INITIAL_RETRY_MAX && urlRef.current) {
             initialRetryAttemptRef.current = attempt + 1;
