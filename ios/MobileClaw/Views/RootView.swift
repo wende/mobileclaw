@@ -39,14 +39,18 @@ struct RootView: View {
             }, onPullProgress: { progress in
                 guard !appState.isRefreshing else { return }
                 pullRefreshProgress = progress
-                if progress > 0 && !thresholdCrossed {
-                    thresholdHaptic.prepare()
-                }
-                if progress >= 1.0 && !thresholdCrossed {
-                    thresholdCrossed = true
-                    thresholdHaptic.impactOccurred()
-                } else if progress < 1.0 {
-                    thresholdCrossed = false
+                if progress >= 1.0 {
+                    if !thresholdCrossed {
+                        thresholdCrossed = true
+                        thresholdHaptic.impactOccurred()
+                    }
+                } else if progress < 0.5 {
+                    if thresholdCrossed {
+                        thresholdCrossed = false
+                    }
+                    if progress > 0 {
+                        thresholdHaptic.prepare()
+                    }
                 }
             })
                 .ignoresSafeArea(.container)

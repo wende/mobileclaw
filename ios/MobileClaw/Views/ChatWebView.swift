@@ -232,10 +232,12 @@ struct ChatWebView: UIViewRepresentable {
             // How far past the bottom edge the user has dragged.
             let overscroll = max(0, scrollView.contentOffset.y - maxOffsetY)
             let progress = min(1, max(0, overscroll / pullUpThreshold))
-            // Only report progress while actively dragging — bounce-back after
-            // release would otherwise keep the spinner visible.
+            // Report progress while dragging; reset to 0 once released so the
+            // spinner doesn't stay stuck at the last in-drag value.
             if scrollView.isDragging {
                 onPullProgress?(progress)
+            } else {
+                onPullProgress?(0)
             }
 
             if overscroll > pullUpThreshold && !pullUpTriggered && scrollView.isDragging {
