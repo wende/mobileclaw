@@ -753,9 +753,9 @@ export function useOpenClawRuntime({
     onError: () => {
       setConnectionError("Connection error");
     },
-    onInitialConnectFail: () => {
+    onInitialConnectFail: (info) => {
       setIsInitialConnecting(false);
-      setConnectionError("Could not reach server");
+      setConnectionError(info?.reason || "Could not reach server");
       if (!isDetachedRef.current && !isNativeRef.current) setShowSetup(true);
     },
     onInitialRetrying: () => {

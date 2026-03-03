@@ -197,7 +197,14 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
       .map((message) => normalizeTextForMatch(getTextFromContent(message.content))),
   );
 
-  const prevAssistantLocals: { id?: string; ts?: number; text: string; runDuration?: number; thinkingDuration?: number }[] = [];
+  const prevAssistantLocals: {
+    id?: string;
+    ts?: number;
+    text: string;
+    runDuration?: number;
+    thinkingDuration?: number;
+    isCommandResponse?: boolean;
+  }[] = [];
   for (const message of previousMessages) {
     if (message.role === "assistant") {
       prevAssistantLocals.push({
@@ -206,6 +213,7 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
         text: normalizeTextForMatch(getTextFromContent(message.content)),
         runDuration: message.runDuration,
         thinkingDuration: message.thinkingDuration,
+        isCommandResponse: message.isCommandResponse,
       });
     }
   }
@@ -224,6 +232,7 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
         if (prev.id && prev.id !== message.id && !prev.id.startsWith("hist-")) carry.id = prev.id;
         if (prev.runDuration && !message.runDuration) carry.runDuration = prev.runDuration;
         if (prev.thinkingDuration && !message.thinkingDuration) carry.thinkingDuration = prev.thinkingDuration;
+        if (prev.isCommandResponse && !message.isCommandResponse) carry.isCommandResponse = true;
         if (Object.keys(carry).length > 0) return { ...message, ...carry };
       }
       return message;

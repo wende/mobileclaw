@@ -120,7 +120,7 @@ export default function Home() {
   const floatingBarRef = useRef<HTMLDivElement>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [isInitialConnecting, setIsInitialConnecting] = useState(false);
+  const [, setIsInitialConnecting] = useState(false);
 
   const { theme, toggleTheme } = useTheme();
   const { zenMode, toggleZenMode } = useZenMode();
@@ -632,14 +632,19 @@ export default function Home() {
         openclawUrl={openclawUrl}
         isDemoMode={isDemoMode}
         backendMode={backendMode}
-        showSetup={showSetup && !isInitialConnecting}
+        showSetup={showSetup}
         connectionError={connectionError}
         onSetupConnect={(config: ConnectionConfig) => {
           setShowSetup(false);
           handleConnect(config);
         }}
         onCloseSetup={() => setShowSetup(false)}
-        onOpenSetup={() => setShowSetup(true)}
+        onOpenSetup={() => {
+          if (!historyLoaded && connectionState !== "disconnected") {
+            disconnect();
+          }
+          setShowSetup(true);
+        }}
         currentModel={currentModel}
         theme={theme}
         toggleTheme={toggleTheme}
@@ -688,16 +693,18 @@ export default function Home() {
         onAcceptQuote={handleAcceptQuote}
       />
 
-      {isInitialConnecting && (
+      {!historyLoaded && (
         <div
-          className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background"
-          style={{ animation: "fadeIn 300ms ease-out 600ms both" }}
+          className={`flex flex-col items-center justify-center bg-background ${isDetached ? "absolute inset-0 z-50" : "absolute inset-x-0 bottom-0 z-40"}`}
+          style={!isDetached ? { top: "var(--header-h, 3.5rem)" } : undefined}
         >
-          <svg className="mb-4 h-8 w-8 text-muted-foreground" style={{ animation: "spin 1s linear infinite" }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
-            <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-          </svg>
-          <span className="text-sm text-muted-foreground">Starting up…</span>
+          <div style={{ animation: "fadeIn 300ms ease-out 400ms both" }} className="flex flex-col items-center">
+            <svg className="mb-4 h-8 w-8 text-muted-foreground" style={{ animation: "spin 1s linear infinite" }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+              <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+            </svg>
+            <span className="text-sm text-muted-foreground">Starting up…</span>
+          </div>
         </div>
       )}
 

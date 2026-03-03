@@ -73,8 +73,11 @@ export function useMessageSender({
 
   const sendMessage = useCallback(async (text: string, attachments?: ImageAttachment[]) => {
     cancelCommandFetch();
-    const isSlashCommand = text.trim().startsWith("/");
-    setLastCommand(isSlashCommand ? text.trim().split(/\s/)[0].toLowerCase() : null);
+    const trimmedText = text.trim();
+    const isSlashCommand = trimmedText.startsWith("/");
+    const slashCommandName = isSlashCommand ? trimmedText.split(/\s/)[0].toLowerCase() : null;
+    const isNewConversationCommand = slashCommandName === "/new";
+    setLastCommand(slashCommandName);
     const openClawRunId = backendMode === "openclaw"
       ? `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       : null;
@@ -102,7 +105,10 @@ export function useMessageSender({
     if (isSlashCommand) {
       const placeholderId = openClawRunId || `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const placeholder: Message = { role: "assistant", content: [], id: placeholderId, timestamp: Date.now(), isCommandResponse: true };
-      setMessages((prev) => [...prev, userMsg, placeholder]);
+      setMessages((prev) => {
+        const base = isNewConversationCommand ? [] : prev;
+        return [...base, userMsg, placeholder];
+      });
     } else {
       setMessages((prev) => [...prev, userMsg]);
     }
