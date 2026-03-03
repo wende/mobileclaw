@@ -12,6 +12,17 @@ function getSearchParam(name: string): string | null {
   return new URLSearchParams(window.location.search).get(name);
 }
 
+/** Remove a URL search param without reloading the page. */
+function removeSearchParam(name: string): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has(name)) return;
+  url.searchParams.delete(name);
+  const nextSearch = url.searchParams.toString();
+  const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ""}${url.hash}`;
+  window.history.replaceState(window.history.state, "", nextUrl);
+}
+
 /** Convert an HTTP(S) URL to its WS(S) equivalent. Already-WS URLs pass through. */
 function toWsUrl(url: string): string {
   if (url.startsWith("ws://") || url.startsWith("wss://")) return url;
@@ -206,6 +217,10 @@ export function useModeBootstrap({
       setHistoryLoaded(true);
       return;
     }
+
+    // Leaving demo mode should also remove ?demo from the URL so refreshes
+    // don't force demo bootstrap again.
+    removeSearchParam("demo");
 
     if (config.mode === "lmstudio") {
       window.localStorage.setItem("mobileclaw-mode", "lmstudio");

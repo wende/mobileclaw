@@ -64,13 +64,11 @@ export function SetupDialog({
   onClose,
   visible,
   connectionError,
-  isDemoMode,
 }: {
   onConnect: (config: ConnectionConfig) => void;
   onClose?: () => void;
   visible: boolean;
   connectionError?: string | null;
-  isDemoMode?: boolean;
 }) {
   const [mode, setMode] = useState<"openclaw" | "lmstudio">("openclaw");
   const [url, setUrl] = useState("ws://127.0.0.1:18789");
@@ -525,7 +523,7 @@ export function SetupDialog({
         {/* Connect button */}
         <button
           type="button"
-          onClick={isDemoMode ? () => { setPhase("closing"); setTimeout(() => setPhase("closed"), 500); } : handleSubmit}
+          onClick={handleSubmit}
           disabled={isSubmitting}
           className="w-full rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
         >
