@@ -12,26 +12,26 @@
   "categories": ["productivity", "utilities"],
   "icons": [
     {
-      "src": "/logo.svg",
-      "sizes": "any",
-      "type": "image/svg+xml"
+      "src": "https://litter.catbox.moe/hb9935ge5k57plpl.png",
+      "sizes": "653x766",
+      "type": "image/png"
     },
     {
-      "src": "/logo.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "https://litter.catbox.moe/hb9935ge5k57plpl.png",
+      "sizes": "653x766",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/logo.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "https://litter.catbox.moe/hb9935ge5k57plpl.png",
+      "sizes": "653x766",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/logo.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "https://litter.catbox.moe/hb9935ge5k57plpl.png",
+      "sizes": "653x766",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ]

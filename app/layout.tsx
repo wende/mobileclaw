@@ -23,8 +23,8 @@ export const metadata: Metadata = {
     title: 'MobileClaw',
   },
   icons: {
-    icon: '/logo.svg',
-    apple: '/logo.svg',
+    icon: 'https://litter.catbox.moe/hb9935ge5k57plpl.png',
+    apple: 'https://litter.catbox.moe/hb9935ge5k57plpl.png',
   },
 }
 

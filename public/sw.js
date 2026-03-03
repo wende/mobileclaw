@@ -4,7 +4,7 @@
 const CACHE_NAME = "mobileclaw-v1";
 
 // Precache the app shell on install
-const PRECACHE_URLS = ["/", "/logo.svg"];
+const PRECACHE_URLS = ["/"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

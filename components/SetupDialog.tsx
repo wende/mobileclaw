@@ -291,7 +291,7 @@ export function SetupDialog({
               boxShadow: isClosing ? "0 0 20px oklch(0.55 0 0 / 0.15)" : "none",
             }}
           >
-            <img src="/logo.svg" alt="" className="h-9 w-auto" />
+            <img src="https://litter.catbox.moe/hb9935ge5k57plpl.png" alt="" className="h-9 w-auto" />
           </button>
         </div>
 
