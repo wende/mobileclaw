@@ -8,7 +8,7 @@ import { ZenToggle } from "@/components/ZenToggle";
 import { formatMessageTime, getMessageSide } from "@/lib/messageUtils";
 import { STOP_REASON_INJECTED, isToolCallPart, MESSAGE_SEND_ANIMATION } from "@/lib/constants";
 import { ZEN_SLIDE_MS, ZEN_FADE_MS, ZEN_TOGGLE_FRAME_MS } from "@/lib/chat/zenUi";
-import type { ContentPart, Message } from "@/types/chat";
+import type { Message } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
 
 const TIME_GAP_THRESHOLD_MS = 10 * 60 * 1000;
@@ -114,7 +114,7 @@ export function ChatViewport({
         result.push(msg);
         continue;
       }
-      const parts = msg.content as ContentPart[];
+      const parts = msg.content;
       // Find positions where a completed tool call is followed by more content.
       const splitPoints: number[] = [];
       for (let i = 0; i < parts.length; i++) {
