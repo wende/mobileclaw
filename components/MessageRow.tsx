@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import type { ContentPart, Message } from "@/types/chat";
 import { getTextFromContent, getImages, getFiles } from "@/lib/messageUtils";
-import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine } from "@/lib/constants";
+import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, PILL_BASE_HEIGHT, MESSAGE_SEND_ANIMATION } from "@/lib/constants";
 import { useExpandablePanel } from "@/hooks/useExpandablePanel";
 import { SlideContent } from "@/components/SlideContent";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
@@ -462,8 +462,6 @@ function useNativeClickInterceptor(containerRef: React.RefObject<HTMLDivElement 
 
 // ── MessageRow ───────────────────────────────────────────────────────────────
 
-const USER_SQUIRCLE = 22;
-
 export function MessageRow({
   message,
   isStreaming,
@@ -507,17 +505,18 @@ export function MessageRow({
   const [userBubbleH, setUserBubbleH] = useState(0);
   const isUser = message.role === "user";
   useEffect(() => {
-    if (!isUser) return;
+    if (!isUser || typeof ResizeObserver === "undefined") return;
     const el = userBubbleRef.current;
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
-      setUserBubbleH(Math.round(entry.contentRect.height + 20)); // +padding
+      const h = entry.borderBoxSize?.[0]?.blockSize ?? el.offsetHeight;
+      setUserBubbleH(Math.round(h));
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, [isUser]);
   const userRadius = isUser && userBubbleH > 0
-    ? (userBubbleH <= 48 ? Math.round(userBubbleH / 2) : USER_SQUIRCLE)
+    ? (userBubbleH <= PILL_BASE_HEIGHT ? Math.round(userBubbleH / 2) : SQUIRCLE_RADIUS)
     : 9999;
 
   const text = getTextFromContent(message.content);
@@ -752,7 +751,7 @@ export function MessageRow({
           border: "1px solid oklch(from var(--foreground) l c h / 0.12)",
           boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
           ...(isSentAnim ? {
-            animation: "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
+            animation: MESSAGE_SEND_ANIMATION,
             transformOrigin: "bottom right",
           } : {}),
         } : undefined}

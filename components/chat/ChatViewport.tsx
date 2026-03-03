@@ -6,7 +6,7 @@ import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 import { ZenToggle } from "@/components/ZenToggle";
 import { formatMessageTime, getMessageSide } from "@/lib/messageUtils";
-import { STOP_REASON_INJECTED } from "@/lib/constants";
+import { STOP_REASON_INJECTED, MESSAGE_SEND_ANIMATION } from "@/lib/constants";
 import { ZEN_SLIDE_MS, ZEN_FADE_MS, ZEN_TOGGLE_FRAME_MS } from "@/lib/chat/zenUi";
 import type { Message } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
@@ -639,7 +639,7 @@ export function ChatViewport({
             const isSentUserAnim = msg.id === sentAnimId && msg.role === "user";
             const messageAnimationStyle = !isZenSiblingRow
               ? (msg.id === sentAnimId && !isSentUserAnim)
-                ? { animation: "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both", transformOrigin: "bottom right" }
+                ? { animation: MESSAGE_SEND_ANIMATION, transformOrigin: "bottom right" }
                 : msg.id && fadeInIds.has(msg.id)
                   ? { animation: "fadeIn 250ms ease-out" }
                   : undefined

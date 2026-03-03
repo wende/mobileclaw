@@ -54,6 +54,11 @@ export function isInternalCommandFetchRunId(runId: unknown): runId is string {
   return typeof runId === "string" && runId.startsWith(INTERNAL_COMMAND_FETCH_RUN_PREFIX);
 }
 
+// UI design tokens
+export const SQUIRCLE_RADIUS = 22;
+export const PILL_BASE_HEIGHT = 48;
+export const MESSAGE_SEND_ANIMATION = "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both";
+
 // Content part type helpers (normalizes "tool_call" vs "toolCall")
 export function isToolCallPart(p: { type: string }): boolean {
   return p.type === "tool_call" || p.type === "toolCall";

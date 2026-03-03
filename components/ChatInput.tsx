@@ -5,6 +5,7 @@ import { ALL_COMMANDS, type Command } from "@/components/CommandSheet";
 import maps from "@/maps.json";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import type { ModelChoice, ImageAttachment } from "@/types/chat";
+import { SQUIRCLE_RADIUS, PILL_BASE_HEIGHT } from "@/lib/constants";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB (litterbox allows up to 1GB)
 
@@ -101,8 +102,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   // Generate displacement + specular maps at exact element dimensions.
   // Static maps.json maps are 200×46 — stretching them to actual width distorts the corner radius.
   // Corner radius: full pill when at base height, squircle when expanded
-  const SQUIRCLE_RADIUS = 22;
-  const cornerRadius = filterDims.h > 48 ? SQUIRCLE_RADIUS : Math.floor(filterDims.h / 2);
+  const cornerRadius = filterDims.h > PILL_BASE_HEIGHT ? SQUIRCLE_RADIUS : Math.floor(filterDims.h / 2);
 
   const [displacementSrc, setDisplacementSrc] = useState<string>(maps.displacement);
   const [specularSrc, setSpecularSrc] = useState<string>(maps.specular);
