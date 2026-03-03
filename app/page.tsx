@@ -217,7 +217,11 @@ export default function Home() {
   }, []);
   const markRunEnd = useCallback((): number => {
     const start = runStartTsRef.current;
-    if (!start) return lastRunDurationRef.current;
+    if (!start) {
+      const cached = lastRunDurationRef.current;
+      lastRunDurationRef.current = 0;
+      return cached;
+    }
     const duration = Math.round((Date.now() - start) / 1000);
     runStartTsRef.current = 0;
     lastRunDurationRef.current = duration;

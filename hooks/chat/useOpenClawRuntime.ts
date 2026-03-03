@@ -399,6 +399,16 @@ export function useOpenClawRuntime({
     stopHistoryPolling,
   ]);
 
+  const applyRunDuration = useCallback((runId: string, runDuration: number) => {
+    if (runDuration <= 0 || !runId) return;
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === runId);
+      const resolvedIdx = idx >= 0 ? idx : prev.findLastIndex((m) => m.role === "assistant" && !m.runDuration);
+      if (resolvedIdx < 0) return prev;
+      return updateAt(prev, resolvedIdx, (m) => ({ ...m, runDuration }));
+    });
+  }, [setMessages]);
+
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
     logChatEvent(payload);
 
@@ -465,14 +475,7 @@ export function useOpenClawRuntime({
         if (shouldFinalizeRuntime) {
           const runDuration = markRunEnd();
           notifyForRun(payload.runId || activeRunIdRef.current);
-          if (runDuration > 0 && payload.runId) {
-            setMessages((prev) => {
-              const idx = prev.findIndex((m) => m.id === payload.runId);
-              const resolvedIdx = idx >= 0 ? idx : prev.findLastIndex((m) => m.role === "assistant");
-              if (resolvedIdx < 0) return prev;
-              return updateAt(prev, resolvedIdx, (m) => ({ ...m, runDuration }));
-            });
-          }
+          applyRunDuration(payload.runId!, runDuration);
 
           stopHistoryPolling();
           clearStreamingRuntimeState({ clearRunId: true });
@@ -526,6 +529,7 @@ export function useOpenClawRuntime({
       }
     }
   }, [
+    applyRunDuration,
     beginContentArrival,
     clearStreamingRuntimeState,
     handleUnpinSubagent,
@@ -564,14 +568,7 @@ export function useOpenClawRuntime({
         }
       } else if (phase === "end" || phase === "error") {
         const runDuration = markRunEnd();
-        if (runDuration > 0 && payload.runId) {
-          setMessages((prev) => {
-            const idx = prev.findIndex((m) => m.id === payload.runId);
-            const resolvedIdx = idx >= 0 ? idx : prev.findLastIndex((m) => m.role === "assistant");
-            if (resolvedIdx < 0) return prev;
-            return updateAt(prev, resolvedIdx, (m) => ({ ...m, runDuration }));
-          });
-        }
+        applyRunDuration(payload.runId, runDuration);
         if (historyPollRef.current) {
           requestHistory();
         }
@@ -618,6 +615,7 @@ export function useOpenClawRuntime({
     addToolCall,
     appendContentDelta,
     appendThinkingDelta,
+    applyRunDuration,
     startThinkingBlock,
     markRunEnd,
     markRunStart,
