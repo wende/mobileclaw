@@ -64,7 +64,8 @@ export function ChatHeader({
         className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card transition-colors hover:bg-accent active:bg-accent"
         aria-label="Open settings"
       >
-        <img src="/logo.png" alt="MobileClaw" className="h-7 mix-blend-multiply dark:mix-blend-screen dark:invert" />
+        <img src="/logo.png" alt="MobileClaw" className="h-7 dark:hidden" />
+        <img src="/logo-dark.png" alt="MobileClaw" className="hidden h-7 dark:block" />
       </button>
       <div className="flex min-w-0 flex-1 flex-col items-center">
         {canSwitch ? (
