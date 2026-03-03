@@ -266,8 +266,10 @@ export function useScrollManager(
   }, [clearBounceTransform, clearManualStreamUnpin, isStreamingRef]);
 
   // Auto-scroll: whenever messages change, snap to bottom if pinned.
+  // During streaming, the rAF loop handles smooth scrolling instead.
   useLayoutEffect(() => {
     if (!pinnedToBottomRef.current || messages.length === 0) return;
+    if (isStreamingRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
     if (!hasScrolledInitialRef.current) {
@@ -275,7 +277,7 @@ export function useScrollManager(
     }
     clearBounceTransform();
     el.scrollTop = el.scrollHeight;
-  }, [messages, clearBounceTransform]);
+  }, [messages, clearBounceTransform, isStreamingRef]);
 
   // ResizeObserver: catch content-height changes when NOT streaming (e.g. images loading).
   useEffect(() => {
@@ -286,6 +288,7 @@ export function useScrollManager(
 
     const ro = new ResizeObserver(() => {
       if (isAnimatingScrollRef.current) return;
+      if (isStreamingRef.current) return;
       if ((pinnedToBottomRef.current || scrollGraceRef.current) && el.scrollHeight > el.clientHeight) {
         el.scrollTop = el.scrollHeight;
         pinnedToBottomRef.current = true;
@@ -295,24 +298,36 @@ export function useScrollManager(
     return () => ro.disconnect();
   }, []);
 
-  // rAF loop: during streaming, continuously pin scroll to bottom.
-  // SmoothGrow uses explicit height + CSS transition which delays scrollHeight
-  // updates by ~150ms. The ResizeObserver on the content div only fires once
-  // SmoothGrow's transition propagates, so tool call pills (which add height
-  // in a single jump) can appear below the viewport before the scroll catches up.
-  // This loop checks every frame and scrolls immediately, costing only a few
-  // ref reads per frame when idle.
+  // rAF loop: during streaming, smoothly scroll toward bottom.
+  // Uses velocity with momentum — desired speed scales with gap size,
+  // actual velocity smoothly blends toward desired. No stutters on retarget.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     let id: number;
+    let velocity = 0;
+
     const tick = () => {
       if (
         (pinnedToBottomRef.current || scrollGraceRef.current) &&
         (isStreamingRef.current || scrollGraceRef.current) &&
         el.scrollHeight > el.clientHeight
       ) {
-        el.scrollTop = el.scrollHeight;
+        const target = el.scrollHeight - el.clientHeight;
+        const diff = target - el.scrollTop;
+
+        if (diff > 0.5) {
+          // Desired velocity proportional to gap: more lines behind = faster
+          const desiredVelocity = diff * 0.04;
+          // Smoothly blend toward desired velocity (momentum)
+          velocity += (desiredVelocity - velocity) * 0.12;
+          velocity = Math.max(velocity, 0.5);
+          el.scrollTop = Math.min(el.scrollTop + velocity, target);
+        } else {
+          velocity = 0;
+        }
+      } else {
+        velocity = 0;
       }
       id = requestAnimationFrame(tick);
     };

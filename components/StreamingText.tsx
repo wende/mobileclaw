@@ -9,10 +9,17 @@ let learnedCharsPerMs = 0.15; // Default: ~150 chars/sec, learned from history
 // Smooth typewriter effect: reveals text at a pace extrapolated from previous responses
 export function StreamingText({ text, isStreaming }: { text: string; isStreaming: boolean }) {
   const [displayLen, setDisplayLen] = useState(text.length);
+  const [settledLen, setSettledLen] = useState(0);
+  const settledLenRef = useRef(0);
   const targetLenRef = useRef(text.length);
   const rafRef = useRef<number | null>(null);
   const prevTextRef = useRef(text);
   const prevTextLenRef = useRef(text.length);
+  const displayLenRef = useRef(text.length);
+  const lastSettleTimeRef = useRef(0);
+
+  // Keep a tail of fresh chars in a gradient-masked span so they fade in
+  const KEEP_FRESH = 32;
 
   // Track delta timing to calculate animation speed
   const deltaTimesRef = useRef<{ time: number; chars: number }[]>([]);
@@ -34,6 +41,9 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
     // If text changed by replacement (e.g. history reload), snap immediately
     if (!text.startsWith(prevTextRef.current.slice(0, displayLen))) {
       setDisplayLen(text.length);
+      displayLenRef.current = text.length;
+      setSettledLen(text.length);
+      settledLenRef.current = text.length;
       deltaTimesRef.current = [];
       charsPerMsRef.current = learnedCharsPerMs;
     } else if (deltaChars > 0) {
@@ -77,6 +87,9 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
       deltaTimesRef.current = [];
       fractionalCharsRef.current = 0;
       lastFrameTimeRef.current = 0;
+      setSettledLen(0);
+      settledLenRef.current = 0;
+      lastSettleTimeRef.current = 0;
     }
     wasStreamingRef.current = isStreaming;
   }, [isStreaming]);
@@ -111,6 +124,7 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
         const target = targetLenRef.current;
         if (prev >= target) {
           fractionalCharsRef.current = 0;
+          displayLenRef.current = prev;
           return prev;
         }
 
@@ -122,8 +136,20 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
         // Always reveal at least 1 char if we have pending chars, to prevent stalling
         const step = Math.max(wholeChars, prev < target ? 1 : 0);
 
-        return Math.min(prev + step, target);
+        const next = Math.min(prev + step, target);
+        displayLenRef.current = next;
+        return next;
       });
+
+      // Settle text that has exited the gradient fade zone
+      if (frameTime - lastSettleTimeRef.current >= 80) {
+        lastSettleTimeRef.current = frameTime;
+        const target = Math.max(settledLenRef.current, displayLenRef.current - KEEP_FRESH);
+        if (target > settledLenRef.current) {
+          settledLenRef.current = target;
+          setSettledLen(target);
+        }
+      }
 
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -157,12 +183,22 @@ export function StreamingText({ text, isStreaming }: { text: string; isStreaming
   // When streaming with no text yet, show empty block cursor
   if (isStreaming) {
     if (visibleText.length > 0) {
-      const textWithoutLast = visibleText.slice(0, -1);
-      const lastChar = visibleText.slice(-1);
-      // If last char is whitespace/newline, show a visible space block instead
-      const cursorContent = /\s/.test(lastChar) ? " " : lastChar;
-      const cursor = <BlockCursor stale={cursorStale}>{cursorContent}</BlockCursor>;
-      return <MarkdownContent text={textWithoutLast} cursor={cursor} />;
+      const clamped = Math.min(settledLen, displayLen);
+      const settledText = visibleText.slice(0, clamped);
+      const freshText = visibleText.slice(clamped);
+
+      const cursor = freshText ? (
+        <span
+          style={{
+            WebkitMaskImage: 'linear-gradient(to right, black calc(100% - 14em), transparent)',
+            maskImage: 'linear-gradient(to right, black calc(100% - 14em), transparent)',
+          }}
+        >
+          {freshText}
+        </span>
+      ) : null;
+
+      return <MarkdownContent text={settledText} cursor={cursor} />;
     }
     // No text yet - show empty cursor
     return <StreamingCursor stale={cursorStale} />;

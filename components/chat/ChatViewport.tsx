@@ -731,10 +731,14 @@ export function ChatViewport({
               </React.Fragment>
             );
           })}
-          <ThinkingIndicator visible={isRunActive} startTime={thinkingStartTime ?? undefined} label={thinkingLabel} />
           <div ref={bottomRef} />
         </div>
       </main>
+      <div className="pointer-events-none absolute inset-x-0 px-4 md:px-6" style={{ bottom: `calc(${inputZoneHeight} + 1.5rem)` }}>
+        <div className="mx-auto w-full max-w-2xl pl-6">
+          <ThinkingIndicator visible={isRunActive} startTime={thinkingStartTime ?? undefined} label={thinkingLabel} />
+        </div>
+      </div>
 
       {isDetached && !isNative && <div style={{ height: inputZoneHeight, flexShrink: 0 }} />}
 
