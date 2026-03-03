@@ -219,6 +219,11 @@ struct ChatWebView: UIViewRepresentable {
         // MARK: - Pull-up-to-refresh (bottom overscroll)
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            // Safety: reset stuck trigger if drag ended without delegate callback
+            if pullUpTriggered && !scrollView.isDragging {
+                pullUpTriggered = false
+            }
+
             let inset = scrollView.adjustedContentInset
             let maxOffsetY = max(
                 -inset.top,
@@ -227,7 +232,13 @@ struct ChatWebView: UIViewRepresentable {
             // How far past the bottom edge the user has dragged.
             let overscroll = max(0, scrollView.contentOffset.y - maxOffsetY)
             let progress = min(1, max(0, overscroll / pullUpThreshold))
-            onPullProgress?(progress)
+            // Report progress while dragging; reset to 0 once released so the
+            // spinner doesn't stay stuck at the last in-drag value.
+            if scrollView.isDragging {
+                onPullProgress?(progress)
+            } else {
+                onPullProgress?(0)
+            }
 
             if overscroll > pullUpThreshold && !pullUpTriggered && scrollView.isDragging {
                 pullUpTriggered = true

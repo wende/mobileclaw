@@ -7,7 +7,8 @@ struct RootView: View {
     @State private var safariURL: URL?
     @State private var showSessionDropdown = false
     @State private var pullRefreshProgress: CGFloat = 0
-    private let refreshHaptic = UIImpactFeedbackGenerator(style: .medium)
+    @State private var thresholdCrossed = false
+    private let thresholdHaptic = UIImpactFeedbackGenerator(style: .medium)
 
     private var currentSessionName: String {
         if let current = appState.sessions.first(where: { $0.key == appState.sessionKey }) {
@@ -25,7 +26,7 @@ struct RootView: View {
 
         ZStack(alignment: .bottom) {
             ChatWebView(bridge: bridge, onRefresh: {
-                refreshHaptic.impactOccurred()
+                thresholdCrossed = false
                 appState.isRefreshing = true
                 pullRefreshProgress = 1
                 appState.sessionsLoading = true
@@ -38,6 +39,19 @@ struct RootView: View {
             }, onPullProgress: { progress in
                 guard !appState.isRefreshing else { return }
                 pullRefreshProgress = progress
+                if progress >= 1.0 {
+                    if !thresholdCrossed {
+                        thresholdCrossed = true
+                        thresholdHaptic.impactOccurred()
+                    }
+                } else if progress < 0.5 {
+                    if thresholdCrossed {
+                        thresholdCrossed = false
+                    }
+                    if progress > 0 {
+                        thresholdHaptic.prepare()
+                    }
+                }
             })
                 .ignoresSafeArea(.container)
 
@@ -92,7 +106,7 @@ struct RootView: View {
                         .animation(.easeOut(duration: 0.12), value: pullRefreshProgress)
                         .animation(.easeOut(duration: 0.12), value: appState.isRefreshing)
                 }
-                .padding(.bottom, 140)
+                .padding(.bottom, 80)
                 .allowsHitTesting(false)
             }
 
@@ -360,16 +374,7 @@ struct RootView: View {
             return
         }
 
-        // Add optimistic user message via bridge
-        let userMsg = ChatMessage(
-            role: .user,
-            content: [ContentPart(type: .text, text: text)],
-            timestamp: Int(Date().timeIntervalSince1970 * 1000),
-            msgId: "u-\(Int(Date().timeIntervalSince1970 * 1000))"
-        )
-        bridge.send(.messagesAppend(userMsg))
-
-        // Tell web to send via its protocol stack
+        // Tell web to send via its protocol stack (web handles optimistic message insert)
         bridge.send(.actionSend(text: text))
     }
 
