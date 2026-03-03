@@ -13,6 +13,7 @@ import type { useSubagentStore } from "@/hooks/useSubagentStore";
 
 const TIME_GAP_THRESHOLD_MS = 10 * 60 * 1000;
 const ZEN_COLLAPSE_TOTAL_MS = ZEN_TOGGLE_FRAME_MS + ZEN_FADE_MS + ZEN_SLIDE_MS;
+const ZEN_TAIL_FADE_IN_MS = 300;
 const IOS_TOP_MESSAGE_SPACER_HEIGHT = "clamp(2.75rem, 6.5dvh, 3.75rem)";
 
 interface ChatViewportProps {
@@ -244,6 +245,17 @@ export function ChatViewport({
     delete tailDeferTimersRef.current[groupId];
   }, []);
 
+  const triggerZenTailFadeIn = useCallback((groupId: string) => {
+    setZenTailFadeInGroups((prev) => new Set(prev).add(groupId));
+    setTimeout(() => {
+      setZenTailFadeInGroups((prev) => {
+        const next = new Set(prev);
+        next.delete(groupId);
+        return next;
+      });
+    }, ZEN_TAIL_FADE_IN_MS);
+  }, []);
+
   const deferZenTailRender = useCallback((groupId: string) => {
     clearTailDeferTimer(groupId);
     setDeferredZenTailByGroup((prev) => ({ ...prev, [groupId]: true }));
@@ -254,17 +266,9 @@ export function ChatViewport({
         delete next[groupId];
         return next;
       });
-      // Mark group for tail fade-in animation
-      setZenTailFadeInGroups((prev) => new Set(prev).add(groupId));
-      setTimeout(() => {
-        setZenTailFadeInGroups((prev) => {
-          const next = new Set(prev);
-          next.delete(groupId);
-          return next;
-        });
-      }, 300);
+      triggerZenTailFadeIn(groupId);
     }, ZEN_COLLAPSE_TOTAL_MS);
-  }, [clearTailDeferTimer]);
+  }, [clearTailDeferTimer, triggerZenTailFadeIn]);
 
   const clearModeTimers = useCallback(() => {
     modeTimersRef.current.forEach((timer) => clearTimeout(timer));
@@ -575,14 +579,7 @@ export function ChatViewport({
         if (demotingZenRows.groupIds.has(currentMeta.groupId)) continue;
         if (deferredZenTailByGroup[currentMeta.groupId]) continue;
         if (zenTailFadeInGroups.has(currentMeta.groupId)) continue;
-        setZenTailFadeInGroups((prev) => new Set(prev).add(currentMeta.groupId));
-        setTimeout(() => {
-          setZenTailFadeInGroups((prev) => {
-            const next = new Set(prev);
-            next.delete(currentMeta.groupId);
-            return next;
-          });
-        }, 300);
+        triggerZenTailFadeIn(currentMeta.groupId);
       }
     }
 
@@ -610,6 +607,7 @@ export function ChatViewport({
     zenGroupMeta.byIndex,
     zenGroupSlideOpen,
     zenTailFadeInGroups,
+    triggerZenTailFadeIn,
     zenMode,
     zenRenderMode,
   ]);

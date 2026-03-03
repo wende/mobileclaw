@@ -324,6 +324,7 @@ export function useScrollManager(
     // velocity in px-per-60fps-frame; multiplied by frameScale before applying
     let velocity = 0;
     let lastTime = 0;
+    let wasStreaming = isStreamingRef.current;
 
     // Tuning constants (normalized to 60fps baseline)
     const TARGET_FRAME_MS = 16.67;      // 60fps reference frame duration
@@ -333,6 +334,12 @@ export function useScrollManager(
     const SCROLL_MIN_VELOCITY = 0.5;     // px/frame minimum while actively scrolling
 
     const tick = (timestamp: number) => {
+      if (wasStreaming && !isStreamingRef.current) {
+        const content = el.firstElementChild as HTMLElement | null;
+        if (content) content.style.minHeight = "";
+      }
+      wasStreaming = isStreamingRef.current;
+
       const rawDelta = lastTime ? timestamp - lastTime : TARGET_FRAME_MS;
       // Clamp to 50ms to prevent huge jumps after tab switch or system sleep
       const deltaTime = Math.min(rawDelta, 50);
