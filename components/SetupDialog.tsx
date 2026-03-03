@@ -291,7 +291,7 @@ export function SetupDialog({
               boxShadow: isClosing ? "0 0 20px oklch(0.55 0 0 / 0.15)" : "none",
             }}
           >
-            <img src="/logo.png" alt="" className="h-9 mix-blend-multiply dark:mix-blend-screen dark:invert" />
+            <img src="/logo.svg" alt="" className="h-9 w-auto" />
           </button>
         </div>
 

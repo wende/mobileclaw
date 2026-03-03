@@ -23,8 +23,8 @@ export const metadata: Metadata = {
     title: 'MobileClaw',
   },
   icons: {
-    icon: '/favicon.png',
-    apple: '/favicon.png',
+    icon: '/logo.svg',
+    apple: '/logo.svg',
   },
 }
 
