@@ -68,7 +68,6 @@ export function ChatChrome({
         onClose={openclawUrl || isDemoMode || backendMode !== "openclaw" ? onCloseSetup : undefined}
         visible={showSetup}
         connectionError={connectionError}
-        isDemoMode={isDemoMode}
       />
       <ChatHeader
         currentModel={currentModel}
