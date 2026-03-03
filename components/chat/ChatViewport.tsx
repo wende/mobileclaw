@@ -6,9 +6,9 @@ import { MessageRow } from "@/components/MessageRow";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 import { ZenToggle } from "@/components/ZenToggle";
 import { formatMessageTime, getMessageSide } from "@/lib/messageUtils";
-import { STOP_REASON_INJECTED } from "@/lib/constants";
+import { STOP_REASON_INJECTED, isToolCallPart } from "@/lib/constants";
 import { ZEN_SLIDE_MS, ZEN_FADE_MS, ZEN_TOGGLE_FRAME_MS } from "@/lib/chat/zenUi";
-import type { Message } from "@/types/chat";
+import type { ContentPart, Message } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
 
 const TIME_GAP_THRESHOLD_MS = 10 * 60 * 1000;
@@ -89,12 +89,64 @@ export function ChatViewport({
   const [zenRowSlideOpen, setZenRowSlideOpen] = useState<Record<string, boolean>>({});
   const [zenRowFadeVisible, setZenRowFadeVisible] = useState<Record<string, boolean>>({});
   const [deferredZenTailByGroup, setDeferredZenTailByGroup] = useState<Record<string, boolean>>({});
+  const [zenTailFadeInGroups, setZenTailFadeInGroups] = useState<Set<string>>(new Set());
   const animationTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({});
   const rowAnimationTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({});
   const tailDeferTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const modeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const prevZenModeRef = useRef(zenMode);
+  const prevStreamingRef = useRef(isStreaming);
   const prevZenMetaByMessageIdRef = useRef<Record<string, { groupId: string; isTail: boolean; hasMultiple: boolean }>>({});
+  const prevZenTailIdsRef = useRef<Set<string>>(new Set());
+
+  // Split single assistant messages that contain multiple completed tool-call cycles
+  // into separate display messages. This lets the existing multi-message zen machinery
+  // handle progressive collapse — exactly like demo mode's zenCycles approach.
+  const { zenDisplayMessages, effectiveStreamingId } = useMemo(() => {
+    if (!zenMode && !zenRenderMode) {
+      return { zenDisplayMessages: displayMessages, effectiveStreamingId: streamingId };
+    }
+    const result: Message[] = [];
+    let lastSplitStreamingId: string | null = null;
+
+    for (const msg of displayMessages) {
+      if (msg.role !== "assistant" || !Array.isArray(msg.content)) {
+        result.push(msg);
+        continue;
+      }
+      const parts = msg.content as ContentPart[];
+      // Find positions where a completed tool call is followed by more content.
+      const splitPoints: number[] = [];
+      for (let i = 0; i < parts.length; i++) {
+        if (isToolCallPart(parts[i]) && (parts[i].result != null || (parts[i].status && parts[i].status !== "running")) && i + 1 < parts.length) {
+          splitPoints.push(i + 1);
+        }
+      }
+      if (splitPoints.length === 0) {
+        result.push(msg);
+        continue;
+      }
+      let start = 0;
+      let cycleIndex = 0;
+      for (const splitAt of splitPoints) {
+        const cycleId = cycleIndex === 0 ? msg.id! : `${msg.id}-cycle-${cycleIndex}`;
+        result.push({ ...msg, id: cycleId, content: parts.slice(start, splitAt) });
+        start = splitAt;
+        cycleIndex++;
+      }
+      // Remaining parts (the last/active cycle)
+      if (start < parts.length) {
+        const lastId = cycleIndex === 0 ? msg.id! : `${msg.id}-cycle-${cycleIndex}`;
+        result.push({ ...msg, id: lastId, content: parts.slice(start) });
+        if (msg.id === streamingId) lastSplitStreamingId = lastId;
+      }
+    }
+
+    return {
+      zenDisplayMessages: result,
+      effectiveStreamingId: lastSplitStreamingId ?? streamingId,
+    };
+  }, [displayMessages, streamingId, zenMode, zenRenderMode]);
 
   const zenGroupMeta = useMemo(() => {
     const byIndex = new Map<number, { groupId: string; isHead: boolean; isTail: boolean; hasMultiple: boolean }>();
@@ -117,8 +169,8 @@ export function ChatViewport({
       currentIndices = [];
     };
 
-    for (let idx = 0; idx < displayMessages.length; idx++) {
-      const msg = displayMessages[idx];
+    for (let idx = 0; idx < zenDisplayMessages.length; idx++) {
+      const msg = zenDisplayMessages[idx];
       const isZenEligibleAssistant =
         msg.role === "assistant"
         && !msg.isCommandResponse
@@ -131,10 +183,10 @@ export function ChatViewport({
 
       const side = getMessageSide(msg.role);
       let prevNonCenterIdx = idx - 1;
-      while (prevNonCenterIdx >= 0 && getMessageSide(displayMessages[prevNonCenterIdx].role) === "center") {
+      while (prevNonCenterIdx >= 0 && getMessageSide(zenDisplayMessages[prevNonCenterIdx].role) === "center") {
         prevNonCenterIdx -= 1;
       }
-      const prevNonCenterMsg = prevNonCenterIdx >= 0 ? displayMessages[prevNonCenterIdx] : null;
+      const prevNonCenterMsg = prevNonCenterIdx >= 0 ? zenDisplayMessages[prevNonCenterIdx] : null;
       const prevSide = prevNonCenterMsg ? getMessageSide(prevNonCenterMsg.role) : null;
       const prevTimestamp = prevNonCenterMsg?.timestamp ?? null;
       const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
@@ -155,7 +207,7 @@ export function ChatViewport({
     }
     flushGroup();
     return { byIndex, groupIds, multiGroupIds };
-  }, [displayMessages]);
+  }, [zenDisplayMessages]);
 
   const clearGroupTimers = useCallback((groupId: string) => {
     const timers = animationTimersRef.current[groupId];
@@ -202,6 +254,15 @@ export function ChatViewport({
         delete next[groupId];
         return next;
       });
+      // Mark group for tail fade-in animation
+      setZenTailFadeInGroups((prev) => new Set(prev).add(groupId));
+      setTimeout(() => {
+        setZenTailFadeInGroups((prev) => {
+          const next = new Set(prev);
+          next.delete(groupId);
+          return next;
+        });
+      }, 300);
     }, ZEN_COLLAPSE_TOTAL_MS);
   }, [clearTailDeferTimer]);
 
@@ -217,10 +278,10 @@ export function ChatViewport({
   const demotingZenRows = useMemo(() => {
     const rowIds = new Set<string>();
     const groupIds = new Set<string>();
-    if (!(zenMode && zenRenderMode && isStreaming)) return { rowIds, groupIds };
+    if (!(zenMode && zenRenderMode && (isStreaming || prevStreamingRef.current))) return { rowIds, groupIds };
 
-    for (let idx = 0; idx < displayMessages.length; idx++) {
-      const msg = displayMessages[idx];
+    for (let idx = 0; idx < zenDisplayMessages.length; idx++) {
+      const msg = zenDisplayMessages[idx];
       if (!msg.id) continue;
       const zenMeta = zenGroupMeta.byIndex.get(idx);
       if (!zenMeta || !zenMeta.hasMultiple || zenMeta.isTail) continue;
@@ -244,7 +305,7 @@ export function ChatViewport({
     return { rowIds, groupIds };
   }, [
     collapsingZenGroups,
-    displayMessages,
+    zenDisplayMessages,
     expandedZenGroups,
     isStreaming,
     zenGroupMeta.byIndex,
@@ -304,7 +365,7 @@ export function ChatViewport({
 
   useEffect(() => {
     const liveMessageIds = new Set(
-      displayMessages
+      zenDisplayMessages
         .map((msg) => msg.id)
         .filter((id): id is string => typeof id === "string" && id.length > 0),
     );
@@ -332,7 +393,7 @@ export function ChatViewport({
         clearRowTimers(messageId);
       }
     }
-  }, [clearRowTimers, displayMessages]);
+  }, [clearRowTimers, zenDisplayMessages]);
 
   useEffect(() => {
     const wasZenMode = prevZenModeRef.current;
@@ -444,8 +505,8 @@ export function ChatViewport({
   useLayoutEffect(() => {
     const currentMetaByMessageId: Record<string, { groupId: string; isTail: boolean; hasMultiple: boolean }> = {};
 
-    for (let idx = 0; idx < displayMessages.length; idx++) {
-      const msg = displayMessages[idx];
+    for (let idx = 0; idx < zenDisplayMessages.length; idx++) {
+      const msg = zenDisplayMessages[idx];
       if (!msg.id) continue;
       const zenMeta = zenGroupMeta.byIndex.get(idx);
       if (!zenMeta) continue;
@@ -456,7 +517,7 @@ export function ChatViewport({
       };
     }
 
-    if (zenMode && zenRenderMode && isStreaming) {
+    if (zenMode && zenRenderMode && (isStreaming || prevStreamingRef.current)) {
       for (const [messageId, currentMeta] of Object.entries(currentMetaByMessageId)) {
         if (!currentMeta.hasMultiple || currentMeta.isTail) continue;
         if (!demotingZenRows.rowIds.has(messageId)) continue;
@@ -504,12 +565,42 @@ export function ChatViewport({
       }
     }
 
+    // Detect new tails that appeared without going through the demotion/deferral flow.
+    // This handles history replacement (where message IDs change, breaking group-ID matching)
+    // and streaming-end transitions where the split creates a new cycle.
+    if (zenMode && zenRenderMode && prevZenTailIdsRef.current.size > 0) {
+      for (const [messageId, currentMeta] of Object.entries(currentMetaByMessageId)) {
+        if (!currentMeta.isTail || !currentMeta.hasMultiple) continue;
+        if (prevZenTailIdsRef.current.has(messageId)) continue;
+        if (demotingZenRows.groupIds.has(currentMeta.groupId)) continue;
+        if (deferredZenTailByGroup[currentMeta.groupId]) continue;
+        if (zenTailFadeInGroups.has(currentMeta.groupId)) continue;
+        setZenTailFadeInGroups((prev) => new Set(prev).add(currentMeta.groupId));
+        setTimeout(() => {
+          setZenTailFadeInGroups((prev) => {
+            const next = new Set(prev);
+            next.delete(currentMeta.groupId);
+            return next;
+          });
+        }, 300);
+      }
+    }
+
+    // Update tracking refs
+    const currentTailIds = new Set<string>();
+    for (const [id, meta] of Object.entries(currentMetaByMessageId)) {
+      if (meta.isTail && meta.hasMultiple) currentTailIds.add(id);
+    }
+    prevZenTailIdsRef.current = currentTailIds;
     prevZenMetaByMessageIdRef.current = currentMetaByMessageId;
+    prevStreamingRef.current = isStreaming;
   }, [
     clearRowTimers,
     collapsingZenGroups,
+    deferredZenTailByGroup,
+    demotingZenRows.groupIds,
     demotingZenRows.rowIds,
-    displayMessages,
+    zenDisplayMessages,
     expandedZenGroups,
     isStreaming,
     setRowTimer,
@@ -518,6 +609,7 @@ export function ChatViewport({
     deferZenTailRender,
     zenGroupMeta.byIndex,
     zenGroupSlideOpen,
+    zenTailFadeInGroups,
     zenMode,
     zenRenderMode,
   ]);
@@ -601,10 +693,10 @@ export function ChatViewport({
       >
         <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
           {isNative && <div aria-hidden="true" style={{ height: IOS_TOP_MESSAGE_SPACER_HEIGHT, flexShrink: 0 }} />}
-          {displayMessages.map((msg, idx) => {
+          {zenDisplayMessages.map((msg, idx) => {
             const side = getMessageSide(msg.role);
-            const prevSide = idx > 0 ? getMessageSide(displayMessages[idx - 1].role) : null;
-            const prevTimestamp = idx > 0 ? displayMessages[idx - 1].timestamp : null;
+            const prevSide = idx > 0 ? getMessageSide(zenDisplayMessages[idx - 1].role) : null;
+            const prevTimestamp = idx > 0 ? zenDisplayMessages[idx - 1].timestamp : null;
             const isNewTurn = side !== "center" && side !== prevSide;
             const timGap = msg.timestamp && prevTimestamp ? msg.timestamp - prevTimestamp : 0;
             const isTimeGap = timGap > TIME_GAP_THRESHOLD_MS;
@@ -636,10 +728,21 @@ export function ChatViewport({
             const zenToggleExpandedVisual = zenGroupExpanded || zenSlideOpen || zenGroupCollapsing;
             const isZenSiblingRow = zenRenderMode && !!zenMeta && zenMeta.hasMultiple && !zenMeta.isTail;
             const collapsedZenSibling = isZenSiblingRow && !effectiveRowSlideOpen;
+            const isZenTailFadingIn = zenMeta?.isTail && zenMeta?.hasMultiple && zenTailFadeInGroups.has(zenMeta.groupId);
+            // Immediate fade-in for tails that appeared due to history replacement
+            // (where message IDs change and the layout effect hasn't set state yet)
+            const isNewZenTail = !!(
+              zenMeta?.isTail &&
+              zenMeta?.hasMultiple &&
+              !deferTailRender &&
+              msg.id &&
+              prevZenTailIdsRef.current.size > 0 &&
+              !prevZenTailIdsRef.current.has(msg.id)
+            );
             const messageAnimationStyle = !isZenSiblingRow
               ? msg.id === sentAnimId
                 ? { animation: "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both", transformOrigin: "bottom right" }
-                : msg.id && fadeInIds.has(msg.id)
+                : (msg.id && fadeInIds.has(msg.id)) || isZenTailFadingIn || isNewZenTail
                   ? { animation: "fadeIn 250ms ease-out" }
                   : undefined
               : undefined;
@@ -713,7 +816,7 @@ export function ChatViewport({
                 >
                   <MessageRow
                     message={msg}
-                    isStreaming={isStreaming && msg.id === streamingId}
+                    isStreaming={isStreaming && msg.id === effectiveStreamingId}
                     freezeStreamingLayout={freezeStreamingLayout}
                     subagentStore={subagentStore}
                     pinnedToolCallId={pinnedToolCallId}
