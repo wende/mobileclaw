@@ -59,6 +59,19 @@ const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null;
 const ZEN_TOGGLE_PIN_MS = 700;
 const ZEN_BOTTOM_THRESHOLD_PX = 12;
 
+// Bottom padding for the message list to clear the fixed composer bar.
+// Non-detached uses calc(svh + rem) so clearance scales with the composer's
+// own dvh-based sizing across device sizes.
+const BOTTOM_PAD_SVH = 4.5;
+const BOTTOM_PAD_BASE_REM = 4.5;
+const BOTTOM_PAD_QUEUED_REM = 7.5;
+const BOTTOM_PAD_PINNED_REM = 10.5;
+// Detached mode has a separate spacer, so fixed rem is sufficient.
+const BOTTOM_PAD_DETACHED_BASE = "4rem";
+const BOTTOM_PAD_DETACHED_QUEUED = "7rem";
+const BOTTOM_PAD_DETACHED_PINNED = "10rem";
+const BOTTOM_PAD_NATIVE = "8rem";
+
 export default function Home() {
   const [openclawUrl, setOpenclawUrl] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -210,13 +223,22 @@ export default function Home() {
   const lmStudioHandlerRef = useRef<ReturnType<typeof createLmStudioHandler> | null>(null);
 
   const runStartTsRef = useRef<number>(0);
+  const lastRunDurationRef = useRef<number>(0);
   const markRunStart = useCallback(() => {
     runStartTsRef.current = Date.now();
+    lastRunDurationRef.current = 0;
   }, []);
   const markRunEnd = useCallback((): number => {
     const start = runStartTsRef.current;
+    if (!start) {
+      const cached = lastRunDurationRef.current;
+      lastRunDurationRef.current = 0;
+      return cached;
+    }
+    const duration = Math.round((Date.now() - start) / 1000);
     runStartTsRef.current = 0;
-    return start ? Math.round((Date.now() - start) / 1000) : 0;
+    lastRunDurationRef.current = duration;
+    return duration;
   }, []);
 
   const messagesRef = useRef<Message[]>([]);
@@ -574,12 +596,12 @@ export default function Home() {
 
   const inputZoneHeight = "calc(1.5dvh + 3.5rem)";
   const bottomPad = isNative
-    ? "8rem"
+    ? BOTTOM_PAD_NATIVE
     : pinnedSubagent
-      ? (isDetached ? "10rem" : "16rem")
+      ? (isDetached ? BOTTOM_PAD_DETACHED_PINNED : `calc(${BOTTOM_PAD_SVH}svh + ${BOTTOM_PAD_PINNED_REM}rem)`)
       : queuedMessage
-        ? (isDetached ? "7rem" : "13rem")
-        : (isDetached ? "4rem" : "10rem");
+        ? (isDetached ? BOTTOM_PAD_DETACHED_QUEUED : `calc(${BOTTOM_PAD_SVH}svh + ${BOTTOM_PAD_QUEUED_REM}rem)`)
+        : (isDetached ? BOTTOM_PAD_DETACHED_BASE : `calc(${BOTTOM_PAD_SVH}svh + ${BOTTOM_PAD_BASE_REM}rem)`);
 
   const lastUserMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
