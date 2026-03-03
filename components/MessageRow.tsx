@@ -462,6 +462,8 @@ function useNativeClickInterceptor(containerRef: React.RefObject<HTMLDivElement 
 
 // ── MessageRow ───────────────────────────────────────────────────────────────
 
+const USER_SQUIRCLE = 22;
+
 export function MessageRow({
   message,
   isStreaming,
@@ -477,6 +479,8 @@ export function MessageRow({
   zenGroupSlideOpen = false,
   zenGroupFadeVisible = false,
   onZenGroupToggle,
+  isSentAnim = false,
+  onSentAnimationEnd,
 }: {
   message: Message;
   isStreaming: boolean;
@@ -492,9 +496,29 @@ export function MessageRow({
   zenGroupSlideOpen?: boolean;
   zenGroupFadeVisible?: boolean;
   onZenGroupToggle?: () => void;
+  isSentAnim?: boolean;
+  onSentAnimationEnd?: () => void;
 }) {
   const messageRef = useRef<HTMLDivElement>(null);
   useNativeClickInterceptor(messageRef);
+
+  // Pill → squircle transition for user bubbles
+  const userBubbleRef = useRef<HTMLDivElement>(null);
+  const [userBubbleH, setUserBubbleH] = useState(0);
+  const isUser = message.role === "user";
+  useEffect(() => {
+    if (!isUser) return;
+    const el = userBubbleRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      setUserBubbleH(Math.round(entry.contentRect.height + 20)); // +padding
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isUser]);
+  const userRadius = isUser && userBubbleH > 0
+    ? (userBubbleH <= 48 ? Math.round(userBubbleH / 2) : USER_SQUIRCLE)
+    : 9999;
 
   const text = getTextFromContent(message.content);
   const images = getImages(message.content);
@@ -599,7 +623,6 @@ export function MessageRow({
     return <InjectedPill text={text} message={message} subagentStore={subagentStore} />;
   }
 
-  const isUser = message.role === "user";
   type AssistantBlock = {
     key: string;
     node: React.ReactNode;
@@ -719,7 +742,22 @@ export function MessageRow({
       className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}
       style={collapsedZenSibling ? { marginBottom: "-0.75rem", transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` } : { transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` }}
     >
-      <div className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "rounded-2xl rounded-tr-[1px] rounded-br-lg bg-primary px-4 py-2.5 text-primary-foreground" : ""} ${hasSpawnTool ? "w-[85%] md:w-[75%]" : ""}`}>
+      <div
+        ref={isUser ? userBubbleRef : undefined}
+        className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "px-4 py-2.5 text-primary-foreground" : ""} ${hasSpawnTool ? "w-[85%] md:w-[75%]" : ""}`}
+        style={isUser ? {
+          borderRadius: `${userRadius}px`,
+          transition: isSentAnim ? undefined : "border-radius 300ms ease",
+          background: "oklch(from var(--primary) l c h / 0.85)",
+          border: "1px solid oklch(from var(--foreground) l c h / 0.12)",
+          boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
+          ...(isSentAnim ? {
+            animation: "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
+            transformOrigin: "bottom right",
+          } : {}),
+        } : undefined}
+        onAnimationEnd={isSentAnim ? onSentAnimationEnd : undefined}
+      >
         {isUser ? (
           <>
             {text && (

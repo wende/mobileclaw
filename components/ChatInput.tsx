@@ -100,10 +100,14 @@ export const ChatInput = forwardRef<ChatInputHandle, {
 
   // Generate displacement + specular maps at exact element dimensions.
   // Static maps.json maps are 200×46 — stretching them to actual width distorts the corner radius.
+  // Corner radius: full pill when at base height, squircle when expanded
+  const SQUIRCLE_RADIUS = 22;
+  const cornerRadius = filterDims.h > 48 ? SQUIRCLE_RADIUS : Math.floor(filterDims.h / 2);
+
   const [displacementSrc, setDisplacementSrc] = useState<string>(maps.displacement);
   const [specularSrc, setSpecularSrc] = useState<string>(maps.specular);
   useEffect(() => {
-    const w = filterDims.w, h = filterDims.h, r = Math.floor(h / 2);
+    const w = filterDims.w, h = filterDims.h, r = cornerRadius;
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
@@ -133,7 +137,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
     const rx = r - 0.5;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff" stop-opacity="0.45"/><stop offset="20%" stop-color="#ffffff" stop-opacity="0"/><stop offset="80%" stop-color="#ffffff" stop-opacity="0"/><stop offset="100%" stop-color="#ffffff" stop-opacity="0.12"/></linearGradient></defs><rect x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" rx="${rx}" fill="none" stroke="url(#s)" stroke-width="1.5" opacity="0.8"/></svg>`;
     setSpecularSrc("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg));
-  }, [filterDims.w, filterDims.h]);
+  }, [filterDims.w, filterDims.h, cornerRadius]);
 
   const addFiles = useCallback((files: FileList | File[]) => {
     Array.from(files).forEach((file) => {
@@ -511,7 +515,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
       {/* Morphing center: textarea ↔ scroll-to-bottom pill */}
       <div
         ref={glassPillRef}
-        className={`relative flex-1 overflow-hidden transition-colors outline-none rounded-full`}
+        className={`relative flex-1 overflow-hidden outline-none`}
         onClick={isPill ? onScrollToBottom : undefined}
         role={isPill ? "button" : undefined}
         tabIndex={isPill ? 0 : undefined}
@@ -519,6 +523,8 @@ export const ChatInput = forwardRef<ChatInputHandle, {
         style={{
           minHeight: "46px",
           maxHeight: "calc(200px - 154px * var(--lp, 0))",
+          borderRadius: `${cornerRadius}px`,
+          transition: "border-radius 300ms ease",
           cursor: isPill ? "pointer" : "text",
           background: isPill
             ? "oklch(from var(--background) l c h / 0.30)"

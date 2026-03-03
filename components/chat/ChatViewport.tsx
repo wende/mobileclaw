@@ -636,8 +636,9 @@ export function ChatViewport({
             const zenToggleExpandedVisual = zenGroupExpanded || zenSlideOpen || zenGroupCollapsing;
             const isZenSiblingRow = zenRenderMode && !!zenMeta && zenMeta.hasMultiple && !zenMeta.isTail;
             const collapsedZenSibling = isZenSiblingRow && !effectiveRowSlideOpen;
+            const isSentUserAnim = msg.id === sentAnimId && msg.role === "user";
             const messageAnimationStyle = !isZenSiblingRow
-              ? msg.id === sentAnimId
+              ? (msg.id === sentAnimId && !isSentUserAnim)
                 ? { animation: "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both", transformOrigin: "bottom right" }
                 : msg.id && fadeInIds.has(msg.id)
                   ? { animation: "fadeIn 250ms ease-out" }
@@ -709,7 +710,7 @@ export function ChatViewport({
                 )}
                 <div
                   style={messageRowWrapperStyle}
-                  onAnimationEnd={!isZenSiblingRow && msg.id === sentAnimId ? onSentAnimationEnd : undefined}
+                  onAnimationEnd={!isZenSiblingRow && msg.id === sentAnimId && !isSentUserAnim ? onSentAnimationEnd : undefined}
                 >
                   <MessageRow
                     message={msg}
@@ -726,6 +727,8 @@ export function ChatViewport({
                     zenGroupSlideOpen={effectiveRowSlideOpen}
                     zenGroupFadeVisible={effectiveRowFadeVisible}
                     onZenGroupToggle={undefined}
+                    isSentAnim={isSentUserAnim}
+                    onSentAnimationEnd={isSentUserAnim ? onSentAnimationEnd : undefined}
                   />
                 </div>
               </React.Fragment>
