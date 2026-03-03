@@ -662,7 +662,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
               height: "calc(40px * (1 - var(--sp, 0)))",
               minWidth: 0,
               pointerEvents: isPill ? "none" : "auto",
-              transition: "opacity 200ms, transform 200ms",
+              transition: (isActive && !queueFull) ? "opacity 200ms, transform 200ms" : "transform 200ms",
             } as React.CSSProperties}
             aria-label={showStop ? "Stop" : showQueue ? "Queue" : "Send"}
           >
@@ -680,10 +680,10 @@ export const ChatInput = forwardRef<ChatInputHandle, {
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 4v12a2 2 0 0 0 2 2h8" /><path d="m16 14 4 4-4 4" /></svg>
             </span>
-            {/* Send face — only when there's content to send */}
+            {/* Send face — catch-all default; transition suppressed when disabled so it doesn't flash */}
             <span
-              className="absolute inset-0 flex items-center justify-center bg-primary text-primary-foreground rounded-full transition-opacity duration-200"
-              style={{ opacity: showSend ? 1 : 0 }}
+              className="absolute inset-0 flex items-center justify-center bg-primary text-primary-foreground rounded-full"
+              style={{ opacity: (!showStop && !showQueue) ? 1 : 0, transition: isActive ? "opacity 200ms" : "none" }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg>
             </span>
