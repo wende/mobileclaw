@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { getToolDisplay, parseArgs } from "@/lib/toolDisplay";
 import { SubagentActivityFeed } from "@/components/SubagentActivityFeed";
 import { SlideContent } from "@/components/SlideContent";
 import type { SubagentStore } from "@/hooks/useSubagentStore";
-import { isEditTool, isReadTool, isGatewayTool, SPAWN_TOOL_NAME } from "@/lib/constants";
+import { isEditTool, isReadTool, isGatewayTool, SPAWN_TOOL_NAME, SQUIRCLE_RADIUS } from "@/lib/constants";
 import { useSwipeAction } from "@/hooks/useSwipeAction";
 
 interface PinInfo {
@@ -28,13 +29,40 @@ interface ToolCallPillProps {
   onUnpin?: () => void;
 }
 
+type ToolBubbleStyle = CSSProperties & {
+  "--foreground"?: string;
+  "--card-foreground"?: string;
+  "--muted-foreground"?: string;
+  "--border"?: string;
+};
+
+const TOOL_BUBBLE_BG = "oklch(1 0 0)";
+const TOOL_BUBBLE_TEXT = "oklch(0.4 0 0)";
+const TOOL_BUBBLE_MUTED = "oklch(0.56 0 0)";
+const TOOL_BUBBLE_BORDER = "oklch(0.9 0 0)";
+const TOOL_BUBBLE_SHADOW = "none";
+
+function getToolBubbleStyle(resultError?: boolean): ToolBubbleStyle {
+  return {
+    borderRadius: `${SQUIRCLE_RADIUS}px`,
+    background: TOOL_BUBBLE_BG,
+    border: `1px solid ${resultError ? "oklch(0.78 0.06 25.723)" : TOOL_BUBBLE_BORDER}`,
+    boxShadow: TOOL_BUBBLE_SHADOW,
+    color: TOOL_BUBBLE_TEXT,
+    "--foreground": TOOL_BUBBLE_TEXT,
+    "--card-foreground": TOOL_BUBBLE_TEXT,
+    "--muted-foreground": TOOL_BUBBLE_MUTED,
+    "--border": TOOL_BUBBLE_BORDER,
+  };
+}
+
 // ── Shared icon helpers ──────────────────────────────────────────────────────
 
-const ICON_CLS = "inline-block mr-1.5 align-[-1px] shrink-0";
+const ICON_CLS = "inline-block mr-1.5 align-[-1px] shrink-0 opacity-35";
 
 function StatusIcon({ status, resultError }: { status?: string; resultError?: boolean }) {
   if (status === "running") return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${ICON_CLS} animate-spin opacity-50`}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${ICON_CLS} animate-spin`}>
       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
     </svg>
   );
@@ -48,34 +76,34 @@ function StatusIcon({ status, resultError }: { status?: string; resultError?: bo
 
 function ToolIcon({ icon }: { icon: string }) {
   if (icon === "terminal") return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${ICON_CLS} opacity-50`}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={ICON_CLS}>
       <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
     </svg>
   );
   if (icon === "file") return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${ICON_CLS} opacity-50`}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={ICON_CLS}>
       <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" />
     </svg>
   );
   if (icon === "robot") return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`${ICON_CLS} opacity-50`}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={ICON_CLS}>
       <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
     </svg>
   );
   if (icon === "gear") return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${ICON_CLS} opacity-50`}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={ICON_CLS}>
       <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
       <circle cx="12" cy="12" r="3" />
     </svg>
   );
   if (icon === "globe") return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${ICON_CLS} opacity-50`}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={ICON_CLS}>
       <circle cx="12" cy="12" r="10" /><line x1="2" x2="22" y1="12" y2="12" />
       <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
     </svg>
   );
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${ICON_CLS} opacity-50`}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={ICON_CLS}>
       <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
     </svg>
   );
@@ -85,7 +113,7 @@ function Chevron({ open }: { open: boolean }) {
   return (
     <svg
       width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-      className="ml-auto shrink-0 opacity-40 transition-transform duration-200"
+      className="ml-auto shrink-0 opacity-25 transition-transform duration-200"
       style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}
     >
       <path d="m6 9 6 6 6-6" />
@@ -125,24 +153,25 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
   const hasVisibleResult = !!(result && !isEdit);
   const hasContent = hasVisibleArgs || hasVisibleResult;
   const hasStatusIcon = status === "running" || resultError;
+  const bubbleStyle = getToolBubbleStyle(resultError);
 
   return (
-    <div className={`w-fit max-w-full rounded-none border font-mono ${resultError ? "border-destructive/30 bg-destructive/5" : "border-border"}`}>
+    <div className="w-fit max-w-full overflow-hidden font-mono" style={bubbleStyle}>
       <button
         type="button"
         onClick={hasContent ? () => setOpen((v) => !v) : undefined}
-        className={`w-full rounded-[inherit] text-left px-3 py-1.5 text-xs font-medium text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap max-w-full flex items-center ${hasContent ? "cursor-pointer" : "cursor-default"}`}
+        className={`w-full rounded-[inherit] text-left px-4 py-2.5 text-xs font-normal overflow-hidden text-ellipsis whitespace-nowrap max-w-full flex items-center ${hasContent ? "cursor-pointer" : "cursor-default"}`}
       >
         {hasStatusIcon ? <StatusIcon status={status} resultError={resultError} /> : <ToolIcon icon={display.icon} />}
-        {isEdit ? <><span className="font-bold">edit</span>&nbsp;<span className="truncate">{display.label}</span></> : isRead ? <><span className="font-bold">read</span>&nbsp;<span className="truncate">{display.label}</span></> : <span className="truncate">{display.label}</span>}
-        {status === "running" && <span className="ml-1.5 text-muted-foreground/60 shrink-0">running...</span>}
+        {isEdit ? <><span className="font-medium opacity-70">edit</span>&nbsp;<span className="truncate">{display.label}</span></> : isRead ? <><span className="font-medium opacity-70">read</span>&nbsp;<span className="truncate">{display.label}</span></> : <span className="truncate">{display.label}</span>}
+        {status === "running" && <span className="ml-1.5 opacity-45 shrink-0">running...</span>}
         {hasContent && <Chevron open={open} />}
       </button>
       {hasContent && (
         <SlideContent open={open}>
-          <div className="overflow-hidden text-xs leading-[1.5] text-muted-foreground">
+          <div className="overflow-hidden text-xs leading-[1.5]">
             {args && !isRead && !isGateway && (
-              <div className="border-t border-border px-3 py-2">
+              <div className="border-t border-border px-4 py-2.5">
                 {(() => {
                   if (isEdit) {
                     try {
@@ -171,7 +200,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
                   }
                   return (
                     <>
-                      <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground/60">Arguments</span>
+                      <span className="text-2xs font-normal opacity-45">Arguments</span>
                       <div className="mt-1 flex flex-col gap-0.5">
                         {(() => {
                           try {
@@ -179,8 +208,8 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
                             if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
                               return Object.entries(parsed).map(([k, v]) => (
                                 <div key={k} className="break-words">
-                                  <span className="font-semibold text-foreground/70">{k}</span>
-                                  <span className="text-muted-foreground/40"> — </span>
+                                  <span className="font-medium opacity-70">{k}</span>
+                                  <span className="opacity-30"> — </span>
                                   <span className="whitespace-pre-wrap break-words">{typeof v === "string" ? v : JSON.stringify(v)}</span>
                                 </div>
                               ));
@@ -195,8 +224,8 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
               </div>
             )}
             {result && !isEdit && (
-              <div className="border-t border-border px-3 py-2">
-                <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground/60">Result</span>
+              <div className="border-t border-border px-4 py-2.5">
+                <span className="text-2xs font-normal opacity-45">Result</span>
                 <pre className={`mt-1 whitespace-pre-wrap break-words ${result.split("\n").length > 8 ? "max-h-[10rem] overflow-y-auto scrollbar-hide" : "overflow-hidden"}`}>{result}</pre>
               </div>
             )}
@@ -211,7 +240,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
 
 function PinIcon({ pinned }: { pinned: boolean }) {
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill={pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill={pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-35">
       <path d="M12 17v5" /><path d="M9 2h6l-1.5 4.5L18 9l-1 1h-5.5L9 17H7l2.5-7H4l-1-1 4.5-2.5L9 2z" transform="rotate(45 12 12)" />
     </svg>
   );
@@ -279,13 +308,14 @@ function SpawnPill({
 
   return (
     <div
-      className={`w-full rounded-none border overflow-hidden relative ${resultError ? "border-destructive/30" : "border-border"}`}
+      className="w-full overflow-hidden relative font-mono"
+      style={getToolBubbleStyle(resultError)}
       {...handlers}
     >
       {/* Swipe action indicator (behind content) */}
       {hasFeed && offset !== 0 && (
         <div className="absolute right-0 inset-y-0 w-20 flex items-center justify-center">
-          <div className={`flex flex-col items-center gap-0.5 text-2xs font-medium transition-colors ${pastThreshold ? "text-foreground" : "text-muted-foreground/50"}`}>
+          <div className={`flex flex-col items-center gap-0.5 text-2xs font-normal transition-opacity ${pastThreshold ? "opacity-85" : "opacity-45"}`}>
             <PinIcon pinned={!!isPinned} />
             <span>{isPinned ? "Unpin" : "Pin"}</span>
           </div>
@@ -293,7 +323,7 @@ function SpawnPill({
       )}
       {/* Sliding content */}
       <div
-        className={`rounded-[inherit] font-mono ${resultError ? "bg-destructive/5" : ""}`}
+        className="rounded-[inherit]"
         style={{
           transform: offset !== 0 ? `translateX(${offset}px)` : undefined,
           transition: animating ? "transform 200ms ease-out" : "none",
@@ -302,7 +332,7 @@ function SpawnPill({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="w-full rounded-[inherit] cursor-pointer px-3 py-1.5 text-left text-xs font-medium text-muted-foreground"
+          className="w-full rounded-[inherit] cursor-pointer px-4 py-2.5 text-left text-xs font-normal"
         >
           <div className="flex items-center gap-1">
             <StatusIcon status={status} resultError={resultError} />
@@ -312,7 +342,7 @@ function SpawnPill({
             <Chevron open={open && !isPinned} />
           </div>
           {model && (
-            <div className="text-2xs text-muted-foreground/40 font-normal mt-0.5 ml-[18px]">{model}</div>
+            <div className="text-2xs font-normal mt-0.5 ml-[18px] opacity-55">{model}</div>
           )}
         </button>
         <SlideContent open={open && !isPinned}>
