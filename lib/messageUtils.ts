@@ -67,3 +67,23 @@ export function thinkingPreview(text: string): string {
   const words = text.trim().split(/\s+/).slice(0, 8).join(" ");
   return words + (text.trim().split(/\s+/).length > 8 ? "..." : "");
 }
+
+export function unwrapLineUnderscoreEmphasis(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      const leading = line.match(/^\s*/)?.[0] ?? "";
+      const trailing = line.match(/\s*$/)?.[0] ?? "";
+      const core = line.slice(leading.length, line.length - trailing.length);
+      if (core.length < 2) return line;
+
+      const hasSingleUnderscoreWrap = core.startsWith("_") && core.endsWith("_")
+        && !core.startsWith("__") && !core.endsWith("__");
+      if (!hasSingleUnderscoreWrap) return line;
+
+      const inner = core.slice(1, -1);
+      if (!inner.trim()) return line;
+      return `${leading}${inner}${trailing}`;
+    })
+    .join("\n");
+}

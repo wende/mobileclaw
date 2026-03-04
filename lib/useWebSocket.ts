@@ -185,10 +185,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
           if (frame.type === "event" && frame.event === "agent") {
             const p = frame.payload as { stream?: unknown; data?: Record<string, unknown> } | undefined;
-            const streamName = typeof p?.stream === "string" ? p.stream : String(p?.stream);
+            const streamName = typeof p?.stream === "string" && p.stream.trim().length > 0 ? p.stream : null;
             const shouldLogPayloads = payloadDebugEnabledRef.current;
 
-            if (shouldLogPayloads && !seenAgentStreamsRef.current.has(streamName)) {
+            if (shouldLogPayloads && streamName && !seenAgentStreamsRef.current.has(streamName)) {
               seenAgentStreamsRef.current.add(streamName);
               console.log("[WS] Agent stream detected:", streamName);
             }
