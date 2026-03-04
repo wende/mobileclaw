@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 
 import { createLmStudioHandler, type LmStudioConfig } from "@/lib/lmStudio";
 import { notifyMessageComplete } from "@/lib/notifications";
-import { getTextFromContent } from "@/lib/messageUtils";
+import { getTextFromContent, updateAt } from "@/lib/messageUtils";
 import {
   NO_REPLY_MARKER,
   STOP_REASON_INJECTED,
@@ -306,6 +306,16 @@ export default function Home() {
     setMessages((prev) => resolveToolCallInMessages(prev, runId, name, toolCallId, result, isError));
   }, []);
 
+  const applyRunDuration = useCallback((runId: string, runDuration: number) => {
+    if (runDuration <= 0 || !runId) return;
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === runId);
+      const resolvedIdx = idx >= 0 ? idx : prev.findLastIndex((m) => m.role === "assistant" && !m.runDuration);
+      if (resolvedIdx < 0) return prev;
+      return updateAt(prev, resolvedIdx, (m) => ({ ...m, runDuration }));
+    });
+  }, []);
+
   const queuedMessageForRuntimeRef = useRef<{ text: string; attachments?: unknown[] } | null>(null);
 
   const {
@@ -418,10 +428,18 @@ export default function Home() {
 
   const { demoHandlerRef } = useDemoRuntime({
     isDemoMode,
-    notifyForRun: (runId) => notifyForRun(runId),
-    setMessages,
+    appendContentDelta,
+    appendThinkingDelta,
+    startThinkingBlock,
+    addToolCall,
+    resolveToolCall,
+    markRunStart,
+    markRunEnd,
     setIsStreaming,
-    setStreamingId,
+    setAwaitingResponse,
+    setThinkingStartTime,
+    notifyForRun: (runId) => notifyForRun(runId),
+    applyRunDuration,
     subagentStore,
   });
 

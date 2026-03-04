@@ -1,6 +1,6 @@
 // Demo mode — simulates an OpenClaw backend with curated history and keyword-matched responses
 
-import type { Message } from "@/types/chat";
+import type { AgentEventPayload, Message } from "@/types/chat";
 
 // ── Demo conversation history ────────────────────────────────────────────────
 // Single message exchange that showcases ALL display features
@@ -485,23 +485,26 @@ function matchResponse(input: string): DemoResponse {
 
 // ── Demo handler — mimics useWebSocket return shape ──────────────────────────
 
-export interface DemoCallbacks {
-  onStreamStart: (runId: string) => void;
-  onThinking: (runId: string, text: string) => void;
-  onTextDelta: (runId: string, delta: string, fullText: string) => void;
-  onToolStart: (runId: string, name: string, args: string, toolCallId?: string) => void;
-  onToolEnd: (runId: string, name: string, result: string, isError: boolean) => void;
-  onStreamEnd: (runId: string) => void;
+export interface DemoHandlerOptions {
+  onEvent: (event: AgentEventPayload) => void;
   onRegisterSpawn?: (toolCallId: string) => void;
   onSubagentEvent?: (sessionKey: string, stream: string, data: Record<string, unknown>, ts: number) => void;
 }
 
-export function createDemoHandler(callbacks: DemoCallbacks) {
+export function createDemoHandler(options: DemoHandlerOptions) {
+  const { onEvent, onRegisterSpawn, onSubagentEvent } = options;
   let timers: ReturnType<typeof setTimeout>[] = [];
+  const sessionKey = "demo-session";
 
   function clearTimers() {
     timers.forEach(clearTimeout);
     timers = [];
+  }
+
+  function emit(runId: string, stream: AgentEventPayload["stream"], data: Record<string, unknown>, atDelay: number) {
+    timers.push(setTimeout(() => {
+      onEvent({ runId, sessionKey, stream, data, seq: 0, ts: Date.now() });
+    }, atDelay));
   }
 
   function sendMessage(text: string) {
@@ -512,80 +515,87 @@ export function createDemoHandler(callbacks: DemoCallbacks) {
 
     const scheduleThinking = (targetRunId: string, thinking?: string) => {
       if (!thinking) return;
-      const thinkingWords = thinking.split(/(\s+)/);
-      let accumulated = "";
-      for (let i = 0; i < thinkingWords.length; i++) {
-        accumulated += thinkingWords[i];
-        const snap = accumulated;
-        timers.push(setTimeout(() => callbacks.onThinking(targetRunId, snap), delay));
-        if (thinkingWords[i].trim()) delay += 15 + Math.random() * 10;
+      const words = thinking.split(/(\s+)/);
+      for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        emit(targetRunId, "reasoning", { delta: word }, delay);
+        if (word.trim()) delay += 15 + Math.random() * 10;
       }
       delay += 400;
     };
 
     const scheduleToolCall = (targetRunId: string, tc: DemoToolCall) => {
-      const argsStr = JSON.stringify(tc.args);
       const toolCallId = tc.toolCallId || `demo-tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
       if (tc.name === "sessions_spawn" && tc.toolCallId) {
-        timers.push(setTimeout(() => callbacks.onRegisterSpawn?.(toolCallId), delay));
+        timers.push(setTimeout(() => onRegisterSpawn?.(toolCallId), delay));
       }
 
-      timers.push(setTimeout(() => callbacks.onToolStart(targetRunId, tc.name, argsStr, tc.toolCallId ? toolCallId : undefined), delay));
+      emit(targetRunId, "tool", {
+        phase: "start",
+        name: tc.name,
+        args: tc.args,
+        toolCallId: tc.toolCallId ? toolCallId : undefined,
+      }, delay);
 
-      if (tc.subagentActivity && callbacks.onSubagentEvent) {
-        const sessionKey = `demo-subagent-${toolCallId}`;
+      if (tc.subagentActivity && onSubagentEvent) {
+        const subSessionKey = `demo-subagent-${toolCallId}`;
         const toolStartDelay = delay;
         for (const evt of tc.subagentActivity.events) {
           const evtDelay = toolStartDelay + evt.delayMs;
           timers.push(setTimeout(() => {
-            callbacks.onSubagentEvent!(sessionKey, evt.stream, evt.data, Date.now());
+            onSubagentEvent(subSessionKey, evt.stream, evt.data, Date.now());
           }, evtDelay));
         }
       }
 
       delay += tc.delayMs ?? 1000;
-      timers.push(setTimeout(() => callbacks.onToolEnd(targetRunId, tc.name, tc.result, !!tc.isError), delay));
+      emit(targetRunId, "tool", {
+        phase: "result",
+        name: tc.name,
+        result: tc.result,
+        isError: !!tc.isError,
+        toolCallId: tc.toolCallId ? toolCallId : undefined,
+      }, delay);
       delay += 300;
     };
 
     const scheduleText = (targetRunId: string, fullText: string, instant = false) => {
       if (instant) {
-        timers.push(setTimeout(() => callbacks.onTextDelta(targetRunId, fullText, fullText), delay));
+        emit(targetRunId, "content", { delta: fullText }, delay);
         return;
       }
       const words = fullText.split(/(\s+)/);
-      let accumulated = "";
       for (let i = 0; i < words.length; i++) {
-        accumulated += words[i];
-        const snap = accumulated;
-        timers.push(setTimeout(() => callbacks.onTextDelta(targetRunId, words[i], snap), delay));
-        if (!words[i].trim()) continue;
-        if (/[.!?]$/.test(words[i])) delay += 80 + Math.random() * 60;
-        else if (/[,;:]$/.test(words[i])) delay += 40 + Math.random() * 30;
+        const word = words[i];
+        emit(targetRunId, "content", { delta: word }, delay);
+        if (!word.trim()) continue;
+        if (/[.!?]$/.test(word)) delay += 80 + Math.random() * 60;
+        else if (/[,;:]$/.test(word)) delay += 40 + Math.random() * 30;
         else delay += 20 + Math.random() * 25;
       }
     };
 
     if (response.zenCycles && response.zenCycles.length > 0) {
+      emit(runId, "lifecycle", { phase: "start" }, delay);
+      delay += 180;
+
       for (let i = 0; i < response.zenCycles.length; i++) {
         const cycle = response.zenCycles[i];
-        const cycleRunId = `${runId}-zen-${i + 1}`;
-        timers.push(setTimeout(() => callbacks.onStreamStart(cycleRunId), delay));
-        delay += 180;
-        scheduleThinking(cycleRunId, cycle.thinking);
-        scheduleText(cycleRunId, cycle.text, false);
+        scheduleThinking(runId, cycle.thinking);
+        scheduleText(runId, cycle.text, false);
         if (cycle.toolCall) {
-          scheduleToolCall(cycleRunId, cycle.toolCall);
+          scheduleToolCall(runId, cycle.toolCall);
         }
-        delay += 120;
-        timers.push(setTimeout(() => callbacks.onStreamEnd(cycleRunId), delay));
-        delay += 320;
+        delay += 200;
       }
+
+      delay += 200;
+      emit(runId, "lifecycle", { phase: "end" }, delay);
       return;
     }
 
-    timers.push(setTimeout(() => callbacks.onStreamStart(runId), delay));
+    emit(runId, "lifecycle", { phase: "start" }, delay);
     delay += 200;
     scheduleThinking(runId, response.thinking);
     if (response.toolCalls) {
@@ -594,7 +604,7 @@ export function createDemoHandler(callbacks: DemoCallbacks) {
     if (response.delayMs) delay += response.delayMs;
     scheduleText(runId, response.text, !!response.instant);
     delay += 200;
-    timers.push(setTimeout(() => callbacks.onStreamEnd(runId), delay));
+    emit(runId, "lifecycle", { phase: "end" }, delay);
   }
 
   return {

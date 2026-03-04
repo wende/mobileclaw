@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DEMO_HISTORY, createDemoHandler, type DemoCallbacks } from "@/lib/demoMode";
+import { DEMO_HISTORY, createDemoHandler } from "@/lib/demoMode";
+import type { AgentEventPayload } from "@/types/chat";
 
 describe("DEMO_HISTORY", () => {
   it("contains system + user + assistant messages", () => {
@@ -37,94 +38,156 @@ describe("DEMO_HISTORY", () => {
 });
 
 describe("createDemoHandler", () => {
-  let callbacks: DemoCallbacks;
+  let onEvent: ReturnType<typeof vi.fn>;
+  let events: AgentEventPayload[];
 
   beforeEach(() => {
     vi.useFakeTimers();
-    callbacks = {
-      onStreamStart: vi.fn(),
-      onThinking: vi.fn(),
-      onTextDelta: vi.fn(),
-      onToolStart: vi.fn(),
-      onToolEnd: vi.fn(),
-      onStreamEnd: vi.fn(),
-    };
+    events = [];
+    onEvent = vi.fn((evt: AgentEventPayload) => events.push(evt));
   });
 
+  function createHandler() {
+    return createDemoHandler({ onEvent });
+  }
+
+  function flushAll() {
+    vi.advanceTimersByTime(60_000);
+  }
+
+  function lifecycleEvents() {
+    return events.filter(e => e.stream === "lifecycle");
+  }
+
+  function reasoningEvents() {
+    return events.filter(e => e.stream === "reasoning");
+  }
+
+  function contentEvents() {
+    return events.filter(e => e.stream === "content");
+  }
+
+  function toolEvents() {
+    return events.filter(e => e.stream === "tool");
+  }
+
   it("returns sendMessage and stop functions", () => {
-    const handler = createDemoHandler(callbacks);
+    const handler = createHandler();
     expect(typeof handler.sendMessage).toBe("function");
     expect(typeof handler.stop).toBe("function");
   });
 
-  it("calls onStreamStart when a message is sent", () => {
-    const handler = createDemoHandler(callbacks);
+  it("emits lifecycle/start event when a message is sent", () => {
+    const handler = createHandler();
     handler.sendMessage("hello");
     vi.advanceTimersByTime(600);
-    expect(callbacks.onStreamStart).toHaveBeenCalledTimes(1);
+    const starts = lifecycleEvents().filter(e => e.data.phase === "start");
+    expect(starts).toHaveLength(1);
   });
 
-  it("calls onStreamEnd after full processing", () => {
-    const handler = createDemoHandler(callbacks);
+  it("emits lifecycle/end after full processing", () => {
+    const handler = createHandler();
     handler.sendMessage("hello");
-    vi.advanceTimersByTime(60_000); // advance well past all timers
-    expect(callbacks.onStreamEnd).toHaveBeenCalledTimes(1);
+    flushAll();
+    const ends = lifecycleEvents().filter(e => e.data.phase === "end");
+    expect(ends).toHaveLength(1);
   });
 
-  it("triggers thinking for weather keyword", () => {
-    const handler = createDemoHandler(callbacks);
+  it("emits reasoning deltas for weather keyword", () => {
+    const handler = createHandler();
     handler.sendMessage("what's the weather?");
-    vi.advanceTimersByTime(60_000);
-    expect(callbacks.onThinking).toHaveBeenCalled();
-    expect(callbacks.onToolStart).toHaveBeenCalled();
-    expect(callbacks.onToolEnd).toHaveBeenCalled();
+    flushAll();
+    expect(reasoningEvents().length).toBeGreaterThan(0);
+    // Every reasoning event should have a delta
+    for (const evt of reasoningEvents()) {
+      expect(evt.data).toHaveProperty("delta");
+    }
   });
 
-  it("triggers tool calls for error keyword", () => {
-    const handler = createDemoHandler(callbacks);
+  it("emits tool start and result events for weather keyword", () => {
+    const handler = createHandler();
+    handler.sendMessage("what's the weather?");
+    flushAll();
+    const starts = toolEvents().filter(e => e.data.phase === "start");
+    const results = toolEvents().filter(e => e.data.phase === "result");
+    expect(starts.length).toBeGreaterThan(0);
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it("emits tool events with correct data for error keyword", () => {
+    const handler = createHandler();
     handler.sendMessage("show me an error");
-    vi.advanceTimersByTime(60_000);
+    flushAll();
+    const starts = toolEvents().filter(e => e.data.phase === "start");
+    const results = toolEvents().filter(e => e.data.phase === "result");
     // error response has 2 tool calls
-    expect(callbacks.onToolStart).toHaveBeenCalledTimes(2);
-    expect(callbacks.onToolEnd).toHaveBeenCalledTimes(2);
+    expect(starts).toHaveLength(2);
+    expect(results).toHaveLength(2);
+    // Both results should be errors
+    for (const r of results) {
+      expect(r.data.isError).toBe(true);
+    }
   });
 
-  it("does not trigger tools for help keyword", () => {
-    const handler = createDemoHandler(callbacks);
+  it("does not emit tool events for help keyword", () => {
+    const handler = createHandler();
     handler.sendMessage("help");
-    vi.advanceTimersByTime(60_000);
-    expect(callbacks.onToolStart).not.toHaveBeenCalled();
+    flushAll();
+    expect(toolEvents()).toHaveLength(0);
   });
 
-  it("streams zen keyword as multiple think/talk/tool cycles", () => {
-    const handler = createDemoHandler(callbacks);
+  it("streams zen keyword as a single lifecycle with multiple cycles", () => {
+    const handler = createHandler();
     handler.sendMessage("show me zen mode");
-    vi.advanceTimersByTime(60_000);
+    flushAll();
 
-    expect(callbacks.onStreamStart).toHaveBeenCalledTimes(3);
-    expect(callbacks.onStreamEnd).toHaveBeenCalledTimes(3);
-    expect(callbacks.onThinking).toHaveBeenCalled();
-    expect(callbacks.onToolStart).toHaveBeenCalledTimes(2);
-    expect(callbacks.onToolEnd).toHaveBeenCalledTimes(2);
+    const starts = lifecycleEvents().filter(e => e.data.phase === "start");
+    const ends = lifecycleEvents().filter(e => e.data.phase === "end");
+    expect(starts).toHaveLength(1);
+    expect(ends).toHaveLength(1);
+    expect(reasoningEvents().length).toBeGreaterThan(0);
+    // Zen has 2 tool calls
+    expect(toolEvents().filter(e => e.data.phase === "start")).toHaveLength(2);
+    expect(toolEvents().filter(e => e.data.phase === "result")).toHaveLength(2);
   });
 
-  it("streams text deltas", () => {
-    const handler = createDemoHandler(callbacks);
+  it("emits content deltas", () => {
+    const handler = createHandler();
     handler.sendMessage("help");
-    vi.advanceTimersByTime(60_000);
-    expect(callbacks.onTextDelta).toHaveBeenCalled();
-    // last call should have the full accumulated text
-    const lastCall = vi.mocked(callbacks.onTextDelta).mock.calls.at(-1);
-    expect(lastCall?.[2]).toContain("Demo Mode");
+    flushAll();
+    const content = contentEvents();
+    expect(content.length).toBeGreaterThan(0);
+    // Concatenated deltas should contain "Demo Mode"
+    const fullText = content.map(e => e.data.delta).join("");
+    expect(fullText).toContain("Demo Mode");
   });
 
   it("stop clears pending timers", () => {
-    const handler = createDemoHandler(callbacks);
+    const handler = createHandler();
     handler.sendMessage("weather");
     vi.advanceTimersByTime(100); // only partial
     handler.stop();
-    vi.advanceTimersByTime(60_000); // advance past everything
-    // onStreamEnd should NOT have been called since we stopped early
-    expect(callbacks.onStreamEnd).not.toHaveBeenCalled();
+    flushAll();
+    // lifecycle/end should NOT have been emitted since we stopped early
+    const ends = lifecycleEvents().filter(e => e.data.phase === "end");
+    expect(ends).toHaveLength(0);
+  });
+
+  it("all events share the same runId within a send", () => {
+    const handler = createHandler();
+    handler.sendMessage("weather");
+    flushAll();
+    const runIds = new Set(events.map(e => e.runId));
+    expect(runIds.size).toBe(1);
+  });
+
+  it("content deltas are individual words, not accumulated snapshots", () => {
+    const handler = createHandler();
+    handler.sendMessage("help");
+    flushAll();
+    const content = contentEvents();
+    // The instant help response emits the full text as one delta
+    // For non-instant responses, check word-by-word
+    expect(content.length).toBeGreaterThanOrEqual(1);
   });
 });

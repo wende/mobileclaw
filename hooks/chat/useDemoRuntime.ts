@@ -1,24 +1,41 @@
 import { useEffect, useRef } from "react";
 
-import { createDemoHandler, type DemoCallbacks } from "@/lib/demoMode";
-import type { AgentEventPayload, ContentPart, Message } from "@/types/chat";
+import { createDemoHandler } from "@/lib/demoMode";
+import type { AgentEventPayload } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
+import { SPAWN_TOOL_NAME } from "@/lib/constants";
 
 interface UseDemoRuntimeOptions {
   isDemoMode: boolean;
-  notifyForRun: (runId: string) => void;
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  appendContentDelta: (runId: string, delta: string, ts: number) => void;
+  appendThinkingDelta: (runId: string, delta: string, ts: number) => void;
+  startThinkingBlock: (runId: string, ts: number) => void;
+  addToolCall: (runId: string, name: string, ts: number, toolCallId?: string, args?: string) => void;
+  resolveToolCall: (runId: string, name: string, toolCallId?: string, result?: string, isError?: boolean) => void;
+  markRunStart: () => void;
+  markRunEnd: () => number;
   setIsStreaming: (value: boolean) => void;
-  setStreamingId: React.Dispatch<React.SetStateAction<string | null>>;
+  setAwaitingResponse: (value: boolean) => void;
+  setThinkingStartTime: (value: number) => void;
+  notifyForRun: (runId: string) => void;
+  applyRunDuration: (runId: string, duration: number) => void;
   subagentStore: ReturnType<typeof useSubagentStore>;
 }
 
 export function useDemoRuntime({
   isDemoMode,
-  notifyForRun,
-  setMessages,
+  appendContentDelta,
+  appendThinkingDelta,
+  startThinkingBlock,
+  addToolCall,
+  resolveToolCall,
+  markRunStart,
+  markRunEnd,
   setIsStreaming,
-  setStreamingId,
+  setAwaitingResponse,
+  setThinkingStartTime,
+  notifyForRun,
+  applyRunDuration,
   subagentStore,
 }: UseDemoRuntimeOptions) {
   const demoHandlerRef = useRef<ReturnType<typeof createDemoHandler> | null>(null);
@@ -29,51 +46,59 @@ export function useDemoRuntime({
       return;
     }
 
-    const callbacks: DemoCallbacks = {
-      onStreamStart: (runId) => {
-        setIsStreaming(true);
-        setStreamingId(runId);
-        setMessages((prev) => [...prev, { role: "assistant", content: [], id: runId, timestamp: Date.now() }]);
-      },
-      onThinking: (runId, text) => {
-        setMessages((prev) => prev.map((m) => m.id === runId ? { ...m, reasoning: text } : m));
-      },
-      onTextDelta: (runId, _delta, fullText) => {
-        setMessages((prev) => prev.map((target) => {
-          if (target.id !== runId) return target;
-          const existingParts = Array.isArray(target.content) ? target.content : [];
-          const nonTextParts = existingParts.filter((p: ContentPart) => p.type !== "text");
-          return { ...target, content: [...nonTextParts, { type: "text" as const, text: fullText }] };
-        }));
-      },
-      onToolStart: (runId, name, args, toolCallId) => {
-        setMessages((prev) => prev.map((target) => {
-          if (target.id !== runId) return target;
-          const parts = Array.isArray(target.content) ? target.content : [];
-          return {
-            ...target,
-            content: [...parts, { type: "tool_call" as const, name, arguments: args, toolCallId, status: "running" as const }],
-          };
-        }));
-      },
-      onToolEnd: (runId, name, result, isError) => {
-        setMessages((prev) => prev.map((target) => {
-          if (target.id !== runId || !Array.isArray(target.content)) return target;
-          return {
-            ...target,
-            content: target.content.map((p: ContentPart) =>
-              p.type === "tool_call" && p.name === name && p.status === "running"
-                ? { ...p, status: (isError ? "error" : "success"), result, resultError: isError }
-                : p,
-            ),
-          };
-        }));
-      },
-      onStreamEnd: (runId) => {
-        notifyForRun(runId);
-        setIsStreaming(false);
-        setStreamingId(null);
-      },
+    const handleEvent = (payload: AgentEventPayload) => {
+      if (payload.stream === "lifecycle") {
+        const phase = payload.data.phase as string;
+        if (phase === "start") {
+          markRunStart();
+          setIsStreaming(true);
+          setAwaitingResponse(true);
+          setThinkingStartTime(Date.now());
+        } else if (phase === "end") {
+          const runDuration = markRunEnd();
+          notifyForRun(payload.runId);
+          applyRunDuration(payload.runId, runDuration);
+          setIsStreaming(false);
+          setAwaitingResponse(false);
+        }
+        return;
+      }
+
+      if (payload.stream === "reasoning") {
+        const delta = (payload.data.delta ?? "") as string;
+        if (delta) {
+          appendThinkingDelta(payload.runId, delta, payload.ts);
+        }
+      }
+
+      if (payload.stream === "content") {
+        const delta = (payload.data.delta ?? "") as string;
+        if (delta) {
+          appendContentDelta(payload.runId, delta, payload.ts);
+        }
+      }
+
+      if (payload.stream === "tool") {
+        const phase = payload.data.phase as string;
+        const toolName = payload.data.name as string;
+        const toolCallId = payload.data.toolCallId as string | undefined;
+
+        if (phase === "start" && toolName) {
+          if (toolName === SPAWN_TOOL_NAME && toolCallId) {
+            subagentStore.registerSpawn(toolCallId);
+          }
+          addToolCall(payload.runId, toolName, payload.ts, toolCallId, payload.data.args ? JSON.stringify(payload.data.args) : undefined);
+        } else if (phase === "result" && toolName) {
+          const resultText = typeof payload.data.result === "string"
+            ? payload.data.result
+            : JSON.stringify(payload.data.result, null, 2);
+          resolveToolCall(payload.runId, toolName, toolCallId, resultText, !!payload.data.isError);
+        }
+      }
+    };
+
+    demoHandlerRef.current = createDemoHandler({
+      onEvent: handleEvent,
       onRegisterSpawn: (toolCallId) => {
         subagentStore.registerSpawn(toolCallId);
       },
@@ -87,10 +112,23 @@ export function useDemoRuntime({
           ts,
         });
       },
-    };
-
-    demoHandlerRef.current = createDemoHandler(callbacks);
-  }, [isDemoMode, notifyForRun, setIsStreaming, setMessages, setStreamingId, subagentStore]);
+    });
+  }, [
+    isDemoMode,
+    appendContentDelta,
+    appendThinkingDelta,
+    startThinkingBlock,
+    addToolCall,
+    resolveToolCall,
+    markRunStart,
+    markRunEnd,
+    setIsStreaming,
+    setAwaitingResponse,
+    setThinkingStartTime,
+    notifyForRun,
+    applyRunDuration,
+    subagentStore,
+  ]);
 
   return {
     demoHandlerRef,
