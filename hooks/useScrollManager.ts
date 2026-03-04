@@ -190,8 +190,8 @@ export function useScrollManager(
         clearManualStreamUnpin();
       }
 
-      // When streaming and pinned, lock morph to input mode (--sp = 0)
-      if (isStreamingRef.current && pinnedToBottomRef.current) {
+      // When streaming (or grace period) and pinned, lock morph to input mode (--sp = 0)
+      if ((isStreamingRef.current || scrollGraceRef.current) && pinnedToBottomRef.current) {
         setMorphTarget(0);
         return;
       }
@@ -301,11 +301,19 @@ export function useScrollManager(
         return;
       }
 
-      // Clear the streaming height lock when not streaming.
-      content.style.minHeight = "";
+      // During grace period, keep the streaming height lock and let the rAF
+      // momentum loop handle scroll smoothly. The rAF tick will clear minHeight
+      // once grace expires.
+      if (!scrollGraceRef.current) {
+        content.style.minHeight = "";
+      }
 
       if ((pinnedToBottomRef.current || scrollGraceRef.current) && el.scrollHeight > el.clientHeight) {
-        el.scrollTop = el.scrollHeight;
+        // During grace period the rAF momentum loop is still running —
+        // let it smoothly catch up instead of hard-snapping.
+        if (!scrollGraceRef.current) {
+          el.scrollTop = el.scrollHeight;
+        }
         pinnedToBottomRef.current = true;
       }
     });
@@ -333,10 +341,18 @@ export function useScrollManager(
     const SCROLL_MOMENTUM_FACTOR = 0.12; // per-frame blend toward desired velocity (60fps)
     const SCROLL_MIN_VELOCITY = 0.5;     // px/frame minimum while actively scrolling
 
+    let pendingMinHeightClear = false;
+
     const tick = (timestamp: number) => {
       if (wasStreaming && !isStreamingRef.current) {
+        // Don't clear minHeight immediately — defer until after the grace period
+        // so content height stays stable during smooth scroll wind-down.
+        pendingMinHeightClear = true;
+      }
+      if (pendingMinHeightClear && !scrollGraceRef.current) {
         const content = el.firstElementChild as HTMLElement | null;
         if (content) content.style.minHeight = "";
+        pendingMinHeightClear = false;
       }
       wasStreaming = isStreamingRef.current;
 
@@ -356,12 +372,21 @@ export function useScrollManager(
         const diff = target - el.scrollTop;
 
         if (diff > SCROLL_MIN_DIFF) {
-          // Desired velocity proportional to gap: more lines behind = faster
-          const desiredVelocity = diff * SCROLL_VELOCITY_FACTOR;
-          // Exponential smoothing toward desired velocity, frame-rate independent
-          velocity += (desiredVelocity - velocity) * (1 - Math.pow(1 - SCROLL_MOMENTUM_FACTOR, frameScale));
-          velocity = Math.max(velocity, SCROLL_MIN_VELOCITY);
-          el.scrollTop = Math.min(el.scrollTop + velocity * frameScale, target);
+          if (scrollGraceRef.current && !isStreamingRef.current) {
+            // Grace wind-down: no new content arriving, just close the gap.
+            // Skip momentum smoothing — move 20% of remaining distance each
+            // frame for a smooth exponential decay that fully settles in ~200ms.
+            const step = Math.max(diff * 0.2 * frameScale, 1);
+            el.scrollTop = Math.min(el.scrollTop + step, target);
+            velocity = 0;
+          } else {
+            // Desired velocity proportional to gap: more lines behind = faster
+            const desiredVelocity = diff * SCROLL_VELOCITY_FACTOR;
+            // Exponential smoothing toward desired velocity, frame-rate independent
+            velocity += (desiredVelocity - velocity) * (1 - Math.pow(1 - SCROLL_MOMENTUM_FACTOR, frameScale));
+            velocity = Math.max(velocity, SCROLL_MIN_VELOCITY);
+            el.scrollTop = Math.min(el.scrollTop + velocity * frameScale, target);
+          }
         } else {
           velocity = 0;
         }
@@ -526,7 +551,7 @@ export function useScrollManager(
       const velocity = dt > 0 && dt < 200 ? (currentScrollTop - prevScrollTop) / dt : 0;
       const atBottom = isAtBottom();
 
-      if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing && Date.now() > pinLockUntilRef.current && !isStreamingRef.current && !isNativeRef?.current && !isAnimatingScrollRef.current && !morphSuppressedRef.current) {
+      if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing && Date.now() > pinLockUntilRef.current && !isStreamingRef.current && !scrollGraceRef.current && !isNativeRef?.current && !isAnimatingScrollRef.current && !morphSuppressedRef.current) {
         // Arrived at bottom with momentum — smooth rAF-driven bounce
         // Scale velocity to a generous displacement matching pull-to-refresh feel
         const raw = Math.min(velocity * 150, 120);

@@ -427,6 +427,10 @@ The most important principle is this: **design for failure**. Networks are unrel
     text: "Current model: **claude-sonnet-4-5** (Anthropic)\n\nAvailable models:\n- claude-sonnet-4-5 (Anthropic) · 200k context\n- claude-opus-4-5 (Anthropic) · 200k context · reasoning\n- gpt-4o (OpenAI) · 128k context\n- gemini-2.5-pro (Google) · 1M context · reasoning",
     instant: true,
   },
+  "scroll-test": {
+    thinking: "Processing scroll test request. This thinking block adds initial content height that the auto-scroll must track.",
+    text: "Line 1\n\nLine 2\n\nLine 3\n\nLine 4\n\nLine 5\n\nLine 6\n\nLine 7\n\nLine 8\n\nLine 9\n\nLine 10\n\nScroll test done. This final line contains enough text to keep the streaming active for a moment so any end-of-stream bounce or scroll jump becomes visible during the grace period.",
+  },
   slashDefault: {
     text: "Command not available in demo mode. Try /help to see available commands.",
     instant: true,
@@ -478,6 +482,7 @@ function matchResponse(input: string): DemoResponse {
     return RESPONSES.subagent;
   if (lower.includes("agent") || lower.includes("project") || lower.includes("analyze") || lower.includes("review"))
     return RESPONSES.agent;
+  if (lower === "scroll-test") return RESPONSES["scroll-test"];
   if (lower.includes("help") || lower.includes("command") || lower.includes("demo"))
     return RESPONSES.help;
   return DEFAULT_RESPONSE;
