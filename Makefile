@@ -1,10 +1,11 @@
-.PHONY: help build-web pr-comments
+.PHONY: help build-web pr-comments pr-watch
 
 # Default target
 help:
 	@echo "Available targets:"
 	@echo "  make build-web                 - Build static web export for iOS (runs ios/build-web.sh)"
 	@echo "  make pr-comments [PR=<number>] - Display all comments from PR for current branch (or specify PR number)"
+	@echo "  make pr-watch [PR=<number>] [INTERVAL=<seconds>] - Wait for CI/comment updates on a PR"
 	@echo "  make help                      - Display this help message"
 
 # Build static web export for iOS container app
@@ -105,3 +106,15 @@ pr-comments:
 		echo "All review comments have been addressed! 🎉"; \
 	fi; \
 	rm -f "$$TEMP_COMMENTS"
+
+# Watch PR for CI/check status or comment-count changes and exit once changed
+pr-watch:
+	@set -e; \
+	ARGS=""; \
+	if [ -n "$(PR)" ]; then \
+		ARGS="$$ARGS --pr $(PR)"; \
+	fi; \
+	if [ -n "$(INTERVAL)" ]; then \
+		ARGS="$$ARGS --interval $(INTERVAL)"; \
+	fi; \
+	./scripts/gh-pr-watch.sh $$ARGS
