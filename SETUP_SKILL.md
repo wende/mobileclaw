@@ -10,7 +10,7 @@ There are three pieces: **OpenClaw** (the backend), **MobileClaw** (the web serv
 |----------|--------------|:---:|
 | [A. All on one machine](#a-everything-on-one-machine) | OpenClaw, MobileClaw, and browser all on the same computer | Simple but desktop-only |
 | [B. Browser on a different device](#b-browser-on-a-different-device) | OpenClaw + MobileClaw on your server, browser on your phone/tablet | **Best for most people** |
-| [C. OpenClaw on a separate machine](#c-openclaw-on-a-separate-machine) | OpenClaw on machine 1, MobileClaw + browser on machine 2 | When your GPU box is headless |
+| [C. OpenClaw on a separate machine](#c-openclaw-on-a-separate-machine) | OpenClaw on machine 1, MobileClaw + browser on machine 2 | When OpenClaw runs elsewhere |
 | [D. All three separate](#d-all-three-separate) | OpenClaw, MobileClaw, and browser each on a different machine | Full distributed setup |
 
 **Scenario B is recommended** — run OpenClaw and MobileClaw on the same box, then open it from your phone. One machine to manage, and the browser just needs a URL.
