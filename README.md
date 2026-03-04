@@ -93,22 +93,18 @@ Open [localhost:3000?demo](http://localhost:3000?demo) to try it instantly.
 
 ## Connecting to a Backend
 
-### OpenClaw (WebSocket)
+See [SETUP_SKILL.md](SETUP_SKILL.md) for step-by-step instructions covering localhost, LAN, and Tailscale setups.
 
-Requires OpenClaw **2026.2+**.
+## Contributing
 
-1. Start your OpenClaw instance
-2. Enter the server URL (e.g. `ws://127.0.0.1:18789`)
-3. Optionally enter a gateway auth token
-4. Click **Connect**
+```bash
+git clone https://github.com/wende/mobileclaw && cd mobileclaw
+pnpm install && pnpm dev
+```
 
-### LM Studio (HTTP)
+This starts a dev server with Turbopack at [http://localhost:3000](http://localhost:3000).
 
-1. Start LM Studio and enable the local server (default: `http://localhost:1234`)
-2. Select "LM Studio" in the setup dialog and enter the URL
-3. Pick your model from the dropdown
-
-Connection settings persist across page reloads via localStorage.
+For development, use [Scenario A](SETUP_SKILL.md#a-everything-on-one-machine) (everything on one machine) or [Scenario C](SETUP_SKILL.md#c-openclaw-on-a-separate-machine) (OpenClaw running elsewhere) from the setup guide.
 
 ## Tech Stack
 
