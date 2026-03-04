@@ -11,17 +11,11 @@ export function useThinkingState(
   messages: Message[],
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
 ) {
-  const [awaitingResponse, setAwaitingResponse] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      const saved = sessionStorage.getItem("mc-run-active");
-      sessionStorage.removeItem("mc-run-active");
-      return saved === "1";
-    } catch { return false; }
-  });
+  const [awaitingResponse, setAwaitingResponse] = useState(false);
   const [thinkingExiting, setThinkingExiting] = useState(false);
   const [justRevealedId, setJustRevealedId] = useState<string | null>(null);
   const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null);
+  const didRestoreRunStateRef = useRef(false);
 
   const showThinkingIndicator = awaitingResponse || thinkingExiting;
 
@@ -31,6 +25,19 @@ export function useThinkingState(
   const thinkingStartTimeRef = useRef<number | null>(null);
   thinkingStartTimeRef.current = thinkingStartTime;
   const pendingThinkingDurationRef = useRef<number | null>(null);
+
+  // Hydration-safe restore: read persisted run-active state only after mount.
+  // Reading this during initial render causes SSR/client mismatches.
+  useEffect(() => {
+    if (didRestoreRunStateRef.current) return;
+    didRestoreRunStateRef.current = true;
+
+    try {
+      const saved = sessionStorage.getItem("mc-run-active");
+      sessionStorage.removeItem("mc-run-active");
+      if (saved === "1") setAwaitingResponse(true);
+    } catch {}
+  }, []);
 
   const resetThinkingState = useCallback(() => {
     setAwaitingResponse(false);

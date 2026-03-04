@@ -36,6 +36,8 @@ export function useSubagentStore(): SubagentStore {
   const versionRef = useRef<number>(0);
   // Pending "done" timers per session (debounced lifecycle:end)
   const doneTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Lock each session's current turn to a single reasoning stream source.
+  const reasoningSourceBySessionRef = useRef<Map<string, "reasoning" | "thinking">>(new Map());
 
   const bump = () => { versionRef.current += 1; };
 
@@ -82,6 +84,7 @@ export function useSubagentStore(): SubagentStore {
       if (isStart) {
         // New turn starting — cancel any pending "done" timer and reset to active
         cancelDoneTimer(sessionKey);
+        reasoningSourceBySessionRef.current.delete(sessionKey);
         autoLink(sessionKey);
         const session = ensureSession(sessionKey);
         session.status = "active";
@@ -129,7 +132,15 @@ export function useSubagentStore(): SubagentStore {
         session.entries.push({ type: "text", text: delta, ts });
       }
       bump();
-    } else if (stream === "reasoning") {
+    } else if (stream === "reasoning" || stream === "thinking") {
+      const streamSource = stream as "reasoning" | "thinking";
+      const selected = reasoningSourceBySessionRef.current.get(sessionKey);
+      if (!selected) {
+        reasoningSourceBySessionRef.current.set(sessionKey, streamSource);
+      } else if (selected !== streamSource) {
+        return;
+      }
+
       const delta = (data.delta || data.text || data.content || "") as string;
       if (!delta) return;
       const last = session.entries[session.entries.length - 1];
@@ -163,6 +174,7 @@ export function useSubagentStore(): SubagentStore {
 
   const ingestChatEvent = useCallback((sessionKey: string, state: "final" | "aborted" | "error") => {
     const session = ensureSession(sessionKey);
+    reasoningSourceBySessionRef.current.delete(sessionKey);
     if (state === "final") {
       // Some runtimes don't emit lifecycle:end for child sessions.
       // Mirror lifecycle:end behavior: mark done after grace unless activity resumes.
@@ -283,6 +295,7 @@ export function useSubagentStore(): SubagentStore {
     // Cancel all pending done timers
     for (const timer of doneTimersRef.current.values()) clearTimeout(timer);
     doneTimersRef.current.clear();
+    reasoningSourceBySessionRef.current.clear();
     storeRef.current.clear();
     linkMapRef.current.clear();
     pendingSpawnsRef.current = [];

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import type { ContentPart, Message } from "@/types/chat";
 import { getTextFromContent, getImages, getFiles } from "@/lib/messageUtils";
-import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, PILL_BASE_HEIGHT, RADIUS_TRANSITION, MESSAGE_SEND_ANIMATION } from "@/lib/constants";
+import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, MESSAGE_SEND_ANIMATION } from "@/lib/constants";
 import { useExpandablePanel } from "@/hooks/useExpandablePanel";
 import { SlideContent } from "@/components/SlideContent";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
@@ -222,11 +222,32 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
 
 const THINKING_COLLAPSE_THRESHOLD = 5;
 
+function unwrapLineUnderscoreEmphasis(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      const leading = line.match(/^\s*/)?.[0] ?? "";
+      const trailing = line.match(/\s*$/)?.[0] ?? "";
+      const core = line.slice(leading.length, line.length - trailing.length);
+      if (core.length < 2) return line;
+
+      const hasSingleUnderscoreWrap = core.startsWith("_") && core.endsWith("_")
+        && !core.startsWith("__") && !core.endsWith("__");
+      if (!hasSingleUnderscoreWrap) return line;
+
+      const inner = core.slice(1, -1);
+      if (!inner.trim()) return line;
+      return `${leading}${inner}${trailing}`;
+    })
+    .join("\n");
+}
+
 function ThinkingPill({ text }: { text: string }) {
-  const isEmpty = !text.trim();
+  const displayText = unwrapLineUnderscoreEmphasis(text);
+  const isEmpty = !displayText.trim();
   const [mounted, setMounted] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const lineCount = text.split("\n").length;
+  const lineCount = displayText.split("\n").length;
   const needsClamp = !isEmpty && lineCount >= THINKING_COLLAPSE_THRESHOLD;
 
   useEffect(() => {
@@ -256,13 +277,13 @@ function ThinkingPill({ text }: { text: string }) {
     return (
       <SlideContent open={mounted}>
         <p className="text-xs leading-[1.5] text-muted-foreground/50 whitespace-pre-wrap break-words overflow-hidden">
-          {text}
+          {displayText}
         </p>
       </SlideContent>
     );
   }
 
-  const firstLine = text.split("\n")[0];
+  const firstLine = displayText.split("\n")[0];
 
   return (
     <SlideContent open={mounted}>
@@ -284,7 +305,7 @@ function ThinkingPill({ text }: { text: string }) {
           </svg>
         </div>
         <SlideContent open={expanded}>
-          <p className="whitespace-pre-wrap break-words overflow-hidden">{text}</p>
+          <p className="whitespace-pre-wrap break-words overflow-hidden">{displayText}</p>
         </SlideContent>
       </div>
     </SlideContent>
@@ -507,24 +528,7 @@ export function MessageRow({
   const messageRef = useRef<HTMLDivElement>(null);
   useNativeClickInterceptor(messageRef);
 
-  // Pill → squircle transition for user bubbles
-  const userBubbleRef = useRef<HTMLDivElement>(null);
-  const [userBubbleH, setUserBubbleH] = useState(0);
   const isUser = message.role === "user";
-  useEffect(() => {
-    if (!isUser || typeof ResizeObserver === "undefined") return;
-    const el = userBubbleRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const h = entry.borderBoxSize?.[0]?.blockSize ?? el.offsetHeight;
-      setUserBubbleH(Math.round(h));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [isUser]);
-  const userRadius = isUser && userBubbleH > 0
-    ? (userBubbleH <= PILL_BASE_HEIGHT ? Math.round(userBubbleH / 2) : SQUIRCLE_RADIUS)
-    : 9999;
 
   const text = getTextFromContent(message.content);
   const images = getImages(message.content);
@@ -749,11 +753,9 @@ export function MessageRow({
       style={collapsedZenSibling ? { marginBottom: "-0.75rem", transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` } : { transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` }}
     >
       <div
-        ref={isUser ? userBubbleRef : undefined}
         className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "px-4 py-2.5 text-primary-foreground" : ""} ${hasSpawnTool ? "w-[85%] md:w-[75%]" : ""}`}
         style={isUser ? {
-          borderRadius: `${userRadius}px`,
-          transition: isSentAnim ? undefined : RADIUS_TRANSITION,
+          borderRadius: SQUIRCLE_RADIUS,
           background: "oklch(from var(--primary) l c h / 0.85)",
           border: "1px solid oklch(from var(--foreground) l c h / 0.12)",
           boxShadow: "0 2px 4px rgba(0,0,0,0.08)",

@@ -46,6 +46,32 @@ describe("MessageRow", () => {
     });
   });
 
+  it("unwraps markdown-style underscore emphasis in thinking blocks", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [],
+      reasoning: "Reasoning:\n_The user_",
+      id: "test-thinking-underscore",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+    expect(screen.getByText(/The user/)).toBeInTheDocument();
+    expect(screen.queryByText("_The user_")).not.toBeInTheDocument();
+  });
+
+  it("unwraps outer underscore emphasis even when inner text contains underscores", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [],
+      reasoning: "Reasoning:\n_The user has an open_claw server_",
+      id: "test-thinking-underscore-inner",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+    expect(screen.getByText(/open_claw/)).toBeInTheDocument();
+    expect(screen.queryByText("_The user has an open_claw server_")).not.toBeInTheDocument();
+  });
+
   it("renders system message centered", () => {
     const message: Message = {
       role: "system",

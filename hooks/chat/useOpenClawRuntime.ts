@@ -9,7 +9,6 @@ import {
   WS_HELLO_OK,
 } from "@/lib/constants";
 import { signConnectChallenge } from "@/lib/deviceIdentity";
-import { logAgentEvent, logChatEvent } from "@/lib/debugLog";
 import { getTextFromContent, updateAt } from "@/lib/messageUtils";
 import { upsertChatEventMessage } from "@/lib/chat/chatEventUpsert";
 import { mergeModels, parseConfigProviders, type ConfigParseResult } from "@/lib/parseBackendModels";
@@ -160,6 +159,9 @@ export function useOpenClawRuntime({
     insideThinkTag: boolean;
     tagBuffer: string;
   }>({ insideThinkTag: false, tagBuffer: "" });
+  // Some backends can emit both reasoning + thinking streams for the same run.
+  // Lock each run to the first stream seen to avoid duplicate thinking updates.
+  const thinkingSourceByRunRef = useRef<Map<string, "reasoning" | "thinking">>(new Map());
 
   const sendWS = useCallback((msg: { type: string; [key: string]: unknown }) => {
     return sendWSMessageRef.current?.(msg as WebSocketMessage) ?? false;
@@ -220,6 +222,9 @@ export function useOpenClawRuntime({
     setIsStreaming(false);
     setStreamingId(null);
     if (opts?.clearRunId) {
+      if (activeRunIdRef.current) {
+        thinkingSourceByRunRef.current.delete(activeRunIdRef.current);
+      }
       activeRunIdRef.current = null;
     }
   }, [setAwaitingResponse, setIsStreaming, setStreamingId]);
@@ -410,8 +415,6 @@ export function useOpenClawRuntime({
   }, [setMessages]);
 
   const handleChatEvent = useCallback((payload: ChatEventPayload) => {
-    logChatEvent(payload);
-
     if (payload.sessionKey !== sessionKeyRef.current) {
       if (payload.state === "final" || payload.state === "aborted" || payload.state === "error") {
         subagentStore.ingestChatEvent(payload.sessionKey, payload.state);
@@ -473,6 +476,8 @@ export function useOpenClawRuntime({
         const shouldFinalizeRuntime = !hasActiveRun || isActiveRunFinal;
 
         if (shouldFinalizeRuntime) {
+          if (payload.runId) thinkingSourceByRunRef.current.delete(payload.runId);
+          if (activeRunIdRef.current) thinkingSourceByRunRef.current.delete(activeRunIdRef.current);
           const runDuration = markRunEnd();
           notifyForRun(payload.runId || activeRunIdRef.current);
           applyRunDuration(payload.runId, runDuration);
@@ -494,6 +499,8 @@ export function useOpenClawRuntime({
           if (!queuedMessageRef.current) requestHistory();
           break;
         }
+        if (payload.runId) thinkingSourceByRunRef.current.delete(payload.runId);
+        if (activeRunIdRef.current) thinkingSourceByRunRef.current.delete(activeRunIdRef.current);
         markRunEnd();
         stopHistoryPolling();
         clearStreamingRuntimeState({ clearRunId: true });
@@ -509,6 +516,8 @@ export function useOpenClawRuntime({
           if (!queuedMessageRef.current) requestHistory();
           break;
         }
+        if (payload.runId) thinkingSourceByRunRef.current.delete(payload.runId);
+        if (activeRunIdRef.current) thinkingSourceByRunRef.current.delete(activeRunIdRef.current);
         markRunEnd();
         stopHistoryPolling();
         clearStreamingRuntimeState({ clearRunId: true });
@@ -546,8 +555,6 @@ export function useOpenClawRuntime({
   ]);
 
   const handleAgentEvent = useCallback((payload: AgentEventPayload) => {
-    logAgentEvent(payload);
-
     if (payload.sessionKey !== sessionKeyRef.current) {
       subagentStore.ingestAgentEvent(payload.sessionKey, payload);
       return;
@@ -556,6 +563,7 @@ export function useOpenClawRuntime({
     if (payload.stream === "lifecycle") {
       const phase = payload.data.phase as string;
       if (phase === "start") {
+        thinkingSourceByRunRef.current.delete(payload.runId);
         const isExternalRun = !activeRunIdRef.current;
         markRunStart();
         setIsStreaming(true);
@@ -595,7 +603,15 @@ export function useOpenClawRuntime({
       }
     }
 
-    if (payload.stream === "reasoning") {
+    if (payload.stream === "reasoning" || payload.stream === "thinking") {
+      const streamSource = payload.stream as "reasoning" | "thinking";
+      const selected = thinkingSourceByRunRef.current.get(payload.runId);
+      if (!selected) {
+        thinkingSourceByRunRef.current.set(payload.runId, streamSource);
+      } else if (selected !== streamSource) {
+        return;
+      }
+
       if (isReasoningBlockStart(payload.data)) {
         startThinkingBlock(payload.runId, payload.ts);
       }
@@ -652,6 +668,7 @@ export function useOpenClawRuntime({
       }
       if (msg.id?.startsWith("run-")) {
         if (!msg.ok && msg.error) {
+          if (activeRunIdRef.current) thinkingSourceByRunRef.current.delete(activeRunIdRef.current);
           const errorText = typeof msg.error === "string" ? msg.error : msg.error?.message || "Request failed";
           clearStreamingRuntimeState({ clearRunId: true });
           const errorMsg: Message = {
@@ -764,6 +781,7 @@ export function useOpenClawRuntime({
     onClose: () => {
       stopHistoryPolling();
       clearStreamingRuntimeState();
+      thinkingSourceByRunRef.current.clear();
       hasAutoScrolledInitialHistoryRef.current = false;
     },
     onReconnecting: (attempt, delay) => {
@@ -854,6 +872,7 @@ export function useOpenClawRuntime({
   const clearForSessionSwitch = useCallback(() => {
     stopHistoryPolling();
     clearStreamingRuntimeState({ clearRunId: true });
+    thinkingSourceByRunRef.current.clear();
     setMessages([]);
     setHistoryLoaded(false);
     setCurrentModel(null);

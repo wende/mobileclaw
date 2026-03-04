@@ -39,6 +39,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const initialRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intentionalCloseRef = useRef(false);
   const reconnectingRef = useRef(false);
+  const seenAgentStreamsRef = useRef<Set<string>>(new Set());
+  const seenAssistantShapesRef = useRef<Set<string>>(new Set());
   // Set to true by the consumer (via markEstablished) after the full protocol
   // handshake succeeds.  Auto-reconnect only fires when this is true, so a
   // connection that opened at the TCP/WS level but was rejected by the server
@@ -164,8 +166,41 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
           return;
         }
         try {
-          const data = JSON.parse(event.data) as WebSocketMessage;
-          optionsRef.current.onMessage?.(data);
+          const frame = JSON.parse(event.data) as WebSocketMessage;
+
+          if (frame.type === "event" && frame.event === "agent") {
+            const p = frame.payload as { stream?: unknown; data?: Record<string, unknown> } | undefined;
+            const streamName = typeof p?.stream === "string" ? p.stream : String(p?.stream);
+
+            if (!seenAgentStreamsRef.current.has(streamName)) {
+              seenAgentStreamsRef.current.add(streamName);
+              console.log("[WS] Agent stream detected:", streamName);
+            }
+
+            if (p?.stream === "thinking" || p?.stream === "reasoning") {
+              const fullThoughtText = p.data?.text;
+              console.log("[WS] Agent thinking:", fullThoughtText);
+            } else if (p?.stream === "assistant" && p.data && typeof p.data === "object") {
+              const shape = Object.keys(p.data).sort().join(",");
+              if (!seenAssistantShapesRef.current.has(shape)) {
+                seenAssistantShapesRef.current.add(shape);
+                console.log("[WS] Assistant payload keys:", shape || "(none)");
+              }
+
+              const explicitThought = p.data.thinking ?? p.data.reasoning ?? p.data.thought ?? p.data.analysis;
+              if (typeof explicitThought === "string" && explicitThought.trim().length > 0) {
+                console.log("[WS] Agent thinking:", explicitThought);
+              } else if (typeof p.data.text === "string") {
+                const match = p.data.text.match(/<think>([\s\S]*?)(?:<\/think>|$)/i);
+                const fullThoughtText = match?.[1]?.trim();
+                if (fullThoughtText) {
+                  console.log("[WS] Agent thinking:", fullThoughtText);
+                }
+              }
+            }
+          }
+
+          optionsRef.current.onMessage?.(frame);
         } catch (err) {
           console.error("Failed to parse WebSocket message:", err, "Raw data:", event.data);
         }
