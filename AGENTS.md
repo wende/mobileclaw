@@ -57,6 +57,7 @@ pnpm test            # run Vitest tests (63 tests)
 ```
 
 - When developing features for iOS app *ONLY* run `make build-web` after completing the task.
+- Run `make pr-comments` to review current PR comments.
 
 ## Backend Modes
 
