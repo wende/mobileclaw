@@ -30,12 +30,12 @@ There are three pieces: **OpenClaw** (the backend), **MobileClaw** (the web serv
 ```mermaid
 graph LR
     subgraph Machine 1
-        OC[🦞 OpenClaw\nws://127.0.0.1:18789]
-        MC[🌐 MobileClaw\nhttp://localhost:3000]
-        B[📱 Browser\nlocalhost:3000]
+        OC["🦞 OpenClaw<br/>ws://127.0.0.1:18789"]
+        MC["🌐 MobileClaw<br/>http://localhost:3000"]
+        B["📱 Browser"]
     end
     B -- HTTP --> MC
-    B -- WebSocket --> OC
+    MC -- WebSocket --> OC
 ```
 
 ### Install and run MobileClaw
@@ -61,14 +61,14 @@ Done.
 ```mermaid
 graph LR
     subgraph Machine 1
-        OC[🦞 OpenClaw\nws://0.0.0.0:18789]
-        MC[🌐 MobileClaw\nhttp://0.0.0.0:3000]
+        OC["🦞 OpenClaw<br/>ws://0.0.0.0:18789"]
+        MC["🌐 MobileClaw<br/>http://0.0.0.0:3000"]
     end
     subgraph Machine 2
-        B[📱 Browser]
+        B["📱 Browser"]
     end
     B -- HTTP --> MC
-    B -- WebSocket --> OC
+    MC -- WebSocket --> OC
 ```
 
 ### 1. Make OpenClaw listen on all interfaces
@@ -118,14 +118,14 @@ In the setup dialog:
 ```mermaid
 graph LR
     subgraph Machine 1
-        OC[🦞 OpenClaw\nws://0.0.0.0:18789]
+        OC["🦞 OpenClaw<br/>ws://0.0.0.0:18789"]
     end
     subgraph Machine 2
-        MC[🌐 MobileClaw\nhttp://localhost:3000]
-        B[📱 Browser\nlocalhost:3000]
+        MC["🌐 MobileClaw<br/>http://localhost:3000"]
+        B["📱 Browser"]
     end
     B -- HTTP --> MC
-    B -- WebSocket --> OC
+    MC -- WebSocket --> OC
 ```
 
 ### 1. Make OpenClaw listen on all interfaces
@@ -161,16 +161,16 @@ Machine 1 must be reachable from machine 2 — same LAN or Tailscale.
 ```mermaid
 graph LR
     subgraph Machine 1
-        OC[🦞 OpenClaw\nws://0.0.0.0:18789]
+        OC["🦞 OpenClaw<br/>ws://0.0.0.0:18789"]
     end
     subgraph Machine 2
-        MC[🌐 MobileClaw\nhttp://0.0.0.0:3000]
+        MC["🌐 MobileClaw<br/>http://0.0.0.0:3000"]
     end
     subgraph Machine 3
-        B[📱 Browser]
+        B["📱 Browser"]
     end
     B -- HTTP --> MC
-    B -- WebSocket --> OC
+    MC -- WebSocket --> OC
 ```
 
 This is scenario B + C combined. Both OpenClaw and MobileClaw must bind to `0.0.0.0`, and all three machines must be able to reach each other.
