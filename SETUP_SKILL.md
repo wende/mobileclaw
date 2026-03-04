@@ -2,99 +2,204 @@
 
 You are helping a user set up **MobileClaw** — a mobile chat UI that connects to an OpenClaw backend.
 
-## Step 0: Ask the User
+There are three pieces: **OpenClaw** (the backend), **MobileClaw** (the web server), and the **Browser** (where you use it). Pick the scenario that matches your setup.
 
-Before starting, ask:
+## Which scenario are you?
 
-1. **Where is your OpenClaw running?** (same machine / another machine on your network / remote server)
-2. **Will you access MobileClaw from the same machine, or from your phone/tablet too?**
+| Scenario | What it means | Recommended? |
+|----------|--------------|:---:|
+| [A. All on one machine](#a-everything-on-one-machine) | OpenClaw, MobileClaw, and browser all on the same computer | Simple but desktop-only |
+| [B. Browser on a different device](#b-browser-on-a-different-device) | OpenClaw + MobileClaw on your server, browser on your phone/tablet | **Best for most people** |
+| [C. OpenClaw on a separate machine](#c-openclaw-on-a-separate-machine) | OpenClaw on machine 1, MobileClaw + browser on machine 2 | When your GPU box is headless |
+| [D. All three separate](#d-all-three-separate) | OpenClaw, MobileClaw, and browser each on a different machine | Full distributed setup |
 
----
-
-## Step 1: Install and Run
-
-```bash
-git clone https://github.com/wende/mobileclaw
-cd mobileclaw
-pnpm install
-pnpm build
-pnpm start
-```
-
-Opens at [http://localhost:3000](http://localhost:3000). You'll see a setup dialog.
-
-**No backend yet?** Add `?demo` to the URL to try it with fake data: [http://localhost:3000?demo](http://localhost:3000?demo)
+**Scenario B is recommended** — run OpenClaw and MobileClaw on the same box, then open it from your phone. One machine to manage, and the browser just needs a URL.
 
 ---
 
-## Step 2: Connect to OpenClaw
+## Prerequisites (all scenarios)
 
-Make sure your OpenClaw gateway is running:
-
-```bash
-curl -s http://127.0.0.1:18789/v1/models | head -c 200
-```
-
-In the MobileClaw setup dialog:
-
-1. Enter `ws://127.0.0.1:18789`
-2. If your gateway uses auth, enter the token (from `~/.openclaw/openclaw.json` → `gateway.auth.token`)
-3. Click **Connect**
-
-Settings are saved in your browser — you won't need to re-enter them.
+- **Node.js >= 20** (`node --version`)
+- **pnpm** (`corepack enable && corepack prepare pnpm@latest --activate`)
+- **OpenClaw 2026.2+** installed and the gateway running somewhere
 
 ---
 
-## Step 3: Access from Your Phone
+## A. Everything on one machine
 
-By default the dev server only listens on localhost. To access from other devices:
-
-### 3a. Start on all interfaces
-
-```bash
-pnpm build
-npx next start --hostname 0.0.0.0
+```mermaid
+graph LR
+    subgraph Machine 1
+        OC[🦞 OpenClaw\nws://127.0.0.1:18789]
+        MC[🌐 MobileClaw\nhttp://localhost:3000]
+        B[📱 Browser\nlocalhost:3000]
+    end
+    B -- HTTP --> MC
+    B -- WebSocket --> OC
 ```
 
-### 3b. Find your machine's IP
+### Install and run MobileClaw
 
 ```bash
-# macOS
-ipconfig getifaddr en0
-
-# Linux
-hostname -I | awk '{print $1}'
+git clone https://github.com/wende/mobileclaw && cd mobileclaw
+pnpm install && pnpm build && pnpm start
 ```
 
-### 3c. Open on your phone
+### Connect
 
-Browse to `http://<your-ip>:3000` (e.g. `http://192.168.1.42:3000`).
+Open [http://localhost:3000](http://localhost:3000). In the setup dialog:
 
-### 3d. Fix the backend URL
+- URL: `ws://127.0.0.1:18789`
+- Token: from `~/.openclaw/openclaw.json` → `gateway.auth.token` (if auth is enabled)
 
-**This is the part people miss.** Your phone's browser connects to OpenClaw *directly* — not through MobileClaw. So in the setup dialog on your phone, enter the machine's LAN IP, not localhost:
+Done.
 
-- `ws://192.168.1.42:18789` (not `ws://127.0.0.1:18789`)
+---
 
-OpenClaw must also listen on `0.0.0.0`. Check `~/.openclaw/openclaw.json`:
+## B. Browser on a different device
+
+```mermaid
+graph LR
+    subgraph Machine 1
+        OC[🦞 OpenClaw\nws://0.0.0.0:18789]
+        MC[🌐 MobileClaw\nhttp://0.0.0.0:3000]
+    end
+    subgraph Machine 2
+        B[📱 Browser]
+    end
+    B -- HTTP --> MC
+    B -- WebSocket --> OC
+```
+
+### 1. Make OpenClaw listen on all interfaces
+
+Edit `~/.openclaw/openclaw.json` on machine 1:
 
 ```json
 { "gateway": { "host": "0.0.0.0" } }
 ```
 
-Restart the gateway after changing this.
+Restart the gateway: `openclaw gateway stop && sleep 3 && openclaw gateway install`
 
-### 3e. Using Tailscale instead of LAN
+### 2. Install and run MobileClaw
 
-If your devices are on different networks, [Tailscale](https://tailscale.com) is the easiest solution (free for personal use).
+```bash
+git clone https://github.com/wende/mobileclaw && cd mobileclaw
+pnpm install && pnpm build && npx next start --hostname 0.0.0.0
+```
 
-1. Install Tailscale on both the server machine and your phone
-2. Sign in with the same account on both
-3. Find the Tailscale hostname: `tailscale status` (e.g. `my-macbook`)
-4. Open `http://my-macbook:3000` on your phone
-5. In the setup dialog: `ws://my-macbook:18789`
+### 3. Find machine 1's address
 
-Same rules apply — OpenClaw must bind to `0.0.0.0` and you use the Tailscale hostname instead of a LAN IP.
+Same LAN:
+```bash
+# macOS
+ipconfig getifaddr en0
+# Linux
+hostname -I | awk '{print $1}'
+```
+
+Different networks — use [Tailscale](https://tailscale.com) (free): install on both devices, then `tailscale status` to get the hostname (e.g. `my-macbook`).
+
+### 4. Connect from the browser
+
+Open `http://<machine1-ip>:3000` (or `http://my-macbook:3000` with Tailscale).
+
+In the setup dialog:
+
+- URL: `ws://<machine1-ip>:18789` (same IP/hostname as above)
+- Token: if auth is enabled
+
+**Key point:** the browser connects to OpenClaw *directly* via WebSocket — not through MobileClaw. So OpenClaw must be reachable from the browser's device.
+
+---
+
+## C. OpenClaw on a separate machine
+
+```mermaid
+graph LR
+    subgraph Machine 1
+        OC[🦞 OpenClaw\nws://0.0.0.0:18789]
+    end
+    subgraph Machine 2
+        MC[🌐 MobileClaw\nhttp://localhost:3000]
+        B[📱 Browser\nlocalhost:3000]
+    end
+    B -- HTTP --> MC
+    B -- WebSocket --> OC
+```
+
+### 1. Make OpenClaw listen on all interfaces
+
+On machine 1, edit `~/.openclaw/openclaw.json`:
+
+```json
+{ "gateway": { "host": "0.0.0.0" } }
+```
+
+Restart: `openclaw gateway stop && sleep 3 && openclaw gateway install`
+
+### 2. Install and run MobileClaw on machine 2
+
+```bash
+git clone https://github.com/wende/mobileclaw && cd mobileclaw
+pnpm install && pnpm build && pnpm start
+```
+
+### 3. Connect
+
+Open [http://localhost:3000](http://localhost:3000) on machine 2. In the setup dialog:
+
+- URL: `ws://<machine1-ip>:18789`
+- Token: if auth is enabled
+
+Machine 1 must be reachable from machine 2 — same LAN or Tailscale.
+
+---
+
+## D. All three separate
+
+```mermaid
+graph LR
+    subgraph Machine 1
+        OC[🦞 OpenClaw\nws://0.0.0.0:18789]
+    end
+    subgraph Machine 2
+        MC[🌐 MobileClaw\nhttp://0.0.0.0:3000]
+    end
+    subgraph Machine 3
+        B[📱 Browser]
+    end
+    B -- HTTP --> MC
+    B -- WebSocket --> OC
+```
+
+This is scenario B + C combined. Both OpenClaw and MobileClaw must bind to `0.0.0.0`, and all three machines must be able to reach each other.
+
+### 1. OpenClaw on machine 1
+
+Edit `~/.openclaw/openclaw.json`:
+
+```json
+{ "gateway": { "host": "0.0.0.0" } }
+```
+
+Restart: `openclaw gateway stop && sleep 3 && openclaw gateway install`
+
+### 2. MobileClaw on machine 2
+
+```bash
+git clone https://github.com/wende/mobileclaw && cd mobileclaw
+pnpm install && pnpm build && npx next start --hostname 0.0.0.0
+```
+
+### 3. Browser on machine 3
+
+Open `http://<machine2-ip>:3000`. In the setup dialog:
+
+- URL: `ws://<machine1-ip>:18789`
+- Token: if auth is enabled
+
+All three machines must be on the same network or connected via Tailscale.
 
 ---
 
@@ -102,7 +207,7 @@ Same rules apply — OpenClaw must bind to `0.0.0.0` and you use the Tailscale h
 
 | Problem | Fix |
 |---------|-----|
-| Setup dialog keeps reappearing | Clear `openclaw-*` keys from localStorage |
+| Setup dialog keeps reappearing | Clear `openclaw-*` keys from browser localStorage |
 | WebSocket fails | Use `ws://` not `http://`. Check gateway is running. |
-| Can't reach from phone | Backend must bind `0.0.0.0`. Use LAN IP, not `localhost`. Check firewall. |
-| Mixed content error (HTTPS page + ws://) | Serve MobileClaw over HTTP too, or use `wss://` |
+| Can't reach from another device | Backend must bind `0.0.0.0`. Use LAN IP, not `localhost`. Check firewall. |
+| Mixed content (HTTPS page + ws://) | Serve MobileClaw over HTTP too, or use `wss://` |
