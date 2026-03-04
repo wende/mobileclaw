@@ -27,6 +27,7 @@ export interface UseWebSocketOptions {
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]; // escalating backoff
 const INITIAL_RETRY_INTERVAL = 1500; // fixed interval for pre-handshake retries
 const INITIAL_RETRY_MAX = 20; // ~30s total
+const WS_PAYLOAD_DEBUG_STORAGE_KEY = "mc-debug-ws-payloads";
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
@@ -41,6 +42,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const reconnectingRef = useRef(false);
   const seenAgentStreamsRef = useRef<Set<string>>(new Set());
   const seenAssistantShapesRef = useRef<Set<string>>(new Set());
+  const payloadDebugEnabledRef = useRef(false);
   // Set to true by the consumer (via markEstablished) after the full protocol
   // handshake succeeds.  Auto-reconnect only fires when this is true, so a
   // connection that opened at the TCP/WS level but was rejected by the server
@@ -50,6 +52,19 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   useEffect(() => {
     optionsRef.current = options;
   }, [options]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") {
+      payloadDebugEnabledRef.current = false;
+      return;
+    }
+    try {
+      const params = new URLSearchParams(window.location.search);
+      payloadDebugEnabledRef.current = params.has("debug-ws") || localStorage.getItem(WS_PAYLOAD_DEBUG_STORAGE_KEY) === "1";
+    } catch {
+      payloadDebugEnabledRef.current = false;
+    }
+  }, []);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -171,16 +186,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
           if (frame.type === "event" && frame.event === "agent") {
             const p = frame.payload as { stream?: unknown; data?: Record<string, unknown> } | undefined;
             const streamName = typeof p?.stream === "string" ? p.stream : String(p?.stream);
+            const shouldLogPayloads = payloadDebugEnabledRef.current;
 
-            if (!seenAgentStreamsRef.current.has(streamName)) {
+            if (shouldLogPayloads && !seenAgentStreamsRef.current.has(streamName)) {
               seenAgentStreamsRef.current.add(streamName);
               console.log("[WS] Agent stream detected:", streamName);
             }
 
-            if (p?.stream === "thinking" || p?.stream === "reasoning") {
+            if (shouldLogPayloads && (p?.stream === "thinking" || p?.stream === "reasoning")) {
               const fullThoughtText = p.data?.text;
               console.log("[WS] Agent thinking:", fullThoughtText);
-            } else if (p?.stream === "assistant" && p.data && typeof p.data === "object") {
+            } else if (shouldLogPayloads && p?.stream === "assistant" && p.data && typeof p.data === "object") {
               const shape = Object.keys(p.data).sort().join(",");
               if (!seenAssistantShapesRef.current.has(shape)) {
                 seenAssistantShapesRef.current.add(shape);

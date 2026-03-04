@@ -129,4 +129,57 @@ test.describe("Scroll Pinning", () => {
         const distAfterMoreStreaming = await getDistFromBottom(page);
         expect(distAfterMoreStreaming, `Expected autoscroll to stay disabled while streaming, got ${distAfterMoreStreaming}px`).toBeGreaterThan(100);
     });
+
+    test("end-of-stream: scroll reaches bottom, pill hidden, no bounce", { tag: "@headed" }, async ({ page }) => {
+        await page.goto("/?demo");
+        await expect(page.getByPlaceholder("Send a message...")).toBeVisible({ timeout: 15_000 });
+
+        // "scroll-test" is a text-only response with thinking block that
+        // generates enough content to require scrolling.
+        await sendChatMessage(page, "scroll-test");
+
+        // Wait for streaming to finish
+        await expect(page.getByText("Scroll test done.")).toBeVisible({ timeout: 15_000 });
+
+        // Sample the transform on the content div rapidly during the grace
+        // period (500ms after streaming ends). The momentum bounce bug causes
+        // a translateY transform to appear here.
+        const bounceDetected = await page.evaluate(() => {
+            return new Promise<boolean>((resolve) => {
+                const main = document.querySelector("main");
+                const content = main?.firstElementChild as HTMLElement | null;
+                if (!content) { resolve(false); return; }
+                let detected = false;
+                let checks = 0;
+                const interval = setInterval(() => {
+                    const t = content.style.transform;
+                    if (t && t !== "" && t !== "none") detected = true;
+                    checks++;
+                    if (checks > 60) { // ~1 second at 60fps
+                        clearInterval(interval);
+                        resolve(detected);
+                    }
+                }, 16);
+            });
+        });
+        expect(bounceDetected, "Content div should not bounce (translateY) after streaming ends").toBe(false);
+
+        // Wait for full settle
+        await page.waitForTimeout(1000);
+
+        // Scroll should be at the bottom
+        const dist = await getDistFromBottom(page);
+        expect(dist, `Expected scroll at bottom, but dist was ${dist}px`).toBeLessThan(5);
+
+        // Morph bar pill should be hidden (--sp ≈ 0)
+        const sp = await page.evaluate(() => {
+            const morph = document.querySelector('[class*="pointer-events-auto"]');
+            if (!morph) return "0";
+            return getComputedStyle(morph).getPropertyValue("--sp").trim();
+        });
+        expect(
+            parseFloat(sp) || 0,
+            `Expected --sp to be 0 (pill hidden), but was ${sp}`
+        ).toBeLessThan(0.05);
+    });
 });
