@@ -86,6 +86,7 @@ fetch_state() {
   local pr_view_json
   local pr_api_json
   local checks_raw
+  local checks_err
   local checks_json
   local pr_url
   local pr_title
@@ -95,7 +96,13 @@ fetch_state() {
 
   pr_view_json="$(gh pr view "$PR_NUMBER" --json title,url)"
   pr_api_json="$(gh api "repos/$REPO/pulls/$PR_NUMBER")"
-  checks_raw="$(gh pr checks "$PR_NUMBER" --json name,state,workflow 2>/dev/null || true)"
+  checks_err="$(mktemp)"
+  if ! checks_raw="$(gh pr checks "$PR_NUMBER" --json name,state,workflow 2>"$checks_err")"; then
+    printf 'Warning: failed to fetch PR checks for #%s: %s\n' "$PR_NUMBER" "$(tr '\n' ' ' <"$checks_err")" >&2
+    rm -f "$checks_err"
+    return 1
+  fi
+  rm -f "$checks_err"
 
   pr_url="$(jq -r '.url' <<<"$pr_view_json")"
   pr_title="$(jq -r '.title' <<<"$pr_view_json")"
@@ -103,8 +110,9 @@ fetch_state() {
   review_comments="$(jq -r '.review_comments // 0' <<<"$pr_api_json")"
   total_comments="$((issue_comments + review_comments))"
 
-  if [[ -z "$checks_raw" ]] || ! jq -e . >/dev/null 2>&1 <<<"$checks_raw"; then
-    checks_raw='[]'
+  if ! jq -e . >/dev/null 2>&1 <<<"$checks_raw"; then
+    echo "Warning: gh pr checks returned invalid JSON; retrying on next poll." >&2
+    return 1
   fi
 
   checks_json="$(jq -c '
@@ -239,7 +247,9 @@ BASE_STATE="$(mktemp)"
 CURRENT_STATE="$(mktemp)"
 trap 'rm -f "$BASE_STATE" "$CURRENT_STATE"' EXIT
 
-fetch_state "$CURRENT_STATE"
+if ! fetch_state "$CURRENT_STATE"; then
+  die "Failed to fetch initial PR state"
+fi
 
 if [[ -f "$STATE_FILE" ]] && states_differ "$STATE_FILE" "$CURRENT_STATE"; then
   printf 'Changes detected since last saved state for PR #%s (%s)\n' "$PR_NUMBER" "$REPO"
@@ -260,7 +270,10 @@ print_state_summary "$BASE_STATE"
 
 while true; do
   sleep "$POLL_INTERVAL"
-  fetch_state "$CURRENT_STATE"
+  if ! fetch_state "$CURRENT_STATE"; then
+    printf 'Retrying after fetch failure at %s\n' "$(date +"%Y-%m-%d %H:%M:%S %Z")" >&2
+    continue
+  fi
   if states_differ "$BASE_STATE" "$CURRENT_STATE"; then
     printf 'Update detected at %s\n' "$(date +"%Y-%m-%d %H:%M:%S %Z")"
     print_changes "$BASE_STATE" "$CURRENT_STATE"
