@@ -492,12 +492,11 @@ function matchResponse(input: string): DemoResponse {
 
 export interface DemoHandlerOptions {
   onEvent: (event: AgentEventPayload) => void;
-  onRegisterSpawn?: (toolCallId: string) => void;
   onSubagentEvent?: (sessionKey: string, stream: string, data: Record<string, unknown>, ts: number) => void;
 }
 
 export function createDemoHandler(options: DemoHandlerOptions) {
-  const { onEvent, onRegisterSpawn, onSubagentEvent } = options;
+  const { onEvent, onSubagentEvent } = options;
   let timers: ReturnType<typeof setTimeout>[] = [];
   const sessionKey = "demo-session";
 
@@ -531,10 +530,6 @@ export function createDemoHandler(options: DemoHandlerOptions) {
 
     const scheduleToolCall = (targetRunId: string, tc: DemoToolCall) => {
       const toolCallId = tc.toolCallId || `demo-tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-
-      if (tc.name === "sessions_spawn" && tc.toolCallId) {
-        timers.push(setTimeout(() => onRegisterSpawn?.(toolCallId), delay));
-      }
 
       emit(targetRunId, "tool", {
         phase: "start",

@@ -38,13 +38,13 @@ describe("DEMO_HISTORY", () => {
 });
 
 describe("createDemoHandler", () => {
-  let onEvent: ReturnType<typeof vi.fn>;
   let events: AgentEventPayload[];
+  let onEvent: (event: AgentEventPayload) => void;
 
   beforeEach(() => {
     vi.useFakeTimers();
     events = [];
-    onEvent = vi.fn((evt: AgentEventPayload) => events.push(evt));
+    onEvent = (evt: AgentEventPayload) => { events.push(evt); };
   });
 
   function createHandler() {
@@ -183,11 +183,17 @@ describe("createDemoHandler", () => {
 
   it("content deltas are individual words, not accumulated snapshots", () => {
     const handler = createHandler();
-    handler.sendMessage("help");
+    handler.sendMessage("weather");
     flushAll();
     const content = contentEvents();
-    // The instant help response emits the full text as one delta
-    // For non-instant responses, check word-by-word
-    expect(content.length).toBeGreaterThanOrEqual(1);
+    // Non-instant responses stream word-by-word via split(/(\s+)/)
+    expect(content.length).toBeGreaterThan(1);
+    const fullText = content.map(e => e.data.delta).join("");
+    // No single delta should equal the full text (i.e. not a snapshot)
+    for (const evt of content) {
+      expect(evt.data.delta).not.toBe(fullText);
+    }
+    // Concatenated deltas reconstruct the full response
+    expect(fullText).toContain("San Francisco");
   });
 });

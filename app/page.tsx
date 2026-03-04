@@ -307,7 +307,7 @@ export default function Home() {
   }, []);
 
   const applyRunDuration = useCallback((runId: string, runDuration: number) => {
-    if (runDuration <= 0 || !runId) return;
+    if (runDuration <= 0) return;
     setMessages((prev) => {
       const idx = prev.findIndex((m) => m.id === runId);
       const resolvedIdx = idx >= 0 ? idx : prev.findLastIndex((m) => m.role === "assistant" && !m.runDuration);

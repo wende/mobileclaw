@@ -99,9 +99,6 @@ export function useDemoRuntime({
 
     demoHandlerRef.current = createDemoHandler({
       onEvent: handleEvent,
-      onRegisterSpawn: (toolCallId) => {
-        subagentStore.registerSpawn(toolCallId);
-      },
       onSubagentEvent: (sessionKey, stream, data, ts) => {
         subagentStore.ingestAgentEvent(sessionKey, {
           runId: "demo-subagent-run",
