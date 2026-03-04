@@ -71,6 +71,9 @@ export default function RootLayout({
       <body className={`${GeistSans.variable} ${GeistMono.variable} font-sans antialiased`}>
         <LocatorProvider>{children}</LocatorProvider>
         <Analytics />
+        {process.env.NODE_ENV === 'development' && (
+          <script src="/dejitter.js" />
+        )}
       </body>
     </html>
   )

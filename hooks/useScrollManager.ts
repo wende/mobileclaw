@@ -256,8 +256,7 @@ export function useScrollManager(
         requestAnimationFrame(animate);
       } else {
         // Delay clearing by one frame so the final scroll events
-        // (which fire async) still see the flag and don't trigger
-        // the momentum bounce.
+        // (which fire async) still see the flag.
         requestAnimationFrame(() => { isAnimatingScrollRef.current = false; });
       }
     };
@@ -399,118 +398,24 @@ export function useScrollManager(
     return () => cancelAnimationFrame(id);
   }, []);
 
-  // Unpin auto-scroll when user actively scrolls up (wheel or touch),
-  // and apply elastic bounce when scrolling past the bottom.
+  // Unpin auto-scroll when user actively scrolls up (wheel or touch).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
 
-    // ── Bottom bounce state ──────────────────────────────────────────
-    let bounceTouchStartY = 0;
-    let isBouncing = false;
-    let bounceOffset = 0;
-    let bounceRafId: number | null = null;
+    let touchStartY = 0;
 
-    // Wheel bounce: accumulated overscroll + decay timer
-    let wheelAccum = 0;
-    let wheelDecayRaf: number | null = null;
-    // Momentum bounce: delayed spring-back timer
-    const momentumTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const applyBounce = (offset: number) => {
-      const content = el.firstElementChild as HTMLElement | null;
-      if (!content) return;
-      if (offset === 0) {
-        content.style.transform = "";
-        content.style.transition = "";
-      } else {
-        content.style.transition = "none";
-        content.style.transform = `translateY(${offset}px)`;
-      }
-    };
-
-    const springBack = () => {
-      if (bounceRafId) cancelAnimationFrame(bounceRafId);
-      const content = el.firstElementChild as HTMLElement | null;
-      if (!content) return;
-      // Match pull-to-refresh snap-back: same duration + easing
-      content.style.transition = "transform 0.45s cubic-bezier(0.22, 0.68, 0.35, 1)";
-      content.style.transform = "";
-      bounceOffset = 0;
-      isBouncing = false;
-      bounceRafId = null;
-    };
-
-    // Rubber-band curve matching pull-to-refresh: linear up to threshold,
-    // then heavy diminishing returns past it.
-    const BOUNCE_THRESHOLD = 60;
-    const rubberBand = (raw: number) =>
-      raw < BOUNCE_THRESHOLD
-        ? raw
-        : BOUNCE_THRESHOLD + (raw - BOUNCE_THRESHOLD) * 0.15;
-
-    const isAtBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight < 2;
-
-    // ── Touch tracking ────────────────────────────────────────────────
-    let touchStartY = 0; // always captured, for unpin detection
-
-    // ── Touch bounce (skipped in native — WebKit handles rubber-band) ──
-    const native = !!isNativeRef?.current;
-
-    const onBounceStart = (e: TouchEvent) => {
+    const onTouchStart = (e: TouchEvent) => {
       touchStartY = e.touches[0].clientY;
-      if (native) return;
-      if (isAtBottom()) {
-        bounceTouchStartY = e.touches[0].clientY;
-        const content = el.firstElementChild as HTMLElement | null;
-        if (content) {
-          content.style.transition = "none";
-          content.style.transform = "";
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (isStreamingRef.current && pinnedToBottomRef.current) {
+        const dy = e.touches[0].clientY - touchStartY;
+        if (dy > STREAM_TOUCH_UNPIN_DELTA_PX) {
+          disengageStreamingAutoscroll();
         }
       }
     };
-
-    const onBounceMove = (e: TouchEvent) => {
-      if (native) return;
-      if (!isAtBottom() && !isBouncing) return;
-      const dy = bounceTouchStartY - e.touches[0].clientY;
-      if (dy > 0 && isAtBottom()) {
-        isBouncing = true;
-        // Same multiplier + rubber-band curve as pull-to-refresh
-        const raw = dy * 0.4;
-        bounceOffset = -rubberBand(raw);
-        applyBounce(bounceOffset);
-      } else if (isBouncing && dy <= 0) {
-        bounceOffset = 0;
-        applyBounce(0);
-        isBouncing = false;
-      }
-    };
-
-    const onBounceEnd = () => {
-      if (isBouncing) springBack();
-    };
-
-    // ── Wheel bounce (desktop) ───────────────────────────────────────
-    const wheelDecayTick = () => {
-      wheelAccum *= 0.75;
-      if (Math.abs(wheelAccum) < 0.5) {
-        wheelAccum = 0;
-        springBack();
-        wheelDecayRaf = null;
-        return;
-      }
-      bounceOffset = -rubberBand(wheelAccum * 0.4);
-      applyBounce(bounceOffset);
-      wheelDecayRaf = requestAnimationFrame(wheelDecayTick);
-    };
-
-    // ── Momentum bounce (scroll-event based, catches inertial scroll) ──
-    let prevScrollTop = el.scrollTop;
-    let prevScrollTime = performance.now();
-    let wasAtBottomLast = isAtBottom();
-
-    // ── Existing scroll/unpin logic ──────────────────────────────────
     const onTouchEnd = () => {
       if (isStreamingRef.current && !manualStreamUnpinRef.current) {
         const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -529,79 +434,18 @@ export function useScrollManager(
           wheelUpIntentRef.current = 0;
         }
       }
-      // Bounce on wheel scroll past bottom (skipped in native)
-      if (!native && e.deltaY > 0 && isAtBottom()) {
-        isBouncing = true;
-        wheelAccum += e.deltaY;
-        wheelAccum = Math.min(wheelAccum, 400);
-        bounceOffset = -rubberBand(wheelAccum * 0.4);
-        applyBounce(bounceOffset);
-        // Restart decay — each new wheel event resets the timer
-        if (wheelDecayRaf) cancelAnimationFrame(wheelDecayRaf);
-        wheelDecayRaf = requestAnimationFrame(wheelDecayTick);
-      }
     };
     let lastScrollTop = el.scrollTop;
     const onScroll = () => {
-      // ── Momentum bounce: detect arrival at bottom with velocity ──
-      const now = performance.now();
       const currentScrollTop = el.scrollTop;
-      const dt = now - prevScrollTime;
-      // Velocity in px/ms (positive = scrolling down). Ignore stale gaps > 200ms.
-      const velocity = dt > 0 && dt < 200 ? (currentScrollTop - prevScrollTop) / dt : 0;
-      const atBottom = isAtBottom();
-
-      if (atBottom && !wasAtBottomLast && velocity > 0.3 && !isBouncing && Date.now() > pinLockUntilRef.current && !isStreamingRef.current && !scrollGraceRef.current && !isNativeRef?.current && !isAnimatingScrollRef.current && !morphSuppressedRef.current) {
-        // Arrived at bottom with momentum — smooth rAF-driven bounce
-        // Scale velocity to a generous displacement matching pull-to-refresh feel
-        const raw = Math.min(velocity * 150, 120);
-        const peak = -rubberBand(raw);
-        isBouncing = true;
-        const content = el.firstElementChild as HTMLElement | null;
-        if (content) {
-          content.style.transition = "none";
-          const bounceStart = performance.now();
-          // Adaptive duration: small bounces are snappy, large ones slower
-          const duration = Math.min(200 + Math.abs(peak) * 3, 500);
-          const PEAK_FRAC = 0.25;
-          const easeOutCub = (t: number) => 1 - Math.pow(1 - t, 3);
-
-          const animateMomentumBounce = (ts: number) => {
-            const t = Math.min((ts - bounceStart) / duration, 1);
-            let offset: number;
-            if (t < PEAK_FRAC) {
-              offset = peak * easeOutCub(t / PEAK_FRAC);
-            } else {
-              offset = peak * (1 - easeOutCub((t - PEAK_FRAC) / (1 - PEAK_FRAC)));
-            }
-            content.style.transform = Math.abs(offset) > 0.5 ? `translateY(${offset.toFixed(1)}px)` : "";
-            if (t < 1) {
-              bounceRafId = requestAnimationFrame(animateMomentumBounce);
-            } else {
-              content.style.transform = "";
-              bounceOffset = 0;
-              isBouncing = false;
-              bounceRafId = null;
-            }
-          };
-
-          if (bounceRafId) cancelAnimationFrame(bounceRafId);
-          bounceRafId = requestAnimationFrame(animateMomentumBounce);
-        }
-      }
-
-      wasAtBottomLast = atBottom;
-      prevScrollTop = currentScrollTop;
-      prevScrollTime = now;
-
-      // ── Unpin during streaming if user scrolls up ──
+      // Unpin during streaming if user scrolls up
       if (isStreamingRef.current && currentScrollTop < lastScrollTop - 3) {
         const dist = el.scrollHeight - currentScrollTop - el.clientHeight;
         if (dist > STREAM_UNPIN_DISTANCE_PX) {
           disengageStreamingAutoscroll();
         }
       }
-      // ── Re-pin during streaming/grace if user scrolls near bottom ──
+      // Re-pin during streaming/grace if user scrolls near bottom
       if ((isStreamingRef.current || scrollGraceRef.current) && !pinnedToBottomRef.current) {
         const dist = el.scrollHeight - currentScrollTop - el.clientHeight;
         const scrollingDown = currentScrollTop > lastScrollTop + 1;
@@ -617,39 +461,19 @@ export function useScrollManager(
       lastScrollTop = currentScrollTop;
     };
 
-    // Combine bounce + unpin touch handlers
-    const onCombinedTouchStart = (e: TouchEvent) => onBounceStart(e);
-    const onCombinedTouchMove = (e: TouchEvent) => {
-      onBounceMove(e);
-      // Unpin when user swipes up during streaming (finger moves down → clientY increases)
-      if (isStreamingRef.current && pinnedToBottomRef.current) {
-        const dy = e.touches[0].clientY - touchStartY;
-        if (dy > STREAM_TOUCH_UNPIN_DELTA_PX) {
-          disengageStreamingAutoscroll();
-        }
-      }
-    };
-    const onCombinedTouchEnd = () => { onBounceEnd(); onTouchEnd(); };
-
-    el.addEventListener("touchstart", onCombinedTouchStart, { passive: true });
-    el.addEventListener("touchmove", onCombinedTouchMove, { passive: true });
-    el.addEventListener("touchend", onCombinedTouchEnd, { passive: true });
-    el.addEventListener("touchcancel", onCombinedTouchEnd, { passive: true });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
     el.addEventListener("wheel", onWheel, { passive: true });
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      el.removeEventListener("touchstart", onCombinedTouchStart);
-      el.removeEventListener("touchmove", onCombinedTouchMove);
-      el.removeEventListener("touchend", onCombinedTouchEnd);
-      el.removeEventListener("touchcancel", onCombinedTouchEnd);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("scroll", onScroll);
-      if (bounceRafId) cancelAnimationFrame(bounceRafId);
-      if (wheelDecayRaf) cancelAnimationFrame(wheelDecayRaf);
-      if (momentumTimer) clearTimeout(momentumTimer);
-      // Clear any stuck bounce transform
-      const content = el.firstElementChild as HTMLElement | null;
-      if (content) { content.style.transition = ""; content.style.transform = ""; }
     };
   }, [clearManualStreamUnpin, disengageStreamingAutoscroll, isNativeRef, isStreamingRef]);
 
