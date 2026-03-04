@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { hasHeartbeatOnOwnLine, isInternalCommandFetchRunId } from "@/lib/constants";
+import {
+  hasHeartbeatOnOwnLine,
+  isInternalCommandFetchRunId,
+  TOOL_CALL_BUBBLE_BG,
+  TOOL_CALL_BUBBLE_TEXT,
+  TOOL_CALL_BUBBLE_MUTED,
+  TOOL_CALL_BUBBLE_BORDER,
+  TOOL_CALL_BUBBLE_BORDER_ERROR,
+} from "@/lib/constants";
 
 describe("hasHeartbeatOnOwnLine", () => {
   it("matches HEARTBEAT_OK as the entire text", () => {
@@ -56,5 +64,15 @@ describe("isInternalCommandFetchRunId", () => {
     expect(isInternalCommandFetchRunId(undefined)).toBe(false);
     expect(isInternalCommandFetchRunId(null)).toBe(false);
     expect(isInternalCommandFetchRunId(42)).toBe(false);
+  });
+});
+
+describe("tool call bubble tokens", () => {
+  it("use theme-linked CSS variables so dark mode is respected", () => {
+    expect(TOOL_CALL_BUBBLE_BG).toBe("var(--tool-call-bubble-bg)");
+    expect(TOOL_CALL_BUBBLE_TEXT).toBe("var(--tool-call-bubble-text)");
+    expect(TOOL_CALL_BUBBLE_MUTED).toBe("var(--tool-call-bubble-muted)");
+    expect(TOOL_CALL_BUBBLE_BORDER).toBe("var(--tool-call-bubble-border)");
+    expect(TOOL_CALL_BUBBLE_BORDER_ERROR).toBe("var(--tool-call-bubble-border-error)");
   });
 });

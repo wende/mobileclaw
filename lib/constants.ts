@@ -59,11 +59,11 @@ export const SQUIRCLE_RADIUS = 22;
 export const PILL_BASE_HEIGHT = 48;
 export const RADIUS_TRANSITION = "border-radius 300ms ease";
 export const MESSAGE_SEND_ANIMATION = "messageSend 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both";
-export const TOOL_CALL_BUBBLE_BG = "oklch(1 0 0)";
-export const TOOL_CALL_BUBBLE_TEXT = "oklch(0.4 0 0)";
-export const TOOL_CALL_BUBBLE_MUTED = "oklch(0.56 0 0)";
-export const TOOL_CALL_BUBBLE_BORDER = "oklch(0.9 0 0)";
-export const TOOL_CALL_BUBBLE_BORDER_ERROR = "oklch(0.78 0.06 25.723)";
+export const TOOL_CALL_BUBBLE_BG = "var(--tool-call-bubble-bg)";
+export const TOOL_CALL_BUBBLE_TEXT = "var(--tool-call-bubble-text)";
+export const TOOL_CALL_BUBBLE_MUTED = "var(--tool-call-bubble-muted)";
+export const TOOL_CALL_BUBBLE_BORDER = "var(--tool-call-bubble-border)";
+export const TOOL_CALL_BUBBLE_BORDER_ERROR = "var(--tool-call-bubble-border-error)";
 export const TOOL_CALL_BUBBLE_SHADOW = "none";
 
 // Content part type helpers (normalizes "tool_call" vs "toolCall")
