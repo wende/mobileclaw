@@ -642,7 +642,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
             }}
             placeholder={isRunActive ? (hasQueued ? "Replace queued message..." : "Queue a message...") : "Send a message..."}
             rows={1}
-            className="block w-full resize-none overflow-hidden bg-transparent text-base leading-[1.75rem] text-foreground placeholder:text-muted-foreground focus:outline-none"
+            className="block w-full resize-none overflow-hidden bg-transparent text-sm leading-[1.75rem] text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
         </div>
       </div>
