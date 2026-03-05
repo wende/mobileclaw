@@ -21,7 +21,9 @@ export function createLineParser(
         const parsed = JSON.parse(trimmed) as SdkMessage;
         callback(parsed);
       } catch {
-        // skip non-JSON lines (e.g. stderr leaking to stdout)
+        if (trimmed.startsWith("Logging to:")) {
+          console.log(`[claude] ${trimmed}`);
+        }
       }
     }
   };

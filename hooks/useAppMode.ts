@@ -13,6 +13,13 @@ interface InitialAppMode {
   uploadDisabled: boolean;
 }
 
+const SSR_SAFE_MODE: InitialAppMode = {
+  isDetached: false,
+  detachedNoBorder: false,
+  isNative: false,
+  uploadDisabled: false,
+};
+
 function getInitialAppMode(): InitialAppMode {
   const isDetached = getSearchParam("detached") !== null;
   const detachedNoBorder = isDetached && getSearchParam("noborder") !== null;
@@ -34,32 +41,42 @@ export interface AppMode {
 }
 
 export function useAppMode(): AppMode {
-  const initialRef = useRef<InitialAppMode>(getInitialAppMode());
-  const [isDetached] = useState(initialRef.current.isDetached);
-  const [detachedNoBorder] = useState(initialRef.current.detachedNoBorder);
-  const isDetachedRef = useRef(initialRef.current.isDetached);
-  const [isNative] = useState(initialRef.current.isNative);
-  const isNativeRef = useRef(initialRef.current.isNative);
-  const [uploadDisabled] = useState(initialRef.current.uploadDisabled);
+  const [mode, setMode] = useState<InitialAppMode>(SSR_SAFE_MODE);
+  const isDetachedRef = useRef(false);
+  const isNativeRef = useRef(false);
 
-  // State + DOM side effects in a single effect (runs once).
+  // Resolve runtime mode after hydration so the first client render
+  // always matches server HTML.
   useEffect(() => {
-    if (isDetached) {
+    const resolvedMode = getInitialAppMode();
+    setMode(resolvedMode);
+    isDetachedRef.current = resolvedMode.isDetached;
+    isNativeRef.current = resolvedMode.isNative;
+
+    if (resolvedMode.isDetached) {
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
     }
 
-    if (isNative) {
+    if (resolvedMode.isNative) {
       document.body.classList.add("native");
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
-      document.documentElement.classList.remove("native-loading");
     }
 
+    document.documentElement.classList.remove("native-loading");
     document.documentElement.classList.remove("detached-loading");
-  }, [isDetached, isNative]);
+  }, []);
 
-  const hideChrome = isDetached || isNative;
+  const hideChrome = mode.isDetached || mode.isNative;
 
-  return { isDetached, detachedNoBorder, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef };
+  return {
+    isDetached: mode.isDetached,
+    detachedNoBorder: mode.detachedNoBorder,
+    isNative: mode.isNative,
+    uploadDisabled: mode.uploadDisabled,
+    hideChrome,
+    isDetachedRef,
+    isNativeRef,
+  };
 }

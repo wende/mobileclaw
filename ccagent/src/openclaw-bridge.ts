@@ -21,6 +21,8 @@ export class OpenClawBridge {
   private ws: WebSocket;
   private claude: ClaudeProcess;
   private model: string | undefined;
+  private cwd: string | undefined;
+  private mcpConfig: string | undefined;
   private seq = 0;
   private activeRunId: string | null = null;
   private accumulatedText = "";
@@ -31,9 +33,11 @@ export class OpenClawBridge {
   /** Ordered content parts as they arrive: thinking, tool_call, text — interleaved correctly */
   private orderedParts: Array<{ kind: "thinking"; blockIndex: number } | { kind: "tool"; toolCallId: string } | { kind: "text" }> = [];
 
-  constructor(ws: WebSocket, opts?: { model?: string }) {
+  constructor(ws: WebSocket, opts?: { model?: string; cwd?: string; mcpConfig?: string }) {
     this.ws = ws;
     this.model = opts?.model;
+    this.cwd = opts?.cwd;
+    this.mcpConfig = opts?.mcpConfig;
     this.claude = new ClaudeProcess();
     this.setupClaude();
     this.setupWs();
@@ -121,7 +125,7 @@ export class OpenClawBridge {
 
   private handleConnect(id: string) {
     // Spawn claude process
-    this.claude.start({ model: this.model });
+    this.claude.start({ model: this.model, cwd: this.cwd, mcpConfig: this.mcpConfig });
 
     this.sendRes(id, true, {
       type: "hello-ok",
@@ -205,7 +209,7 @@ export class OpenClawBridge {
     // Respawn for next prompt
     this.claude = new ClaudeProcess();
     this.setupClaude();
-    this.claude.start({ model: this.model });
+    this.claude.start({ model: this.model, cwd: this.cwd, mcpConfig: this.mcpConfig });
 
     this.sendRes(id, true);
   }

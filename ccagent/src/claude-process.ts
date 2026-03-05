@@ -1,5 +1,8 @@
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
+import { readlink } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import treeKill from "tree-kill";
 import { sendJson, createLineParser } from "./protocol.js";
 import type { ProcessState, SdkMessage, SystemMessage } from "./types.js";
@@ -22,11 +25,12 @@ export class ClaudeProcess extends EventEmitter {
     this.emit("state", state);
   }
 
-  start(opts?: { cwd?: string; resumeSessionId?: string; model?: string }): void {
-    const { cwd, resumeSessionId, model } = opts ?? {};
+  start(opts?: { cwd?: string; resumeSessionId?: string; model?: string; mcpConfig?: string }): void {
+    const { cwd, resumeSessionId, model, mcpConfig } = opts ?? {};
     const args = [
       "-p",
       "--verbose",
+      "--debug",
       "--output-format=stream-json",
       "--input-format=stream-json",
       "--include-partial-messages",
@@ -35,6 +39,10 @@ export class ClaudeProcess extends EventEmitter {
 
     if (model) {
       args.push("--model", model);
+    }
+
+    if (mcpConfig) {
+      args.push("--mcp-config", mcpConfig, "--strict-mcp-config");
     }
 
     if (resumeSessionId) {
@@ -46,9 +54,13 @@ export class ClaudeProcess extends EventEmitter {
     const env = { ...process.env };
     delete env.CLAUDECODE;
 
+    const spawnCwd = cwd || process.cwd();
+    console.log(`[claude] $ claude ${args.join(" ")}`);
+    console.log(`[claude]   cwd: ${spawnCwd}`);
+
     this.proc = spawn("claude", args, {
       stdio: ["pipe", "pipe", "pipe"],
-      cwd: cwd || process.cwd(),
+      cwd: spawnCwd,
       env,
     });
 
@@ -70,6 +82,14 @@ export class ClaudeProcess extends EventEmitter {
       this.proc = null;
       this.emit("exit", code, signal);
     });
+
+    // Log the debug file path once it appears
+    setTimeout(async () => {
+      try {
+        const target = await readlink(join(homedir(), ".claude/debug/latest"));
+        console.log(`[claude] debug: ${target}`);
+      } catch {}
+    }, 2000);
 
     // In stream-json mode the system message arrives after the first user
     // message is sent. Mark as ready immediately so prompts can be written.
