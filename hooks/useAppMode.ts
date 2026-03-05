@@ -8,6 +8,7 @@ function getSearchParam(name: string): string | null {
 
 export interface AppMode {
   isDetached: boolean;
+  detachedNoBorder: boolean;
   isNative: boolean;
   uploadDisabled: boolean;
   hideChrome: boolean;
@@ -17,7 +18,9 @@ export interface AppMode {
 
 export function useAppMode(): AppMode {
   const [isDetached, setIsDetached] = useState(false);
+  const [detachedNoBorder, setDetachedNoBorder] = useState(false);
   const isDetachedRef = useRef(false);
+  const detachedNoBorderRef = useRef(false);
   const [isNative, setIsNative] = useState(false);
   const isNativeRef = useRef(false);
   const [uploadDisabled, setUploadDisabled] = useState(false);
@@ -31,6 +34,9 @@ export function useAppMode(): AppMode {
 
     if (getSearchParam("detached") !== null) {
       isDetachedRef.current = true;
+      if (getSearchParam("noborder") !== null) {
+        detachedNoBorderRef.current = true;
+      }
     }
 
     const nativeFlag = (window as unknown as { __nativeMode?: boolean }).__nativeMode === true;
@@ -43,6 +49,9 @@ export function useAppMode(): AppMode {
   useEffect(() => {
     if (isDetachedRef.current) {
       setIsDetached(true);
+      if (detachedNoBorderRef.current) {
+        setDetachedNoBorder(true);
+      }
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
     }
@@ -62,5 +71,5 @@ export function useAppMode(): AppMode {
 
   const hideChrome = isDetached || isNative;
 
-  return { isDetached, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef };
+  return { isDetached, detachedNoBorder, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef };
 }
