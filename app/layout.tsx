@@ -50,6 +50,9 @@ const headScript = `
   if (location.search.indexOf('native') !== -1 || window.__nativeMode) {
     document.documentElement.classList.add('native-loading');
   }
+  if (detached) {
+    document.documentElement.classList.add('detached-loading');
+  }
   if ('serviceWorker' in navigator && location.hostname !== 'localhost' && !window.__nativeMode) {
     window.addEventListener('load', function() {
       navigator.serviceWorker.register('/sw.js');

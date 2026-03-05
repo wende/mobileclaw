@@ -6,6 +6,23 @@ function getSearchParam(name: string): string | null {
   return new URLSearchParams(window.location.search).get(name);
 }
 
+interface InitialAppMode {
+  isDetached: boolean;
+  detachedNoBorder: boolean;
+  isNative: boolean;
+  uploadDisabled: boolean;
+}
+
+function getInitialAppMode(): InitialAppMode {
+  const isDetached = getSearchParam("detached") !== null;
+  const detachedNoBorder = isDetached && getSearchParam("noborder") !== null;
+  const nativeFlag = typeof window !== "undefined"
+    && (window as unknown as { __nativeMode?: boolean }).__nativeMode === true;
+  const isNative = getSearchParam("native") !== null || nativeFlag;
+  const uploadDisabled = getSearchParam("upload") === "false";
+  return { isDetached, detachedNoBorder, isNative, uploadDisabled };
+}
+
 export interface AppMode {
   isDetached: boolean;
   detachedNoBorder: boolean;
@@ -17,57 +34,30 @@ export interface AppMode {
 }
 
 export function useAppMode(): AppMode {
-  const [isDetached, setIsDetached] = useState(false);
-  const [detachedNoBorder, setDetachedNoBorder] = useState(false);
-  const isDetachedRef = useRef(false);
-  const detachedNoBorderRef = useRef(false);
-  const [isNative, setIsNative] = useState(false);
-  const isNativeRef = useRef(false);
-  const [uploadDisabled, setUploadDisabled] = useState(false);
-
-  const hasDetectedRef = useRef(false);
-
-  // Synchronous ref assignment during render so refs are available
-  // before other hooks' effects run.
-  if (!hasDetectedRef.current && typeof window !== "undefined") {
-    hasDetectedRef.current = true;
-
-    if (getSearchParam("detached") !== null) {
-      isDetachedRef.current = true;
-      if (getSearchParam("noborder") !== null) {
-        detachedNoBorderRef.current = true;
-      }
-    }
-
-    const nativeFlag = (window as unknown as { __nativeMode?: boolean }).__nativeMode === true;
-    if (getSearchParam("native") !== null || nativeFlag) {
-      isNativeRef.current = true;
-    }
-  }
+  const initialRef = useRef<InitialAppMode>(getInitialAppMode());
+  const [isDetached] = useState(initialRef.current.isDetached);
+  const [detachedNoBorder] = useState(initialRef.current.detachedNoBorder);
+  const isDetachedRef = useRef(initialRef.current.isDetached);
+  const [isNative] = useState(initialRef.current.isNative);
+  const isNativeRef = useRef(initialRef.current.isNative);
+  const [uploadDisabled] = useState(initialRef.current.uploadDisabled);
 
   // State + DOM side effects in a single effect (runs once).
   useEffect(() => {
-    if (isDetachedRef.current) {
-      setIsDetached(true);
-      if (detachedNoBorderRef.current) {
-        setDetachedNoBorder(true);
-      }
+    if (isDetached) {
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
     }
 
-    if (isNativeRef.current) {
-      setIsNative(true);
+    if (isNative) {
       document.body.classList.add("native");
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
       document.documentElement.classList.remove("native-loading");
     }
 
-    if (getSearchParam("upload") === "false") {
-      setUploadDisabled(true);
-    }
-  }, []);
+    document.documentElement.classList.remove("detached-loading");
+  }, [isDetached, isNative]);
 
   const hideChrome = isDetached || isNative;
 
