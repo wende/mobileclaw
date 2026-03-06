@@ -127,7 +127,7 @@ export function useModeBootstrap({
 
     const detached = isDetachedRef.current;
     const embedUrl = getSearchParam("url");
-    if (detached && embedUrl) {
+    if (embedUrl) {
       gatewayTokenRef.current = getSearchParam("token");
       setBackendMode("openclaw");
       setOpenclawUrl(embedUrl);

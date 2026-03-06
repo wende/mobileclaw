@@ -147,10 +147,28 @@ export class OpenClawBridge {
     });
   }
 
-  private handleChatSend(id: string, params: Record<string, unknown>) {
+  private async handleChatSend(id: string, params: Record<string, unknown>) {
     const text = params.message as string;
     if (!text) {
       this.sendRes(id, false, undefined, "No message text");
+      return;
+    }
+
+    // Intercept /new — clear history and restart the Claude process
+    if (text.trim().toLowerCase() === "/new") {
+      historyStore.length = 0;
+      await this.claude.kill();
+      this.systemPromptSent = false;
+      this.claude = new ClaudeProcess();
+      this.setupClaude();
+      this.claude.start({ model: this.model, cwd: this.cwd, mcpConfig: this.mcpConfig });
+      // Send empty final so the client clears streaming state
+      this.sendEvent("chat", {
+        runId: id,
+        sessionKey: SESSION_KEY,
+        state: "final",
+      });
+      this.sendRes(id, true);
       return;
     }
 
@@ -333,6 +351,12 @@ export class OpenClawBridge {
           }
         }
 
+        // Detect new turn: if the SDK text doesn't extend what we've accumulated,
+        // this is a fresh assistant turn (after tool use) — reset tracking.
+        if (fullText && this.accumulatedText && !fullText.startsWith(this.accumulatedText)) {
+          this.accumulatedText = "";
+        }
+
         // Send incremental text delta
         if (fullText.length > this.accumulatedText.length) {
           const delta = fullText.slice(this.accumulatedText.length);
@@ -352,11 +376,12 @@ export class OpenClawBridge {
 
       case "tool_use": {
         const toolCallId = msg.tool_use_id || `tool-${Date.now()}`;
+        // Skip if already reported via an assistant partial message
+        if (this.seenToolIds.has(toolCallId)) break;
+        this.seenToolIds.add(toolCallId);
         const argsStr = msg.input ? JSON.stringify(msg.input) : undefined;
         this.toolCalls.set(toolCallId, { name: msg.tool_name, toolCallId, args: argsStr });
-        if (!this.seenToolIds.has(toolCallId)) {
-          this.orderedParts.push({ kind: "tool", toolCallId });
-        }
+        this.orderedParts.push({ kind: "tool", toolCallId });
         this.sendEvent("agent", {
           runId,
           sessionKey: SESSION_KEY,
@@ -483,6 +508,9 @@ export class OpenClawBridge {
           // A new thinking block means the model processed prior tool results.
           // Resolve any tools that didn't get an explicit tool_result message.
           this.resolveUnresolvedTools(runId);
+          // Reset text tracking — the next assistant turn sends fresh content,
+          // not a continuation of the previous turn's cumulative text.
+          this.accumulatedText = "";
           // Start a new reasoning block
           const blockIndex = this.reasoningBlocks.length;
           this.reasoningBlocks.push("");
