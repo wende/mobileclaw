@@ -11,6 +11,7 @@ ccagent supports configuration via:
 
 ### Options
 
+- `port` — Server port (default: 4100)
 - `model` — Claude model to use (e.g., `claude-opus-4-6`)
 - `systemPrompt` — System prompt to prepend to all conversations
 
@@ -18,6 +19,7 @@ ccagent supports configuration via:
 
 ```json
 {
+  "port": 4100,
   "model": "claude-opus-4-6",
   "systemPrompt": "You are a helpful assistant specializing in software engineering."
 }
@@ -26,17 +28,19 @@ ccagent supports configuration via:
 ### Environment Variables
 
 ```bash
+CCAGENT_PORT=4100
 CCAGENT_MODEL=claude-opus-4-6
 CCAGENT_SYSTEM_PROMPT="You are a helpful assistant..."
 CCAGENT_CONFIG=/path/to/config.json  # Override default config path
-PORT=4100                            # Server port (default: 4100)
+PORT=4100                            # Fallback if CCAGENT_PORT not set
 ```
 
 ### Priority (highest to lowest)
 
-1. Environment variables
+1. Environment variables (`CCAGENT_*`)
 2. Config file settings
-3. Defaults (Haiku model, no system prompt)
+3. Defaults (port 4100, Haiku model, no system prompt)
+4. Legacy `PORT` env var (fallback only)
 
 ## Running
 

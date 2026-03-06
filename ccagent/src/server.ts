@@ -6,7 +6,7 @@ import { loadConfig } from "./config.js";
 const config = loadConfig();
 
 const PORT = config.port || parseInt(process.env.PORT || "4100", 10);
-const MODEL = process.env.MODEL || config.model;
+const MODEL = config.model;
 const CLAUDE_CWD = process.env.CLAUDE_CWD || undefined;
 const MCP_CONFIG = process.env.MCP_CONFIG || undefined;
 
