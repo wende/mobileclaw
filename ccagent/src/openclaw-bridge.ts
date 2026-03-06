@@ -3,6 +3,8 @@
  * This lets MobileClaw connect to ccagent without any client-side changes.
  */
 
+import { writeFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { WebSocket } from "ws";
 import { ClaudeProcess } from "./claude-process.js";
@@ -10,8 +12,83 @@ import type { Config } from "./config.js";
 
 const SESSION_KEY = "main";
 
-// Module-level history store — survives WS reconnects
+/** Transform MCP tool names for display: mcp__server__tool_name → Server: Tool Name */
+function formatToolName(name: string): string {
+  if (!name.startsWith("mcp__")) return name;
+  const parts = name.slice(5).split("__"); // Remove "mcp__" prefix, split on "__"
+  if (parts.length < 2) return name;
+  const server = parts[0];
+  const tool = parts.slice(1).join("__");
+  const titleCase = (s: string) =>
+    s.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return `${titleCase(server)}: ${titleCase(tool)}`;
+}
+
+// Module-level stores — survive WS reconnects
 const historyStore: Array<Record<string, unknown>> = [];
+let lastSessionId: string | null = null;
+
+// Stats tracking — survives WS reconnects
+interface RunStats {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  costUsd: number;
+  durationMs: number;
+  durationApiMs: number;
+  numTurns: number;
+  model: string | null;
+  apiCalls: number;
+}
+
+function newRunStats(): RunStats {
+  return {
+    inputTokens: 0, outputTokens: 0,
+    cacheCreationInputTokens: 0, cacheReadInputTokens: 0,
+    costUsd: 0, durationMs: 0, durationApiMs: 0,
+    numTurns: 0, model: null, apiCalls: 0,
+  };
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+/** Module-level persistent stats — survives WS reconnects, exposed via /stats */
+const persistentStats = {
+  session: {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCacheCreationInputTokens: 0,
+    totalCacheReadInputTokens: 0,
+    totalCostUsd: 0,
+    totalDurationMs: 0,
+    totalApiCalls: 0,
+    totalRuns: 0,
+    startedAt: Date.now(),
+  },
+  runs: [] as Array<RunStats & { completedAt: number; runId: string }>,
+};
+
+/** Max recent runs to keep in memory / on disk */
+const MAX_RUNS = 50;
+
+export function getStats() {
+  return persistentStats;
+}
+
+async function persistStatsToDisk(statsPath: string | undefined) {
+  if (!statsPath) return;
+  try {
+    await mkdir(dirname(statsPath), { recursive: true });
+    await writeFile(statsPath, JSON.stringify(persistentStats, null, 2));
+  } catch (err) {
+    console.error(`[stats] Failed to write ${statsPath}:`, (err as Error).message);
+  }
+}
 
 interface OpenClawMsg {
   type: string;
@@ -25,7 +102,6 @@ export class OpenClawBridge {
   private config: Config;
   private cwd: string | undefined;
   private mcpConfig: string | undefined;
-  private systemPromptSent = false;
   private seq = 0;
   private activeRunId: string | null = null;
   private accumulatedText = "";
@@ -33,8 +109,15 @@ export class OpenClawBridge {
   private seenToolIds = new Set<string>();
   private toolCalls = new Map<string, { name: string; toolCallId: string; args?: string; result?: string; isError?: boolean }>();
   private justFinishedAt: number | null = null;
+  private responseTimer: ReturnType<typeof setTimeout> | null = null;
   /** Ordered content parts as they arrive: thinking, tool_call, text — interleaved correctly */
   private orderedParts: Array<{ kind: "thinking"; blockIndex: number } | { kind: "tool"; toolCallId: string } | { kind: "text" }> = [];
+  private runStats: RunStats = newRunStats();
+  private sessionStats = {
+    totalInputTokens: 0, totalOutputTokens: 0,
+    totalCacheCreationInputTokens: 0, totalCacheReadInputTokens: 0,
+    totalCostUsd: 0, totalDurationMs: 0, totalApiCalls: 0, totalRuns: 0,
+  };
 
   constructor(ws: WebSocket, opts?: { model?: string; config?: Config; cwd?: string; mcpConfig?: string }) {
     this.ws = ws;
@@ -128,8 +211,14 @@ export class OpenClawBridge {
   }
 
   private handleConnect(id: string) {
-    // Spawn claude process
-    this.claude.start({ model: this.model, cwd: this.cwd, mcpConfig: this.mcpConfig });
+    // Spawn claude process — resume previous session if available
+    this.claude.start({
+      model: this.model,
+      cwd: this.cwd,
+      mcpConfig: this.mcpConfig,
+      systemPrompt: this.config.systemPrompt,
+      resumeSessionId: lastSessionId || undefined,
+    });
 
     this.sendRes(id, true, {
       type: "hello-ok",
@@ -157,11 +246,11 @@ export class OpenClawBridge {
     // Intercept /new — clear history and restart the Claude process
     if (text.trim().toLowerCase() === "/new") {
       historyStore.length = 0;
+      lastSessionId = null;
       await this.claude.kill();
-      this.systemPromptSent = false;
       this.claude = new ClaudeProcess();
       this.setupClaude();
-      this.claude.start({ model: this.model, cwd: this.cwd, mcpConfig: this.mcpConfig });
+      this.claude.start({ model: this.model, cwd: this.cwd, mcpConfig: this.mcpConfig, systemPrompt: this.config.systemPrompt });
       // Send empty final so the client clears streaming state
       this.sendEvent("chat", {
         runId: id,
@@ -179,15 +268,7 @@ export class OpenClawBridge {
     this.orderedParts = [];
     this.seenToolIds.clear();
     this.toolCalls.clear();
-
-    // Send system prompt if not yet sent (priority: params > config > nothing)
-    if (!this.systemPromptSent) {
-      const systemPrompt = (params.systemPrompt as string) || this.config.systemPrompt;
-      if (systemPrompt) {
-        this.claude.sendSystemPrompt(systemPrompt);
-        this.systemPromptSent = true;
-      }
-    }
+    this.runStats = newRunStats();
 
     // Add user message to history
     historyStore.push({
@@ -221,7 +302,56 @@ export class OpenClawBridge {
       ts: Date.now(),
     });
 
+    // Auto-respawn with resume if process died between turns
+    if (!this.claude.isAlive) {
+      console.log(`[bridge] Claude process died, respawning with resume session=${lastSessionId}`);
+      this.claude = new ClaudeProcess();
+      this.setupClaude();
+      this.claude.start({
+        model: this.model,
+        cwd: this.cwd,
+        mcpConfig: this.mcpConfig,
+        systemPrompt: this.config.systemPrompt,
+        resumeSessionId: lastSessionId || undefined,
+      });
+    }
+
     this.claude.sendPrompt(text);
+    this.startResponseTimer(runId);
+  }
+
+  private startResponseTimer(runId: string) {
+    this.clearResponseTimer();
+    this.responseTimer = setTimeout(async () => {
+      if (this.activeRunId !== runId) return;
+      console.error(`[bridge] No response from Claude within 5s — killing stuck process`);
+
+      this.sendEvent("chat", {
+        runId,
+        sessionKey: SESSION_KEY,
+        state: "error",
+        errorMessage: "Something went wrong with CCAgent — no response from Claude. Retrying...",
+      });
+      this.activeRunId = null;
+
+      await this.claude.kill();
+      this.claude = new ClaudeProcess();
+      this.setupClaude();
+      this.claude.start({
+        model: this.model,
+        cwd: this.cwd,
+        mcpConfig: this.mcpConfig,
+        systemPrompt: this.config.systemPrompt,
+        resumeSessionId: lastSessionId || undefined,
+      });
+    }, 5000);
+  }
+
+  private clearResponseTimer() {
+    if (this.responseTimer) {
+      clearTimeout(this.responseTimer);
+      this.responseTimer = null;
+    }
   }
 
   private async handleChatAbort(id: string, _params: Record<string, unknown>) {
@@ -237,11 +367,16 @@ export class OpenClawBridge {
     }
     this.activeRunId = null;
 
-    // Respawn for next prompt
-    this.systemPromptSent = false; // Reset so system prompt gets resent for next session
+    // Respawn for next prompt — resume so context is preserved
     this.claude = new ClaudeProcess();
     this.setupClaude();
-    this.claude.start({ model: this.model, cwd: this.cwd, mcpConfig: this.mcpConfig });
+    this.claude.start({
+      model: this.model,
+      cwd: this.cwd,
+      mcpConfig: this.mcpConfig,
+      systemPrompt: this.config.systemPrompt,
+      resumeSessionId: lastSessionId || undefined,
+    });
 
     this.sendRes(id, true);
   }
@@ -267,6 +402,13 @@ export class OpenClawBridge {
       this.translateSdkMessage(msg);
     });
 
+    this.claude.on("ready", (sessionId: string) => {
+      if (sessionId) {
+        lastSessionId = sessionId;
+        console.log(`[bridge] Stored session for resume: ${sessionId}`);
+      }
+    });
+
     this.claude.on("error", (err: Error) => {
       console.error("[bridge] Claude error:", err.message);
       if (this.activeRunId) {
@@ -281,7 +423,7 @@ export class OpenClawBridge {
     });
 
     this.claude.on("exit", (code: number | null) => {
-      console.log(`[bridge] Claude exited code=${code}`);
+      console.log(`[bridge] Claude exited code=${code} lastSession=${lastSessionId}`);
     });
   }
 
@@ -311,6 +453,9 @@ export class OpenClawBridge {
     const runId = this.activeRunId;
     if (!runId) return;
 
+    // Got a response — cancel the stuck-process timer
+    this.clearResponseTimer();
+
     switch (msg.type) {
       case "system":
         // Informational only, no OpenClaw equivalent needed
@@ -332,7 +477,8 @@ export class OpenClawBridge {
             if (!this.seenToolIds.has(toolCallId)) {
               this.seenToolIds.add(toolCallId);
               const argsStr = block.input ? JSON.stringify(block.input) : undefined;
-              this.toolCalls.set(toolCallId, { name: block.name, toolCallId, args: argsStr });
+              const displayName = formatToolName(block.name);
+              this.toolCalls.set(toolCallId, { name: displayName, toolCallId, args: argsStr });
               this.orderedParts.push({ kind: "tool", toolCallId });
               this.sendEvent("agent", {
                 runId,
@@ -340,7 +486,7 @@ export class OpenClawBridge {
                 stream: "tool",
                 data: {
                   phase: "start",
-                  name: block.name,
+                  name: displayName,
                   toolCallId,
                   args: block.input,
                 },
@@ -380,7 +526,8 @@ export class OpenClawBridge {
         if (this.seenToolIds.has(toolCallId)) break;
         this.seenToolIds.add(toolCallId);
         const argsStr = msg.input ? JSON.stringify(msg.input) : undefined;
-        this.toolCalls.set(toolCallId, { name: msg.tool_name, toolCallId, args: argsStr });
+        const displayName = formatToolName(msg.tool_name);
+        this.toolCalls.set(toolCallId, { name: displayName, toolCallId, args: argsStr });
         this.orderedParts.push({ kind: "tool", toolCallId });
         this.sendEvent("agent", {
           runId,
@@ -388,7 +535,7 @@ export class OpenClawBridge {
           stream: "tool",
           data: {
             phase: "start",
-            name: msg.tool_name,
+            name: displayName,
             toolCallId,
             args: msg.input,
           },
@@ -414,7 +561,7 @@ export class OpenClawBridge {
           stream: "tool",
           data: {
             phase: "result",
-            name: msg.tool_name || (toolCallId && this.toolCalls.get(toolCallId)?.name) || "unknown",
+            name: (msg.tool_name ? formatToolName(msg.tool_name) : null) || (toolCallId && this.toolCalls.get(toolCallId)?.name) || "unknown",
             toolCallId,
             result: resultText,
             isError: !!msg.is_error,
@@ -430,16 +577,17 @@ export class OpenClawBridge {
         this.resolveUnresolvedTools(runId);
         const resultText = typeof msg.result === "string" ? msg.result : this.accumulatedText;
 
-        // History format: a single thinking part (buildHistoryMessages extracts .thinking
-        // from the first one, then strips ALL thinking parts), followed by tool_call + text.
-        // After buildHistoryMessages processes this, it becomes: reasoning field + tool_call + text.
+        // Preserve interleaved thinking/tool structure so history renders
+        // separate thinking blocks between turns, matching the streamed UI.
         const fullReasoning = this.reasoningBlocks.filter(Boolean).join("\n\n");
         const historyParts: Array<Record<string, unknown>> = [];
-        if (fullReasoning) {
-          historyParts.push({ type: "thinking", thinking: fullReasoning });
-        }
         for (const part of this.orderedParts) {
-          if (part.kind === "tool") {
+          if (part.kind === "thinking") {
+            const text = this.reasoningBlocks[part.blockIndex];
+            if (text) {
+              historyParts.push({ type: "thinking", thinking: text });
+            }
+          } else if (part.kind === "tool") {
             const tc = this.toolCalls.get(part.toolCallId);
             if (tc) {
               historyParts.push({
@@ -468,12 +616,82 @@ export class OpenClawBridge {
           stopReason: msg.stop_reason || "end_turn",
         });
 
-        // Lifecycle end
+        // Capture stats from result message
+        this.runStats.durationMs = msg.duration_ms || 0;
+        this.runStats.durationApiMs = msg.duration_api_ms || 0;
+        this.runStats.numTurns = msg.num_turns || 0;
+        this.runStats.costUsd = msg.cost_usd || 0;
+        this.runStats.model = msg.model || null;
+        if (msg.usage) {
+          if (msg.usage.input_tokens) this.runStats.inputTokens = msg.usage.input_tokens;
+          if (msg.usage.output_tokens) this.runStats.outputTokens = msg.usage.output_tokens;
+          if (msg.usage.cache_creation_input_tokens) this.runStats.cacheCreationInputTokens = msg.usage.cache_creation_input_tokens;
+          if (msg.usage.cache_read_input_tokens) this.runStats.cacheReadInputTokens = msg.usage.cache_read_input_tokens;
+        }
+
+        // Accumulate session stats
+        this.sessionStats.totalInputTokens += this.runStats.inputTokens;
+        this.sessionStats.totalOutputTokens += this.runStats.outputTokens;
+        this.sessionStats.totalCacheCreationInputTokens += this.runStats.cacheCreationInputTokens;
+        this.sessionStats.totalCacheReadInputTokens += this.runStats.cacheReadInputTokens;
+        this.sessionStats.totalCostUsd += this.runStats.costUsd;
+        this.sessionStats.totalDurationMs += this.runStats.durationMs;
+        this.sessionStats.totalApiCalls += this.runStats.apiCalls;
+        this.sessionStats.totalRuns++;
+
+        // Persist to module-level store + disk
+        Object.assign(persistentStats.session, this.sessionStats);
+        persistentStats.runs.push({ ...this.runStats, completedAt: Date.now(), runId });
+        if (persistentStats.runs.length > MAX_RUNS) {
+          persistentStats.runs = persistentStats.runs.slice(-MAX_RUNS);
+        }
+        void persistStatsToDisk(this.config.statsPath);
+
+        // Log run stats
+        const s = this.runStats;
+        const cacheInfo = (s.cacheCreationInputTokens || s.cacheReadInputTokens)
+          ? ` cache_write=${formatTokens(s.cacheCreationInputTokens)} cache_read=${formatTokens(s.cacheReadInputTokens)}`
+          : "";
+        console.log(
+          `[stats] Run complete: ` +
+          `in=${formatTokens(s.inputTokens)} out=${formatTokens(s.outputTokens)}${cacheInfo} ` +
+          `cost=$${s.costUsd.toFixed(4)} duration=${(s.durationMs / 1000).toFixed(1)}s ` +
+          `api_time=${(s.durationApiMs / 1000).toFixed(1)}s turns=${s.numTurns} api_calls=${s.apiCalls} ` +
+          `model=${s.model || "unknown"} tools=${this.toolCalls.size}`
+        );
+        const ss = this.sessionStats;
+        console.log(
+          `[stats] Session totals (${ss.totalRuns} runs): ` +
+          `in=${formatTokens(ss.totalInputTokens)} out=${formatTokens(ss.totalOutputTokens)} ` +
+          `cost=$${ss.totalCostUsd.toFixed(4)} duration=${(ss.totalDurationMs / 1000).toFixed(1)}s`
+        );
+
+        // Lifecycle end — include stats
         this.sendEvent("agent", {
           runId,
           sessionKey: SESSION_KEY,
           stream: "lifecycle",
-          data: { phase: "end" },
+          data: {
+            phase: "end",
+            stats: {
+              inputTokens: s.inputTokens,
+              outputTokens: s.outputTokens,
+              cacheCreationInputTokens: s.cacheCreationInputTokens,
+              cacheReadInputTokens: s.cacheReadInputTokens,
+              costUsd: s.costUsd,
+              durationMs: s.durationMs,
+              durationApiMs: s.durationApiMs,
+              numTurns: s.numTurns,
+              apiCalls: s.apiCalls,
+              model: s.model,
+            },
+            sessionStats: {
+              totalInputTokens: ss.totalInputTokens,
+              totalOutputTokens: ss.totalOutputTokens,
+              totalCostUsd: ss.totalCostUsd,
+              totalRuns: ss.totalRuns,
+            },
+          },
           seq: this.seq,
           ts: Date.now(),
         });
@@ -503,6 +721,20 @@ export class OpenClawBridge {
         // Handle thinking/reasoning from stream events
         const evt = msg.event;
         if (!evt) break;
+
+        // Track token usage from message_start and message_delta events
+        if (evt.type === "message_start" && evt.message?.usage) {
+          const u = evt.message.usage;
+          this.runStats.inputTokens += u.input_tokens || 0;
+          this.runStats.outputTokens += u.output_tokens || 0;
+          this.runStats.cacheCreationInputTokens += u.cache_creation_input_tokens || 0;
+          this.runStats.cacheReadInputTokens += u.cache_read_input_tokens || 0;
+          this.runStats.apiCalls++;
+        }
+
+        if (evt.type === "message_delta" && evt.usage) {
+          this.runStats.outputTokens += evt.usage.output_tokens || 0;
+        }
 
         if (evt.type === "content_block_start" && evt.content_block?.type === "thinking") {
           // A new thinking block means the model processed prior tool results.
@@ -573,7 +805,8 @@ export class OpenClawBridge {
       case "stream_event":
         return `stream_event event.type=${msg.event?.type} delta.type=${msg.event?.delta?.type || "-"} block.type=${msg.event?.content_block?.type || "-"}`;
       case "control_response":
-        return null; // skip noise
+        console.log(`[sdk] control_response id=${msg.request_id} ok=${msg.ok} error=${msg.error || "-"}`);
+        return null;
       case "rate_limit_event":
         return null;
       default:
@@ -582,6 +815,7 @@ export class OpenClawBridge {
   }
 
   async destroy() {
+    this.clearResponseTimer();
     await this.claude.kill();
   }
 }

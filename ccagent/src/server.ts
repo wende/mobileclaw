@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
-import { OpenClawBridge } from "./openclaw-bridge.js";
+import { OpenClawBridge, getStats } from "./openclaw-bridge.js";
 import { loadConfig } from "./config.js";
 
 const config = loadConfig();
@@ -14,6 +14,11 @@ const httpServer = createServer((req, res) => {
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+  if (req.url === "/stats") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(getStats()));
     return;
   }
   res.writeHead(404);
@@ -33,11 +38,13 @@ wss.on("connection", (ws) => {
 });
 
 httpServer.listen(PORT, () => {
+  const configFile = process.env.CCAGENT_CONFIG || "~/.8claw/settings.json";
   console.log(`ccagent listening on :${PORT}`);
-  if (MODEL) console.log(`  model: ${MODEL}`);
-  if (config.systemPrompt) console.log(`  systemPrompt: ${config.systemPrompt.slice(0, 50)}...`);
-  if (CLAUDE_CWD) console.log(`  claude cwd: ${CLAUDE_CWD}`);
-  if (MCP_CONFIG) console.log(`  mcp config: ${MCP_CONFIG}`);
+  console.log(`  config:       ${configFile}`);
+  console.log(`  model:        ${MODEL || "(default)"}`);
+  console.log(`  cwd:          ${CLAUDE_CWD || "(process cwd)"}`);
+  console.log(`  mcp config:   ${MCP_CONFIG || "(none)"}`);
+  console.log(`  system prompt: ${config.systemPrompt ? config.systemPrompt.slice(0, 60) + "..." : "(none)"}`);
 });
 
 // Graceful shutdown

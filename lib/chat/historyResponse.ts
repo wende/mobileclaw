@@ -116,9 +116,14 @@ export function buildHistoryMessages(rawMessages: RawHistoryMessage[]): Message[
       let filteredContent: ContentPart[] | string;
 
       if (Array.isArray(content)) {
-        const thinkingPart = content.find((p) => p.type === "thinking");
-        if (thinkingPart?.thinking) reasoning = thinkingPart.thinking;
-        filteredContent = content.filter((p) => p.type !== "thinking");
+        const thinkingParts = content.filter((p) => p.type === "thinking");
+        if (thinkingParts.length > 0) {
+          reasoning = thinkingParts.map((p) => p.thinking || p.text || "").filter(Boolean).join("\n\n");
+        }
+        // Keep thinking parts in content so they render interleaved with
+        // tool calls (MessageRow handles type=thinking inline). The reasoning
+        // field is still set as a fallback for messages with no thinking parts.
+        filteredContent = content;
       } else {
         filteredContent = content;
       }

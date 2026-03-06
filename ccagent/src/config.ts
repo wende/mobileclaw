@@ -6,38 +6,39 @@ export interface Config {
   port?: number;
   model?: string;
   systemPrompt?: string;
+  statsPath?: string;
 }
 
 /**
- * Load config from file and environment variables.
+ * Load config from the shared 8Claw settings.json and environment variables.
  * Priority (highest to lowest):
  * 1. Environment variables (CCAGENT_PORT, CCAGENT_MODEL, CCAGENT_SYSTEM_PROMPT)
- * 2. Config file (CCAGENT_CONFIG or ~/.ccagent.json)
+ * 2. Shared config file (CCAGENT_CONFIG env var, or .8claw/settings.json)
  * 3. Defaults
  *
- * Example ~/.ccagent.json:
+ * The config file uses the same keys as the 8Claw settings UI:
  * {
- *   "port": 4100,
- *   "model": "claude-opus-4-6",
- *   "systemPrompt": "You are a helpful assistant..."
+ *   "CCAGENT_PORT": 4100,
+ *   "MODEL": "haiku",
+ *   "CCAGENT_SYSTEM_PROMPT": "You are a helpful assistant..."
  * }
  */
 export function loadConfig(): Config {
   const config: Config = {};
 
-  // Try to load config file
-  const configPath = process.env.CCAGENT_CONFIG || join(homedir(), ".ccagent.json");
+  // Try to load shared settings file
+  const configPath = process.env.CCAGENT_CONFIG || join(homedir(), ".8claw", "settings.json");
   try {
-    const fileContent = readFileSync(configPath, "utf-8");
-    const parsed = JSON.parse(fileContent);
-    if (parsed.port && typeof parsed.port === "number") {
-      config.port = parsed.port;
+    const parsed = JSON.parse(readFileSync(configPath, "utf-8"));
+    if (parsed.CCAGENT_PORT) {
+      const port = typeof parsed.CCAGENT_PORT === "number" ? parsed.CCAGENT_PORT : parseInt(parsed.CCAGENT_PORT, 10);
+      if (Number.isInteger(port) && port >= 1 && port <= 65535) config.port = port;
     }
-    if (parsed.model && typeof parsed.model === "string") {
-      config.model = parsed.model;
+    if (parsed.MODEL && typeof parsed.MODEL === "string") {
+      config.model = parsed.MODEL;
     }
-    if (parsed.systemPrompt && typeof parsed.systemPrompt === "string") {
-      config.systemPrompt = parsed.systemPrompt;
+    if (parsed.CCAGENT_SYSTEM_PROMPT && typeof parsed.CCAGENT_SYSTEM_PROMPT === "string") {
+      config.systemPrompt = parsed.CCAGENT_SYSTEM_PROMPT;
     }
   } catch {
     // File doesn't exist or isn't valid JSON — silently skip
@@ -53,6 +54,11 @@ export function loadConfig(): Config {
   if (process.env.CCAGENT_SYSTEM_PROMPT) {
     config.systemPrompt = process.env.CCAGENT_SYSTEM_PROMPT;
   }
+
+  // Stats file path — defaults to .8claw/ccagent-stats.json relative to CLAUDE_CWD (project root)
+  // or home directory if no project cwd is set. This aligns with the 8claw API route's STATS_PATH.
+  const statsBase = process.env.CLAUDE_CWD || homedir();
+  config.statsPath = process.env.CCAGENT_STATS_PATH || join(statsBase, ".8claw", "ccagent-stats.json");
 
   return config;
 }

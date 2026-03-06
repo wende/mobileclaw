@@ -20,13 +20,17 @@ export class ClaudeProcess extends EventEmitter {
     return this._sessionId;
   }
 
+  get isAlive(): boolean {
+    return this.proc !== null;
+  }
+
   private setState(state: ProcessState) {
     this._state = state;
     this.emit("state", state);
   }
 
-  start(opts?: { cwd?: string; resumeSessionId?: string; model?: string; mcpConfig?: string }): void {
-    const { cwd, resumeSessionId, model, mcpConfig } = opts ?? {};
+  start(opts?: { cwd?: string; resumeSessionId?: string; model?: string; mcpConfig?: string; systemPrompt?: string }): void {
+    const { cwd, resumeSessionId, model, mcpConfig, systemPrompt } = opts ?? {};
     const args = [
       "-p",
       "--verbose",
@@ -39,6 +43,10 @@ export class ClaudeProcess extends EventEmitter {
 
     if (model) {
       args.push("--model", model);
+    }
+
+    if (systemPrompt) {
+      args.push("--append-system-prompt", systemPrompt);
     }
 
     if (mcpConfig) {
