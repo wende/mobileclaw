@@ -6,6 +6,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { WebSocket } from "ws";
 import { ClaudeProcess } from "./claude-process.js";
+import type { Config } from "./config.js";
 
 const SESSION_KEY = "main";
 
@@ -21,8 +22,10 @@ export class OpenClawBridge {
   private ws: WebSocket;
   private claude: ClaudeProcess;
   private model: string | undefined;
+  private config: Config;
   private cwd: string | undefined;
   private mcpConfig: string | undefined;
+  private systemPromptSent = false;
   private seq = 0;
   private activeRunId: string | null = null;
   private accumulatedText = "";
@@ -33,9 +36,10 @@ export class OpenClawBridge {
   /** Ordered content parts as they arrive: thinking, tool_call, text — interleaved correctly */
   private orderedParts: Array<{ kind: "thinking"; blockIndex: number } | { kind: "tool"; toolCallId: string } | { kind: "text" }> = [];
 
-  constructor(ws: WebSocket, opts?: { model?: string; cwd?: string; mcpConfig?: string }) {
+  constructor(ws: WebSocket, opts?: { model?: string; config?: Config; cwd?: string; mcpConfig?: string }) {
     this.ws = ws;
     this.model = opts?.model;
+    this.config = opts?.config || {};
     this.cwd = opts?.cwd;
     this.mcpConfig = opts?.mcpConfig;
     this.claude = new ClaudeProcess();
@@ -158,6 +162,15 @@ export class OpenClawBridge {
     this.seenToolIds.clear();
     this.toolCalls.clear();
 
+    // Send system prompt if not yet sent (priority: params > config > nothing)
+    if (!this.systemPromptSent) {
+      const systemPrompt = (params.systemPrompt as string) || this.config.systemPrompt;
+      if (systemPrompt) {
+        this.claude.sendSystemPrompt(systemPrompt);
+        this.systemPromptSent = true;
+      }
+    }
+
     // Add user message to history
     historyStore.push({
       role: "user",
@@ -207,6 +220,7 @@ export class OpenClawBridge {
     this.activeRunId = null;
 
     // Respawn for next prompt
+    this.systemPromptSent = false; // Reset so system prompt gets resent for next session
     this.claude = new ClaudeProcess();
     this.setupClaude();
     this.claude.start({ model: this.model, cwd: this.cwd, mcpConfig: this.mcpConfig });

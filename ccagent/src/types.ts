@@ -96,6 +96,7 @@ export interface ClientPrompt {
   text: string;
   sessionId?: string;
   cwd?: string;
+  systemPrompt?: string;
 }
 
 export interface ServerStatus {

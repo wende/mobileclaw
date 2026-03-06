@@ -1,9 +1,12 @@
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { OpenClawBridge } from "./openclaw-bridge.js";
+import { loadConfig } from "./config.js";
 
-const PORT = parseInt(process.env.PORT || "4100", 10);
-const MODEL = process.env.MODEL || undefined;
+const config = loadConfig();
+
+const PORT = config.port || parseInt(process.env.PORT || "4100", 10);
+const MODEL = process.env.MODEL || config.model;
 const CLAUDE_CWD = process.env.CLAUDE_CWD || undefined;
 const MCP_CONFIG = process.env.MCP_CONFIG || undefined;
 
@@ -21,7 +24,7 @@ const wss = new WebSocketServer({ server: httpServer });
 
 wss.on("connection", (ws) => {
   console.log("[server] Client connected");
-  const bridge = new OpenClawBridge(ws, { model: MODEL, cwd: CLAUDE_CWD, mcpConfig: MCP_CONFIG });
+  const bridge = new OpenClawBridge(ws, { model: MODEL, config, cwd: CLAUDE_CWD, mcpConfig: MCP_CONFIG });
 
   ws.on("close", () => {
     console.log("[server] Client disconnected");
@@ -32,6 +35,7 @@ wss.on("connection", (ws) => {
 httpServer.listen(PORT, () => {
   console.log(`ccagent listening on :${PORT}`);
   if (MODEL) console.log(`  model: ${MODEL}`);
+  if (config.systemPrompt) console.log(`  systemPrompt: ${config.systemPrompt.slice(0, 50)}...`);
   if (CLAUDE_CWD) console.log(`  claude cwd: ${CLAUDE_CWD}`);
   if (MCP_CONFIG) console.log(`  mcp config: ${MCP_CONFIG}`);
 });

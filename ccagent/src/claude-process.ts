@@ -96,6 +96,22 @@ export class ClaudeProcess extends EventEmitter {
     this.setState("ready");
   }
 
+  sendSystemPrompt(text: string): void {
+    if (!this.proc?.stdin) {
+      this.emit("error", new Error("Process not running"));
+      return;
+    }
+
+    sendJson(this.proc.stdin, {
+      type: "control_request",
+      request_id: `system-${Date.now()}`,
+      request: {
+        subtype: "system_prompt",
+        text,
+      },
+    });
+  }
+
   sendPrompt(text: string): void {
     if (!this.proc?.stdin) {
       this.emit("error", new Error("Process not running"));
