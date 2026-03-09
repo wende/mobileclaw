@@ -427,6 +427,10 @@ The most important principle is this: **design for failure**. Networks are unrel
     text: "Current model: **claude-sonnet-4-5** (Anthropic)\n\nAvailable models:\n- claude-sonnet-4-5 (Anthropic) · 200k context\n- claude-opus-4-5 (Anthropic) · 200k context · reasoning\n- gpt-4o (OpenAI) · 128k context\n- gemini-2.5-pro (Google) · 1M context · reasoning",
     instant: true,
   },
+  link: {
+    thinking: "The user wants to see link previews. I'll share a few URLs so the unfurl cards appear beneath my message after streaming finishes.",
+    text: "Here are some interesting links:\n\nhttps://github.com/anthropics/claude-code\n\nhttps://en.wikipedia.org/wiki/WebSocket\n\nThe preview cards should appear after the message finishes streaming. They show the page title, description, and favicon pulled from each site's Open Graph metadata.",
+  },
   "scroll-test": {
     thinking: "Processing scroll test request. This thinking block adds initial content height that the auto-scroll must track.",
     text: "Line 1\n\nLine 2\n\nLine 3\n\nLine 4\n\nLine 5\n\nLine 6\n\nLine 7\n\nLine 8\n\nLine 9\n\nLine 10\n\nScroll test done. This final line contains enough text to keep the streaming active for a moment so any end-of-stream bounce or scroll jump becomes visible during the grace period.",
@@ -436,14 +440,14 @@ The most important principle is this: **design for failure**. Networks are unrel
     instant: true,
   },
   help: {
-    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **zen** / **focus** | Multi-cycle think → talk → tool stream for Zen mode |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **long** / **essay** | Long-form streaming (~1 minute) |\n| **/compact** | Compacting animation (5s) |\n| **help** | This list |\n\nSlash commands render as expandable pills — try **/commands**, **/status**, **/model**, **/whoami**, or **/context**.\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
+    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **zen** / **focus** | Multi-cycle think → talk → tool stream for Zen mode |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **link** / **url** / **preview** | Link preview unfurl cards |\n| **long** / **essay** | Long-form streaming (~1 minute) |\n| **/compact** | Compacting animation (5s) |\n| **help** | This list |\n\nSlash commands render as expandable pills — try **/commands**, **/status**, **/model**, **/whoami**, or **/context**.\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
     instant: true,
   },
 };
 
 const DEFAULT_RESPONSE: DemoResponse = {
   thinking: "The user sent a message that doesn't match any specific demo trigger. I'll let them know they're in demo mode and suggest what they can try.",
-  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `zen` — multi-cycle think/talk/tool stream for Zen mode\n- `long` — long-form streaming (~1 minute)\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `/compact` — compacting animation\n- `help` — full command list",
+  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `zen` — multi-cycle think/talk/tool stream for Zen mode\n- `link` — link preview unfurl cards\n- `long` — long-form streaming (~1 minute)\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `/compact` — compacting animation\n- `help` — full command list",
 };
 
 // ── Match keywords ───────────────────────────────────────────────────────────
@@ -476,6 +480,8 @@ function matchResponse(input: string): DemoResponse {
     return RESPONSES.error;
   if (lower.includes("research") || lower.includes("search") || lower.includes("look up") || lower.includes("find out"))
     return RESPONSES.research;
+  if (lower.includes("link") || lower.includes("url") || lower.includes("preview") || lower.includes("unfurl"))
+    return RESPONSES.link;
   if (lower.includes("long") || lower.includes("essay") || lower.includes("minute"))
     return RESPONSES.long;
   if (lower.includes("subagent") || lower.includes("sub-agent") || lower.includes("spawn"))

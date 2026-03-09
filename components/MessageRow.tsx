@@ -15,6 +15,8 @@ import { ZenToggle } from "@/components/ZenToggle";
 import type { SubagentStore } from "@/hooks/useSubagentStore";
 import { isNativeMode, postLinkTap, postImageTap } from "@/lib/nativeBridge";
 import { ZEN_SLIDE_MS, ZEN_FADE_MS } from "@/lib/chat/zenUi";
+import { useUnfurl } from "@/hooks/useUnfurl";
+import { LinkPreviewCard } from "@/components/LinkPreviewCard";
 
 // ── File Thumbnails ──────────────────────────────────────────────────────────
 
@@ -490,6 +492,20 @@ function useNativeClickInterceptor(containerRef: React.RefObject<HTMLDivElement 
   }, [containerRef]);
 }
 
+// ── UnfurlCards — link preview cards for assistant text blocks ───────────────
+
+function UnfurlCards({ text, isStreaming }: { text: string; isStreaming: boolean }) {
+  const unfurls = useUnfurl(text, isStreaming);
+  if (unfurls.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1.5 mt-1">
+      {unfurls.map((data) => (
+        <LinkPreviewCard key={data.url} data={data} />
+      ))}
+    </div>
+  );
+}
+
 // ── MessageRow ───────────────────────────────────────────────────────────────
 
 export function MessageRow({
@@ -709,6 +725,7 @@ export function MessageRow({
                 )}
               </div>,
             );
+            pushAssistantBlock(`unfurl-${i}`, <UnfurlCards text={cleanText} isStreaming={isStreaming} />);
           }
           return;
         }
@@ -733,6 +750,7 @@ export function MessageRow({
             )}
           </div>,
         );
+        pushAssistantBlock("fallback-unfurl", <UnfurlCards text={cleanText} isStreaming={isStreaming} />);
       }
     }
   }
