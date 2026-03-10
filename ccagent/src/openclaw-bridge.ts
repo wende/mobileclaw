@@ -27,6 +27,9 @@ function formatToolName(name: string): string {
 // Module-level stores — survive WS reconnects
 const historyStore: Array<Record<string, unknown>> = [];
 let lastSessionId: string | null = null;
+// Shared claude process — survives bridge reconnects when no run is in progress
+let moduleClaude: ClaudeProcess | null = null;
+let moduleActiveRunId: string | null = null;
 
 // Stats tracking — survives WS reconnects
 interface RunStats {
@@ -106,12 +109,14 @@ export class OpenClawBridge {
   private activeRunId: string | null = null;
   private accumulatedText = "";
   private reasoningBlocks: string[] = [];
+  private textBlocks: string[] = [];
+  private currentTextBlockIndex = -1;
   private seenToolIds = new Set<string>();
   private toolCalls = new Map<string, { name: string; toolCallId: string; args?: string; result?: string; isError?: boolean }>();
   private justFinishedAt: number | null = null;
   private responseTimer: ReturnType<typeof setTimeout> | null = null;
   /** Ordered content parts as they arrive: thinking, tool_call, text — interleaved correctly */
-  private orderedParts: Array<{ kind: "thinking"; blockIndex: number } | { kind: "tool"; toolCallId: string } | { kind: "text" }> = [];
+  private orderedParts: Array<{ kind: "thinking"; blockIndex: number } | { kind: "tool"; toolCallId: string } | { kind: "text"; blockIndex: number }> = [];
   private runStats: RunStats = newRunStats();
   private sessionStats = {
     totalInputTokens: 0, totalOutputTokens: 0,
@@ -125,7 +130,15 @@ export class OpenClawBridge {
     this.config = opts?.config || {};
     this.cwd = opts?.cwd;
     this.mcpConfig = opts?.mcpConfig;
-    this.claude = new ClaudeProcess();
+    // Reuse existing idle process to preserve the debug session and file.
+    // If a run is in progress (moduleActiveRunId set), destroy() will have
+    // killed it before this constructor runs, so isAlive will be false.
+    if (!moduleClaude || !moduleClaude.isAlive) {
+      moduleClaude = new ClaudeProcess();
+    } else {
+      moduleClaude.removeAllListeners();
+    }
+    this.claude = moduleClaude;
     this.setupClaude();
     this.setupWs();
 
@@ -170,9 +183,8 @@ export class OpenClawBridge {
       this.handleClientMessage(msg);
     });
 
-    this.ws.on("close", async () => {
-      console.log("[bridge] WS closed, killing claude");
-      await this.claude.kill();
+    this.ws.on("close", () => {
+      console.log("[bridge] WS closed");
     });
   }
 
@@ -211,14 +223,17 @@ export class OpenClawBridge {
   }
 
   private handleConnect(id: string) {
-    // Spawn claude process — resume previous session if available
-    this.claude.start({
-      model: this.model,
-      cwd: this.cwd,
-      mcpConfig: this.mcpConfig,
-      systemPrompt: this.config.systemPrompt,
-      resumeSessionId: lastSessionId || undefined,
-    });
+    // Only start the process if it isn't already running (e.g. reused from a
+    // previous connection that disconnected without an active run).
+    if (!this.claude.isAlive) {
+      this.claude.start({
+        model: this.model,
+        cwd: this.cwd,
+        mcpConfig: this.mcpConfig,
+        systemPrompt: this.config.systemPrompt,
+        resumeSessionId: lastSessionId || undefined,
+      });
+    }
 
     this.sendRes(id, true, {
       type: "hello-ok",
@@ -263,8 +278,11 @@ export class OpenClawBridge {
 
     const runId = id; // Use the request id as runId
     this.activeRunId = runId;
+    moduleActiveRunId = runId;
     this.accumulatedText = "";
     this.reasoningBlocks = [];
+    this.textBlocks = [];
+    this.currentTextBlockIndex = -1;
     this.orderedParts = [];
     this.seenToolIds.clear();
     this.toolCalls.clear();
@@ -356,19 +374,89 @@ export class OpenClawBridge {
 
   private async handleChatAbort(id: string, _params: Record<string, unknown>) {
     const runId = this.activeRunId;
-    await this.claude.kill();
+    // Null activeRunId immediately so any Claude messages that arrive while
+    // kill() is awaited are dropped by translateSdkMessage.
+    this.activeRunId = null;
+    moduleActiveRunId = null;
+    this.clearResponseTimer();
+
+    // Capture streaming state before kill so we can save partial content.
+    const savedText = this.accumulatedText;
+    const savedParts = this.orderedParts.slice();
+    const savedReasoning = this.reasoningBlocks.slice();
+    const savedTextBlocks = this.textBlocks.slice();
+    const savedToolCalls = new Map(this.toolCalls);
+
+    // Reset streaming state immediately (before async work).
+    this.accumulatedText = "";
+    this.reasoningBlocks = [];
+    this.textBlocks = [];
+    this.currentTextBlockIndex = -1;
+    this.orderedParts = [];
+    this.seenToolIds.clear();
+    this.toolCalls.clear();
+
+    try {
+      await this.claude.kill();
+    } catch (err) {
+      console.error("[bridge] kill error during abort:", (err as Error).message);
+    }
 
     if (runId) {
+      // Build partial content from whatever was streamed before the abort.
+      const historyParts: Array<Record<string, unknown>> = [];
+      try {
+        for (const part of savedParts) {
+          if (part.kind === "thinking") {
+            const text = savedReasoning[part.blockIndex];
+            if (text) historyParts.push({ type: "thinking", thinking: text });
+          } else if (part.kind === "tool") {
+            const tc = savedToolCalls.get(part.toolCallId);
+            if (tc) {
+              historyParts.push({
+                type: "tool_call",
+                name: tc.name,
+                toolCallId: tc.toolCallId,
+                arguments: tc.args,
+                status: tc.isError ? "error" : "success",
+                result: tc.result,
+                resultError: tc.isError,
+              });
+            }
+          } else if (part.kind === "text") {
+            const text = savedTextBlocks[part.blockIndex];
+            if (text) historyParts.push({ type: "text", text });
+          }
+        }
+        // Fallback: if no text was tracked in orderedParts, use savedText
+        if (!savedParts.some(p => p.kind === "text") && savedText) {
+          historyParts.push({ type: "text", text: savedText });
+        }
+      } catch (err) {
+        console.error("[bridge] Error building abort history parts:", (err as Error).message);
+      }
+
+      // Always push an assistant entry so the history doesn't look like a
+      // run-in-progress (isRunInProgressFromHistory returns true for a dangling
+      // user message with no assistant response).
+      historyStore.push({
+        role: "assistant",
+        content: historyParts,
+        timestamp: Date.now(),
+        stopReason: "aborted",
+        runId,
+      });
+
       this.sendEvent("chat", {
         runId,
         sessionKey: SESSION_KEY,
         state: "aborted",
       });
     }
-    this.activeRunId = null;
 
     // Respawn for next prompt — resume so context is preserved
     this.claude = new ClaudeProcess();
+    moduleClaude = this.claude;
     this.setupClaude();
     this.claude.start({
       model: this.model,
@@ -382,6 +470,15 @@ export class OpenClawBridge {
   }
 
   private handleChatHistory(id: string) {
+    // During an active run, historyStore lacks the in-progress assistant message.
+    // If the client applies this incomplete history (e.g. on tab-focus sync), the
+    // streaming content disappears because mergeHistoryWithOptimistic's length
+    // guard can fail when the user message has already landed in historyStore.
+    // Tell the client the stream is still live so it defers the update.
+    if (this.activeRunId) {
+      this.sendRes(id, true, { messages: historyStore, streaming: true });
+      return;
+    }
     // After a run completes, the client's chat-final handler requests history.
     // buildHistoryMessages on the client strips thinking parts, which would
     // destroy the interleaved thinking/tool structure built during streaming.
@@ -501,11 +598,22 @@ export class OpenClawBridge {
         // this is a fresh assistant turn (after tool use) — reset tracking.
         if (fullText && this.accumulatedText && !fullText.startsWith(this.accumulatedText)) {
           this.accumulatedText = "";
+          this.currentTextBlockIndex = -1;
         }
 
         // Send incremental text delta
         if (fullText.length > this.accumulatedText.length) {
           const delta = fullText.slice(this.accumulatedText.length);
+
+          // Start a new text block if this is the first text in this turn
+          if (this.accumulatedText === "") {
+            this.currentTextBlockIndex = this.textBlocks.length;
+            this.textBlocks.push(fullText);
+            this.orderedParts.push({ kind: "text", blockIndex: this.currentTextBlockIndex });
+          } else if (this.currentTextBlockIndex >= 0) {
+            this.textBlocks[this.currentTextBlockIndex] = fullText;
+          }
+
           this.accumulatedText = fullText;
 
           this.sendEvent("agent", {
@@ -577,8 +685,8 @@ export class OpenClawBridge {
         this.resolveUnresolvedTools(runId);
         const resultText = typeof msg.result === "string" ? msg.result : this.accumulatedText;
 
-        // Preserve interleaved thinking/tool structure so history renders
-        // separate thinking blocks between turns, matching the streamed UI.
+        // Preserve interleaved thinking/tool/text structure so history renders
+        // separate blocks between turns, matching the streamed UI.
         const fullReasoning = this.reasoningBlocks.filter(Boolean).join("\n\n");
         const historyParts: Array<Record<string, unknown>> = [];
         for (const part of this.orderedParts) {
@@ -600,9 +708,15 @@ export class OpenClawBridge {
                 resultError: tc.isError,
               });
             }
+          } else if (part.kind === "text") {
+            const text = this.textBlocks[part.blockIndex];
+            if (text) {
+              historyParts.push({ type: "text", text });
+            }
           }
         }
-        if (resultText) {
+        // Fallback: if no text was captured in orderedParts, use resultText
+        if (!this.orderedParts.some(p => p.kind === "text") && resultText) {
           historyParts.push({ type: "text", text: resultText });
         }
         // stopReason is required — without it, isRunInProgressFromHistory thinks the run is still active
@@ -709,8 +823,11 @@ export class OpenClawBridge {
 
         this.justFinishedAt = Date.now();
         this.activeRunId = null;
+        moduleActiveRunId = null;
         this.accumulatedText = "";
         this.reasoningBlocks = [];
+        this.textBlocks = [];
+        this.currentTextBlockIndex = -1;
         this.orderedParts = [];
         this.seenToolIds.clear();
         this.toolCalls.clear();
@@ -743,6 +860,7 @@ export class OpenClawBridge {
           // Reset text tracking — the next assistant turn sends fresh content,
           // not a continuation of the previous turn's cumulative text.
           this.accumulatedText = "";
+          this.currentTextBlockIndex = -1;
           // Start a new reasoning block
           const blockIndex = this.reasoningBlocks.length;
           this.reasoningBlocks.push("");
@@ -814,8 +932,67 @@ export class OpenClawBridge {
     }
   }
 
+  /** Build history parts from the current streaming state (for abort/disconnect). */
+  private buildCurrentParts(): Array<Record<string, unknown>> {
+    const parts: Array<Record<string, unknown>> = [];
+    for (const part of this.orderedParts) {
+      if (part.kind === "thinking") {
+        const text = this.reasoningBlocks[part.blockIndex];
+        if (text) parts.push({ type: "thinking", thinking: text });
+      } else if (part.kind === "tool") {
+        const tc = this.toolCalls.get(part.toolCallId);
+        if (tc) {
+          parts.push({
+            type: "tool_call",
+            name: tc.name,
+            toolCallId: tc.toolCallId,
+            arguments: tc.args,
+            status: tc.isError ? "error" : "success",
+            result: tc.result,
+            resultError: tc.isError,
+          });
+        }
+      } else if (part.kind === "text") {
+        const text = this.textBlocks[part.blockIndex];
+        if (text) parts.push({ type: "text", text });
+      }
+    }
+    // Fallback if no text was tracked in orderedParts
+    if (!this.orderedParts.some(p => p.kind === "text") && this.accumulatedText) {
+      parts.push({ type: "text", text: this.accumulatedText });
+    }
+    return parts;
+  }
+
   async destroy() {
     this.clearResponseTimer();
-    await this.claude.kill();
+
+    if (this.activeRunId) {
+      // Run was in progress — eagerly push an aborted entry BEFORE awaiting
+      // kill(), so that a reconnecting client's chat.history sees a complete
+      // assistant message instead of a dangling user message that would trip
+      // isRunInProgressFromHistory and leave the UI stuck in "Thinking...".
+      historyStore.push({
+        role: "assistant",
+        content: this.buildCurrentParts(),
+        timestamp: Date.now(),
+        stopReason: "aborted",
+        runId: this.activeRunId,
+      });
+      this.activeRunId = null;
+      moduleActiveRunId = null;
+      this.accumulatedText = "";
+      this.reasoningBlocks = [];
+      this.orderedParts = [];
+      this.seenToolIds.clear();
+      this.toolCalls.clear();
+      await this.claude.kill();
+      moduleClaude = null; // process is dead; spawn fresh on next connect
+    } else {
+      // No active run — keep the process alive so the next connection reuses
+      // it (same session ID, same debug file, no restart delay).
+      // Just detach our listeners; the new bridge will re-attach them.
+      this.claude.removeAllListeners();
+    }
   }
 }
