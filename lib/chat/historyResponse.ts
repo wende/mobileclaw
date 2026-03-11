@@ -120,11 +120,19 @@ export function buildHistoryMessages(rawMessages: RawHistoryMessage[]): Message[
         if (thinkingParts.length > 0) {
           reasoning = thinkingParts.map((p) => p.thinking || p.text || "").filter(Boolean).join("\n\n");
         }
+        // Fall back to raw.reasoning if content has no thinking parts
+        // (e.g. when bridge stored reasoning at top level only)
+        if (!reasoning && typeof raw.reasoning === "string" && raw.reasoning) {
+          reasoning = raw.reasoning;
+        }
         // Keep thinking parts in content so they render interleaved with
         // tool calls (MessageRow handles type=thinking inline). The reasoning
         // field is still set as a fallback for messages with no thinking parts.
         filteredContent = content;
       } else {
+        if (typeof raw.reasoning === "string" && raw.reasoning) {
+          reasoning = raw.reasoning;
+        }
         filteredContent = content;
       }
 

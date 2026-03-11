@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { logWsFrame } from "@/lib/debugLog";
 
 export type ConnectionState = "connecting" | "connected" | "disconnected" | "error" | "reconnecting";
 
@@ -182,6 +183,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         }
         try {
           const frame = JSON.parse(event.data) as WebSocketMessage;
+          logWsFrame("recv", frame);
 
           if (frame.type === "event" && frame.event === "agent") {
             const p = frame.payload as { stream?: unknown; data?: Record<string, unknown> } | undefined;
@@ -271,6 +273,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
   const sendMessage = useCallback((message: WebSocketMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      logWsFrame("send", message);
       wsRef.current.send(JSON.stringify(message));
       return true;
     }

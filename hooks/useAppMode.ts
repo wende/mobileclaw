@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useWidgetContext } from "@/lib/widgetContext";
 
 /** Read a URL search param. Returns null when absent or during SSR. */
 function getSearchParam(name: string): string | null {
@@ -20,7 +21,7 @@ const SSR_SAFE_MODE: InitialAppMode = {
   uploadDisabled: false,
 };
 
-function getInitialAppMode(): InitialAppMode {
+function getUrlAppMode(): InitialAppMode {
   const isDetached = getSearchParam("detached") !== null;
   const detachedNoBorder = isDetached && getSearchParam("noborder") !== null;
   const nativeFlag = typeof window !== "undefined"
@@ -41,14 +42,35 @@ export interface AppMode {
 }
 
 export function useAppMode(): AppMode {
-  const [mode, setMode] = useState<InitialAppMode>(SSR_SAFE_MODE);
-  const isDetachedRef = useRef(false);
+  const widgetCtx = useWidgetContext();
+
+  // When embedded via WidgetContextProvider, use context values as initial state
+  // so the first render (including SSR) is already correct — no flash, no hydration mismatch.
+  const [mode, setMode] = useState<InitialAppMode>(() => {
+    if (widgetCtx) {
+      return {
+        isDetached: widgetCtx.isDetached,
+        detachedNoBorder: widgetCtx.noBorder,
+        isNative: false,
+        uploadDisabled: false,
+      };
+    }
+    return SSR_SAFE_MODE;
+  });
+
+  const isDetachedRef = useRef(widgetCtx?.isDetached ?? false);
   const isNativeRef = useRef(false);
 
-  // Resolve runtime mode after hydration so the first client render
-  // always matches server HTML.
   useEffect(() => {
-    const resolvedMode = getInitialAppMode();
+    const resolvedMode = widgetCtx
+      ? {
+          isDetached: widgetCtx.isDetached,
+          detachedNoBorder: widgetCtx.noBorder,
+          isNative: false,
+          uploadDisabled: false,
+        }
+      : getUrlAppMode();
+
     setMode(resolvedMode);
     isDetachedRef.current = resolvedMode.isDetached;
     isNativeRef.current = resolvedMode.isNative;
@@ -66,7 +88,7 @@ export function useAppMode(): AppMode {
 
     document.documentElement.classList.remove("native-loading");
     document.documentElement.classList.remove("detached-loading");
-  }, []);
+  }, [widgetCtx]);
 
   const hideChrome = mode.isDetached || mode.isNative;
 

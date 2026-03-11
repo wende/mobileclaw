@@ -1,6 +1,9 @@
 /**
  * Minimal delta logger — appends one-line entries to /api/log → logs.jsonl.
  * Each entry keeps only the fields that vary between deltas.
+ *
+ * WS frame logging is filtered to suppress high-frequency streaming deltas
+ * (agent stream=content/reasoning). All protocol-level frames are logged.
  */
 
 import type { ChatEventPayload, AgentEventPayload, ContentPart } from "@/types/chat";
@@ -33,6 +36,22 @@ function send(entry: Record<string, unknown>) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ts: Date.now(), ...entry }),
   }).catch(() => {});
+}
+
+/** Log a raw WebSocket frame (send or receive). Drops noisy streaming deltas. */
+export function logWsFrame(direction: "send" | "recv", frame: unknown) {
+  if (process.env.NODE_ENV !== "development") return;
+  // Drop high-frequency content/reasoning deltas
+  if (frame && typeof frame === "object") {
+    const f = frame as Record<string, unknown>;
+    if (f.type === "event" && f.event === "agent") {
+      const stream = (f.payload as Record<string, unknown> | undefined)?.stream;
+      if (stream === "content" || stream === "reasoning") return;
+    }
+    // Drop chat.history requests (large, frequent)
+    if (f.type === "req" && f.method === "chat.history") return;
+  }
+  send({ e: "ws", dir: direction, frame });
 }
 
 export function logChatEvent(p: ChatEventPayload) {
