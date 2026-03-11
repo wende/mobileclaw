@@ -128,7 +128,7 @@ export function useModeBootstrap({
     if (isNativeRef.current) return;
 
     const detached = isDetachedRef.current;
-    const embedUrl = widgetCtx?.wsUrl ?? getSearchParam("url");
+    const embedUrl = widgetCtx?.wsUrl ?? (detached ? getSearchParam("url") : null);
     if (embedUrl) {
       gatewayTokenRef.current = widgetCtx ? null : getSearchParam("token");
       setBackendMode("openclaw");

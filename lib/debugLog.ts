@@ -29,6 +29,7 @@ function preview(s: unknown, max = 60): string | undefined {
 }
 
 function send(entry: Record<string, unknown>) {
+  if (process.env.NODE_ENV === "test" || process.env.VITEST) return;
   if (process.env.NODE_ENV !== "development") return;
   // Fire-and-forget — never block UI
   fetch("/api/log", {
@@ -40,6 +41,7 @@ function send(entry: Record<string, unknown>) {
 
 /** Log a raw WebSocket frame (send or receive). Drops noisy streaming deltas. */
 export function logWsFrame(direction: "send" | "recv", frame: unknown) {
+  if (process.env.NODE_ENV === "test" || process.env.VITEST) return;
   if (process.env.NODE_ENV !== "development") return;
   // Drop high-frequency content/reasoning deltas
   if (frame && typeof frame === "object") {

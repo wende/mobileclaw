@@ -183,7 +183,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         }
         try {
           const frame = JSON.parse(event.data) as WebSocketMessage;
-          logWsFrame("recv", frame);
+          try {
+            logWsFrame("recv", frame);
+          } catch (logError) {
+            console.error("[WS] Failed to log received frame:", logError);
+          }
 
           if (frame.type === "event" && frame.event === "agent") {
             const p = frame.payload as { stream?: unknown; data?: Record<string, unknown> } | undefined;
@@ -273,7 +277,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
   const sendMessage = useCallback((message: WebSocketMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      logWsFrame("send", message);
+      try {
+        logWsFrame("send", message);
+      } catch (logError) {
+        console.error("[WS] Failed to log sent frame:", logError);
+      }
       wsRef.current.send(JSON.stringify(message));
       return true;
     }
