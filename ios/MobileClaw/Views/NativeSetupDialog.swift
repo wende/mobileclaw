@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let setupDialogBrandInk = Color(red: 49 / 255, green: 49 / 255, blue: 49 / 255)
+
 enum DialogPhase {
     case idle, entering, open, closing, closed
 
@@ -109,7 +111,7 @@ struct NativeSetupDialog: View {
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color(.systemBackground))
                     .strokeBorder(Color(.separator).opacity(0.3), lineWidth: 0.5)
-                    .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
+                    .shadow(color: setupDialogBrandInk.opacity(0.12), radius: 16, y: 8)
             )
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal, 16)
@@ -450,7 +452,7 @@ struct NativeSetupDialog: View {
                 .background(
                     RoundedRectangle(cornerRadius: 10)
                         .fill(selected ? Color(.systemBackground) : .clear)
-                        .shadow(color: selected ? .black.opacity(0.06) : .clear, radius: 2, y: 1)
+                        .shadow(color: selected ? setupDialogBrandInk.opacity(0.06) : .clear, radius: 2, y: 1)
                 )
                 .foregroundStyle(selected ? .primary : .secondary)
         }

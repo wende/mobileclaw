@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { logWsFrame } from "@/lib/debugLog";
 
 export type ConnectionState = "connecting" | "connected" | "disconnected" | "error" | "reconnecting";
 
@@ -183,12 +182,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         }
         try {
           const frame = JSON.parse(event.data) as WebSocketMessage;
-          try {
-            logWsFrame("recv", frame);
-          } catch (logError) {
-            console.error("[WS] Failed to log received frame:", logError);
-          }
-
           if (frame.type === "event" && frame.event === "agent") {
             const p = frame.payload as { stream?: unknown; data?: Record<string, unknown> } | undefined;
             const streamName = typeof p?.stream === "string" ? p.stream : String(p?.stream);
@@ -277,11 +270,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
   const sendMessage = useCallback((message: WebSocketMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      try {
-        logWsFrame("send", message);
-      } catch (logError) {
-        console.error("[WS] Failed to log sent frame:", logError);
-      }
       wsRef.current.send(JSON.stringify(message));
       return true;
     }

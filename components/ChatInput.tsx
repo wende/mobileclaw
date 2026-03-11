@@ -532,7 +532,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
           backdropFilter: isMobileDevice ? "blur(12px) saturate(1.8)" : 'url("#filter_liquidGlassPill")',
           WebkitBackdropFilter: isMobileDevice ? "blur(12px) saturate(1.8)" : 'url("#filter_liquidGlassPill")',
           border: "1px solid oklch(from var(--foreground) l c h / 0.15)",
-          boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
+          boxShadow: "0 2px 4px rgba(49, 49, 49,0.08)",
         } as React.CSSProperties}
       >
         {/* Attachment preview strip */}

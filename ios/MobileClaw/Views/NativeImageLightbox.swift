@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let imageLightboxBrandInk = Color(red: 49 / 255, green: 49 / 255, blue: 49 / 255)
+
 struct NativeImageLightbox: View {
     let url: URL
     @Environment(\.dismiss) private var dismiss
@@ -9,7 +11,7 @@ struct NativeImageLightbox: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            imageLightboxBrandInk.ignoresSafeArea()
                 .opacity(Double(max(0, 1 - abs(combinedOffset.height) / 300)))
 
             AsyncImage(url: url) { phase in

@@ -778,7 +778,7 @@ export function MessageRow({
           borderRadius: SQUIRCLE_RADIUS,
           background: "oklch(from var(--primary) l c h / 0.85)",
           border: "1px solid oklch(from var(--foreground) l c h / 0.12)",
-          boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
+          boxShadow: "0 2px 4px rgba(49, 49, 49,0.08)",
           ...(isSentAnim ? {
             animation: MESSAGE_SEND_ANIMATION,
             transformOrigin: "bottom right",
