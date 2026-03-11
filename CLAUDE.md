@@ -31,7 +31,6 @@ pnpm test            # run Vitest tests (63 tests)
 - **Debug log**: `lib/debugLog.ts` posts structured entries to `/api/log` (route: `app/api/log/route.ts`) which appends to `logs.jsonl` in the project root
 - **What's logged**: chat events (`logChatEvent`), agent events (`logAgentEvent`), and WS frames (`logWsFrame`) — structured one-line JSONL with timestamps
 - **WS frame logging**: `logWsFrame(direction, frame)` in `debugLog.ts`, called from `lib/useWebSocket.ts` on every send/receive; noisy content/reasoning deltas are suppressed
-- **Agent-side logging**: `~/.8claw/agent.jsonl` captures full exchange — WS frames, run_start (with full message history), tool_call/result, run_end with text+stats
 - **WS connection lifecycle**: logged to browser console (`[WS] Connection opened`, `[WS] Connection closed`, etc.) via `lib/useWebSocket.ts`
 
 ## Key Conventions
