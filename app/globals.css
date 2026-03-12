@@ -228,6 +228,11 @@ html.native-loading body {
   opacity: 0 !important;
 }
 
+/* Hide body until detached mode is resolved — prevents header flash in detached embeds */
+html.detached-loading body {
+  opacity: 0 !important;
+}
+
 /* Native mode — body class added by JS when ?native param is present */
 body.native {
   background: transparent !important;

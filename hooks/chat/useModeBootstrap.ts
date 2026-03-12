@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef } from "react";
 
+import { useWidgetContext } from "@/lib/widgetContext";
 import { DEMO_HISTORY } from "@/lib/demoMode";
 import type { LmStudioConfig } from "@/lib/lmStudio";
 import { notifyWebViewReady, registerBridgeHandler, updateBridgeHandler, type BridgeMessage } from "@/lib/nativeBridge";
@@ -74,6 +75,7 @@ export function useModeBootstrap({
   isDetachedRef,
   isNativeRef,
 }: UseModeBootstrapOptions) {
+  const widgetCtx = useWidgetContext();
   const hasInitializedRef = useRef(false);
 
   useEffect(() => {
@@ -126,9 +128,9 @@ export function useModeBootstrap({
     if (isNativeRef.current) return;
 
     const detached = isDetachedRef.current;
-    const embedUrl = getSearchParam("url");
-    if (detached && embedUrl) {
-      gatewayTokenRef.current = getSearchParam("token");
+    const embedUrl = widgetCtx?.wsUrl ?? (detached ? getSearchParam("url") : null);
+    if (embedUrl) {
+      gatewayTokenRef.current = widgetCtx ? null : getSearchParam("token");
       setBackendMode("openclaw");
       setOpenclawUrl(embedUrl);
       setIsInitialConnecting(true);
@@ -190,6 +192,7 @@ export function useModeBootstrap({
     isDemoMode,
     isDetachedRef,
     isNativeRef,
+    widgetCtx,
     gatewayTokenRef,
     lmStudioConfigRef,
     setBackendMode,

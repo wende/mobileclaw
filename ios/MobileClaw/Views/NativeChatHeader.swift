@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let chatHeaderBrandInk = Color(red: 49 / 255, green: 49 / 255, blue: 49 / 255)
+
 struct NativeChatHeader: View {
     let currentModel: String?
     let connectionState: ConnectionState
@@ -114,7 +116,7 @@ struct NativeChatHeader: View {
                     Circle()
                         .fill(.white)
                         .frame(width: size, height: size)
-                        .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                        .shadow(color: chatHeaderBrandInk.opacity(0.08), radius: 2, y: 1)
                 )
                 .clipShape(Circle())
         }
@@ -154,7 +156,7 @@ struct NativeSessionDropdown: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color.black.opacity(0.001)
+            chatHeaderBrandInk.opacity(0.001)
                 .ignoresSafeArea()
                 .onTapGesture { onDismiss() }
 
@@ -217,7 +219,7 @@ struct NativeSessionDropdown: View {
                 RoundedRectangle(cornerRadius: 16)
                     .strokeBorder(Color(.separator).opacity(0.35), lineWidth: 0.5)
             )
-            .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+            .shadow(color: chatHeaderBrandInk.opacity(0.12), radius: 12, y: 4)
             .padding(.top, 58)
             .padding(.horizontal, 12)
             .onTapGesture {

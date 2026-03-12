@@ -79,7 +79,7 @@ export default function Home() {
   const isStreamingRef = useRef(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sentAnimId, setSentAnimId] = useState<string | null>(null);
-  const { isDetached, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
+  const { isDetached, detachedNoBorder, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
 
   const {
     scrollRef,
@@ -682,6 +682,7 @@ export default function Home() {
 
       <ChatViewport
         isDetached={isDetached}
+        detachedNoBorder={detachedNoBorder}
         isNative={isNative}
         historyLoaded={historyLoaded}
         inputZoneHeight={inputZoneHeight}

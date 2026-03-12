@@ -21,7 +21,7 @@ export function ImageLightbox({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-[#313131]/80 backdrop-blur-sm"
       onClick={onClose}
     >
       <button

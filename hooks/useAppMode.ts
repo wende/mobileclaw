@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useWidgetContext } from "@/lib/widgetContext";
 
 /** Read a URL search param. Returns null when absent or during SSR. */
 function getSearchParam(name: string): string | null {
@@ -6,8 +7,33 @@ function getSearchParam(name: string): string | null {
   return new URLSearchParams(window.location.search).get(name);
 }
 
+interface InitialAppMode {
+  isDetached: boolean;
+  detachedNoBorder: boolean;
+  isNative: boolean;
+  uploadDisabled: boolean;
+}
+
+const SSR_SAFE_MODE: InitialAppMode = {
+  isDetached: false,
+  detachedNoBorder: false,
+  isNative: false,
+  uploadDisabled: false,
+};
+
+function getUrlAppMode(): InitialAppMode {
+  const isDetached = getSearchParam("detached") !== null;
+  const detachedNoBorder = isDetached && getSearchParam("noborder") !== null;
+  const nativeFlag = typeof window !== "undefined"
+    && (window as unknown as { __nativeMode?: boolean }).__nativeMode === true;
+  const isNative = getSearchParam("native") !== null || nativeFlag;
+  const uploadDisabled = getSearchParam("upload") === "false";
+  return { isDetached, detachedNoBorder, isNative, uploadDisabled };
+}
+
 export interface AppMode {
   isDetached: boolean;
+  detachedNoBorder: boolean;
   isNative: boolean;
   uploadDisabled: boolean;
   hideChrome: boolean;
@@ -16,51 +42,63 @@ export interface AppMode {
 }
 
 export function useAppMode(): AppMode {
-  const [isDetached, setIsDetached] = useState(false);
-  const isDetachedRef = useRef(false);
-  const [isNative, setIsNative] = useState(false);
+  const widgetCtx = useWidgetContext();
+
+  // When embedded via WidgetContextProvider, use context values as initial state
+  // so the first render (including SSR) is already correct — no flash, no hydration mismatch.
+  const [mode, setMode] = useState<InitialAppMode>(() => {
+    if (widgetCtx) {
+      return {
+        isDetached: widgetCtx.isDetached,
+        detachedNoBorder: widgetCtx.noBorder,
+        isNative: false,
+        uploadDisabled: false,
+      };
+    }
+    return SSR_SAFE_MODE;
+  });
+
+  const isDetachedRef = useRef(widgetCtx?.isDetached ?? false);
   const isNativeRef = useRef(false);
-  const [uploadDisabled, setUploadDisabled] = useState(false);
 
-  const hasDetectedRef = useRef(false);
-
-  // Synchronous ref assignment during render so refs are available
-  // before other hooks' effects run.
-  if (!hasDetectedRef.current && typeof window !== "undefined") {
-    hasDetectedRef.current = true;
-
-    if (getSearchParam("detached") !== null) {
-      isDetachedRef.current = true;
-    }
-
-    const nativeFlag = (window as unknown as { __nativeMode?: boolean }).__nativeMode === true;
-    if (getSearchParam("native") !== null || nativeFlag) {
-      isNativeRef.current = true;
-    }
-  }
-
-  // State + DOM side effects in a single effect (runs once).
   useEffect(() => {
-    if (isDetachedRef.current) {
-      setIsDetached(true);
+    const resolvedMode = widgetCtx
+      ? {
+          isDetached: widgetCtx.isDetached,
+          detachedNoBorder: widgetCtx.noBorder,
+          isNative: false,
+          uploadDisabled: false,
+        }
+      : getUrlAppMode();
+
+    setMode(resolvedMode);
+    isDetachedRef.current = resolvedMode.isDetached;
+    isNativeRef.current = resolvedMode.isNative;
+
+    if (resolvedMode.isDetached) {
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
     }
 
-    if (isNativeRef.current) {
-      setIsNative(true);
+    if (resolvedMode.isNative) {
       document.body.classList.add("native");
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
-      document.documentElement.classList.remove("native-loading");
     }
 
-    if (getSearchParam("upload") === "false") {
-      setUploadDisabled(true);
-    }
-  }, []);
+    document.documentElement.classList.remove("native-loading");
+    document.documentElement.classList.remove("detached-loading");
+  }, [widgetCtx]);
 
-  const hideChrome = isDetached || isNative;
+  const hideChrome = mode.isDetached || mode.isNative;
 
-  return { isDetached, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef };
+  return {
+    isDetached: mode.isDetached,
+    detachedNoBorder: mode.detachedNoBorder,
+    isNative: mode.isNative,
+    uploadDisabled: mode.uploadDisabled,
+    hideChrome,
+    isDetachedRef,
+    isNativeRef,
+  };
 }

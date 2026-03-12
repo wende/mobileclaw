@@ -18,6 +18,7 @@ const IOS_TOP_MESSAGE_SPACER_HEIGHT = "clamp(2.75rem, 6.5dvh, 3.75rem)";
 
 interface ChatViewportProps {
   isDetached: boolean;
+  detachedNoBorder?: boolean;
   isNative: boolean;
   historyLoaded: boolean;
   inputZoneHeight: string;
@@ -54,6 +55,7 @@ interface ChatViewportProps {
 
 export function ChatViewport({
   isDetached,
+  detachedNoBorder = false,
   isNative,
   historyLoaded,
   inputZoneHeight,
@@ -82,6 +84,7 @@ export function ChatViewport({
   quotePopupRef,
   onAcceptQuote,
 }: ChatViewportProps) {
+  const detachedShell = isDetached && !detachedNoBorder;
   const [zenRenderMode, setZenRenderMode] = useState(zenMode);
   const [expandedZenGroups, setExpandedZenGroups] = useState<Record<string, boolean>>({});
   const [collapsingZenGroups, setCollapsingZenGroups] = useState<Record<string, boolean>>({});
@@ -673,9 +676,9 @@ export function ChatViewport({
   }, [clearModeTimers]);
 
   return (
-    <div ref={pullContentRef} className={`relative flex flex-1 flex-col min-h-0 ${isDetached ? "px-3 pt-3" : ""}`}>
+    <div ref={pullContentRef} className={`relative flex flex-1 flex-col min-h-0 ${detachedShell ? "px-3 pt-3" : ""}`}>
 
-      {!isNative && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${isDetached ? "inset-x-3 rounded-b-2xl" : "inset-x-0"}`} style={{ bottom: isDetached ? inputZoneHeight : 0, background: "linear-gradient(to top, var(--background) 40%, transparent)" }} />}
+      {!isNative && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${detachedShell ? "inset-x-3 rounded-b-2xl" : "inset-x-0"}`} style={{ bottom: isDetached ? inputZoneHeight : 0, background: "linear-gradient(to top, var(--background) 40%, transparent)" }} />}
       <main
         ref={scrollRef}
         onScroll={() => {
@@ -686,8 +689,8 @@ export function ChatViewport({
             onNativeScrollPosition(distFromBottom);
           }
         }}
-        className={`scrollbar-hide flex-1 overflow-y-auto overflow-x-hidden ${isNative ? "" : "bg-background"} ${isDetached ? "rounded-2xl" : "pt-14"}`}
-        style={{ ...(isNative ? {} : { overscrollBehavior: "none" as const }), ...(isDetached ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
+        className={`scrollbar-hide flex-1 overflow-y-auto overflow-x-hidden ${isNative ? "" : "bg-background"} ${detachedShell ? "rounded-2xl" : (!isDetached ? "pt-14" : "")}`}
+        style={{ ...(isNative ? {} : { overscrollBehavior: "none" as const }), ...(detachedShell ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
       >
         <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
           {isNative && <div aria-hidden="true" style={{ height: IOS_TOP_MESSAGE_SPACER_HEIGHT, flexShrink: 0 }} />}

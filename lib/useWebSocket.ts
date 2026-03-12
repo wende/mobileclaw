@@ -182,7 +182,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         }
         try {
           const frame = JSON.parse(event.data) as WebSocketMessage;
-
           if (frame.type === "event" && frame.event === "agent") {
             const p = frame.payload as { stream?: unknown; data?: Record<string, unknown> } | undefined;
             const streamName = typeof p?.stream === "string" ? p.stream : String(p?.stream);

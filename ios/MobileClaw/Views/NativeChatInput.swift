@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let chatInputBrandInk = Color(red: 49 / 255, green: 49 / 255, blue: 49 / 255)
+
 struct NativeChatInput: View {
     let onSend: (String, [ImageAttachmentData]?) -> Void
     let onAbort: () -> Void
@@ -143,7 +145,7 @@ struct NativeChatInput: View {
                 .background(
                     RoundedRectangle(cornerRadius: 20 + lp * 4)
                         .fill(.ultraThinMaterial)
-                        .shadow(color: .black.opacity(0.06), radius: 3, y: 2)
+                        .shadow(color: chatInputBrandInk.opacity(0.06), radius: 3, y: 2)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 20 + lp * 4)
