@@ -77,6 +77,7 @@ describe("/new flow integration", () => {
     expect(assistant?.isCommandResponse).toBe(true);
 
     render(<MessageRow message={assistant as Message} isStreaming={false} />);
-    expect(screen.getByRole("button")).toHaveClass("text-muted-foreground");
+    expect(screen.getByRole("button", { name: /started a new conversation\./i })).toHaveClass("text-muted-foreground");
+    expect(screen.getByRole("button", { name: "Copy contents" })).toBeInTheDocument();
   });
 });
