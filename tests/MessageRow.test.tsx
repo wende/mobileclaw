@@ -191,9 +191,9 @@ describe("MessageRow", () => {
     render(<MessageRow message={message} isStreaming={false} />);
     // Summary should be "/status result"
     expect(screen.getByText("/status result")).toBeInTheDocument();
-    const footer = screen.getByRole("button", { name: "Copy contents" }).parentElement;
-    expect(footer).not.toBeNull();
-    expect(within(footer as HTMLElement).getByText("· Worked for 2s")).toBeInTheDocument();
+    const copyButton = screen.getByRole("button", { name: "Copy contents" });
+    const footer = copyButton.parentElement;
+    expect(footer).toHaveTextContent("· Worked for 2s");
   });
 
   it("renders command response spinner when text is empty", () => {
