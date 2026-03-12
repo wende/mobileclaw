@@ -1,6 +1,7 @@
 // Demo mode — simulates an OpenClaw backend with curated history and keyword-matched responses
 
-import type { AgentEventPayload, Message } from "@/types/chat";
+import type { PluginActionInvocation } from "@/lib/plugins/types";
+import type { AgentEventPayload, Message, PluginAction, PluginActionStyle, PluginContentPart, PluginState } from "@/types/chat";
 
 // ── Demo conversation history ────────────────────────────────────────────────
 // Single message exchange that showcases ALL display features
@@ -57,6 +58,20 @@ export const DEMO_HISTORY: Message[] = [
         arguments: JSON.stringify({ model: "claude-sonnet-4-5", task: "Analyze codebase structure" }),
         status: "running",
       },
+      {
+        type: "plugin",
+        partId: "demo-history-status",
+        pluginType: "status_card",
+        state: "settled",
+        data: {
+          label: "Demo background task",
+          status: "succeeded",
+          detail: "Indexed demo conversation assets",
+          startedAt: BASE_TS + 2_800,
+          duration: 1600,
+        },
+        revision: 1,
+      },
       // Simplified text
       {
         type: "text",
@@ -99,13 +114,168 @@ interface DemoZenCycle {
   toolCall?: DemoToolCall;
 }
 
+interface DemoPluginMountStep {
+  phase: "mount";
+  part: PluginContentPart;
+  delayMs?: number;
+  index?: number;
+}
+
+interface DemoPluginReplaceStep {
+  phase: "replace";
+  partId: string;
+  state: PluginState;
+  data: unknown;
+  revision?: number;
+  delayMs?: number;
+}
+
+interface DemoPluginRemoveStep {
+  phase: "remove";
+  partId: string;
+  tombstone?: boolean;
+  revision?: number;
+  delayMs?: number;
+}
+
+type DemoPluginStep = DemoPluginMountStep | DemoPluginReplaceStep | DemoPluginRemoveStep;
+
 interface DemoResponse {
   thinking?: string;
   toolCalls?: DemoToolCall[];
   zenCycles?: DemoZenCycle[];
+  pluginSteps?: DemoPluginStep[];
   text: string;
   delayMs?: number; // Extra delay before text starts (e.g. for /compact simulation)
   instant?: boolean; // Deliver text all at once (slash command responses)
+}
+
+function buildDemoAction(params: Record<string, unknown>, label: string, style?: PluginActionStyle): PluginAction {
+  return {
+    id: `${label.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`,
+    label,
+    style,
+    request: {
+      kind: "ws",
+      method: "demo.pause.respond",
+      params,
+    },
+  };
+}
+
+function buildPluginDemoResponse(): DemoResponse {
+  const partId = `demo-status-${Date.now()}`;
+  const startedAt = Date.now();
+  return {
+    thinking: "The user wants to see the new plugin widgets. I'll stream a status card into the thread, update it in place, and point them to the interactive pause card next.",
+    text: "I started a mock release. Watch the status card update in place as the run progresses.\n\nTry `pause` next to see the interactive pause card.",
+    pluginSteps: [
+      {
+        phase: "mount",
+        delayMs: 180,
+        part: {
+          type: "plugin",
+          partId,
+          pluginType: "status_card",
+          state: "pending",
+          data: {
+            label: "Preview deployment",
+            status: "pending",
+            detail: "Reserving build worker",
+          },
+          revision: 1,
+        },
+      },
+      {
+        phase: "replace",
+        delayMs: 700,
+        partId,
+        state: "active",
+        data: {
+          label: "Preview deployment",
+          status: "running",
+          detail: "Uploading assets and warming cache",
+          startedAt,
+        },
+        revision: 2,
+      },
+      {
+        phase: "replace",
+        delayMs: 1400,
+        partId,
+        state: "settled",
+        data: {
+          label: "Preview deployment",
+          status: "succeeded",
+          detail: "Preview deployment is ready to review",
+          startedAt,
+          duration: 2800,
+        },
+        revision: 3,
+      },
+    ],
+  };
+}
+
+function buildPauseDemoResponse(): DemoResponse {
+  const partId = `demo-pause-${Date.now()}`;
+  const expiresAt = Date.now() + 10 * 60 * 1000;
+  return {
+    thinking: "The user wants to see the interactive plugin. I'll pause for approval, render the pause card inline, and wait for their selection before continuing.",
+    text: "I need one confirmation before I continue this mock rollout.",
+    pluginSteps: [
+      {
+        phase: "mount",
+        delayMs: 180,
+        part: {
+          type: "plugin",
+          partId,
+          pluginType: "pause_card",
+          state: "active",
+          revision: 1,
+          data: {
+            prompt: "The rollout is ready. How should I proceed?",
+            expiresAt,
+            options: [
+              {
+                id: "continue",
+                label: "Continue rollout",
+                value: "continue",
+                style: "primary",
+                action: buildDemoAction({
+                  selectedValue: "continue",
+                  selectedLabel: "Continue rollout",
+                  responseText: "Continuing the rollout and kicking off smoke tests now.",
+                }, "Continue rollout", "primary"),
+              },
+              {
+                id: "hold",
+                label: "Hold for review",
+                value: "hold",
+                style: "secondary",
+                action: buildDemoAction({
+                  selectedValue: "hold",
+                  selectedLabel: "Hold for review",
+                  responseText: "Holding the rollout. I'll wait for review notes before continuing.",
+                }, "Hold for review", "secondary"),
+              },
+              {
+                id: "abort",
+                label: "Abort release",
+                value: "abort",
+                style: "destructive",
+                action: buildDemoAction({
+                  selectedValue: "abort",
+                  selectedLabel: "Abort release",
+                  responseText: "Release aborted. I've marked the status as stopped and preserved the current logs for inspection.",
+                }, "Abort release", "destructive"),
+              },
+            ],
+          },
+        },
+      },
+    ],
+  };
 }
 
 const RESPONSES: Record<string, DemoResponse> = {
@@ -440,14 +610,14 @@ The most important principle is this: **design for failure**. Networks are unrel
     instant: true,
   },
   help: {
-    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **zen** / **focus** | Multi-cycle think → talk → tool stream for Zen mode |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **link** / **url** / **preview** | Link preview unfurl cards |\n| **long** / **essay** | Long-form streaming (~1 minute) |\n| **/compact** | Compacting animation (5s) |\n| **help** | This list |\n\nSlash commands render as expandable pills — try **/commands**, **/status**, **/model**, **/whoami**, or **/context**.\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
+    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **plugin** / **widget** | Live `status_card` plugin updates |\n| **pause** / **approval** | Interactive `pause_card` plugin |\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **zen** / **focus** | Multi-cycle think → talk → tool stream for Zen mode |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **link** / **url** / **preview** | Link preview unfurl cards |\n| **long** / **essay** | Long-form streaming (~1 minute) |\n| **/compact** | Compacting animation (5s) |\n| **help** | This list |\n\nSlash commands render as expandable pills — try **/commands**, **/status**, **/model**, **/whoami**, or **/context**.\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
     instant: true,
   },
 };
 
 const DEFAULT_RESPONSE: DemoResponse = {
   thinking: "The user sent a message that doesn't match any specific demo trigger. I'll let them know they're in demo mode and suggest what they can try.",
-  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `zen` — multi-cycle think/talk/tool stream for Zen mode\n- `link` — link preview unfurl cards\n- `long` — long-form streaming (~1 minute)\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `/compact` — compacting animation\n- `help` — full command list",
+  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `plugin` — live `status_card` plugin updates\n- `pause` — interactive `pause_card` plugin\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `zen` — multi-cycle think/talk/tool stream for Zen mode\n- `link` — link preview unfurl cards\n- `long` — long-form streaming (~1 minute)\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `/compact` — compacting animation\n- `help` — full command list",
 };
 
 // ── Match keywords ───────────────────────────────────────────────────────────
@@ -466,6 +636,10 @@ function matchResponse(input: string): DemoResponse {
   // Keyword matching
   if (lower.includes("weather") || lower.includes("forecast") || lower.includes("temperature"))
     return RESPONSES.weather;
+  if (lower.includes("plugin") || lower.includes("widget"))
+    return buildPluginDemoResponse();
+  if (lower.includes("pause") || lower.includes("approval"))
+    return buildPauseDemoResponse();
   if (lower.includes("image") || lower.includes("picture") || lower.includes("photo") || lower.includes("img"))
     return RESPONSES.image;
   if (lower.includes("edit") || lower.includes("fix") || lower.includes("patch") || lower.includes("diff"))
@@ -515,6 +689,45 @@ export function createDemoHandler(options: DemoHandlerOptions) {
     timers.push(setTimeout(() => {
       onEvent({ runId, sessionKey, stream, data, seq: 0, ts: Date.now() });
     }, atDelay));
+  }
+
+  function emitActionFollowUp(messageId: string, part: PluginContentPart, action: PluginAction, input?: Record<string, unknown>) {
+    if (action.request.kind !== "ws" || action.request.method !== "demo.pause.respond") {
+      throw new Error("Demo action is not supported.");
+    }
+
+    const params = { ...(action.request.params || {}), ...(input || {}) };
+    const nextData = typeof part.data === "object" && part.data
+      ? { ...(part.data as Record<string, unknown>) }
+      : {};
+    if (params.selectedValue) nextData.selectedValue = params.selectedValue;
+    if (params.selectedLabel) nextData.selectedLabel = params.selectedLabel;
+
+    const nextRevision = typeof part.revision === "number" ? part.revision + 1 : 2;
+    emit(messageId, "plugin", {
+      phase: "replace",
+      partId: part.partId,
+      state: "settled",
+      data: nextData,
+      revision: nextRevision,
+    }, 120);
+
+    const followUpRunId = `demo-run-${Date.now()}`;
+    let delay = 380;
+    emit(followUpRunId, "lifecycle", { phase: "start" }, delay);
+    delay += 180;
+
+    const responseText = typeof params.responseText === "string"
+      ? params.responseText
+      : "Continuing the mock run.";
+    const words = responseText.split(/(\s+)/);
+    for (const word of words) {
+      emit(followUpRunId, "content", { delta: word }, delay);
+      if (!word.trim()) continue;
+      delay += 24;
+    }
+    delay += 220;
+    emit(followUpRunId, "lifecycle", { phase: "end" }, delay);
   }
 
   function sendMessage(text: string) {
@@ -582,6 +795,34 @@ export function createDemoHandler(options: DemoHandlerOptions) {
       }
     };
 
+    const schedulePluginStep = (targetRunId: string, step: DemoPluginStep) => {
+      delay += step.delayMs ?? 0;
+      if (step.phase === "mount") {
+        emit(targetRunId, "plugin", {
+          phase: "mount",
+          part: step.part,
+          index: step.index,
+        }, delay);
+        return;
+      }
+      if (step.phase === "replace") {
+        emit(targetRunId, "plugin", {
+          phase: "replace",
+          partId: step.partId,
+          state: step.state,
+          data: step.data,
+          revision: step.revision,
+        }, delay);
+        return;
+      }
+      emit(targetRunId, "plugin", {
+        phase: "remove",
+        partId: step.partId,
+        tombstone: !!step.tombstone,
+        revision: step.revision,
+      }, delay);
+    };
+
     if (response.zenCycles && response.zenCycles.length > 0) {
       emit(runId, "lifecycle", { phase: "start" }, delay);
       delay += 180;
@@ -607,6 +848,9 @@ export function createDemoHandler(options: DemoHandlerOptions) {
     if (response.toolCalls) {
       for (const tc of response.toolCalls) scheduleToolCall(runId, tc);
     }
+    if (response.pluginSteps) {
+      for (const step of response.pluginSteps) schedulePluginStep(runId, step);
+    }
     if (response.delayMs) delay += response.delayMs;
     scheduleText(runId, response.text, !!response.instant);
     delay += 200;
@@ -615,6 +859,9 @@ export function createDemoHandler(options: DemoHandlerOptions) {
 
   return {
     sendMessage,
+    invokePluginAction: async ({ messageId, part, action, input }: PluginActionInvocation) => {
+      emitActionFollowUp(messageId, part, action, input);
+    },
     stop: clearTimers,
   };
 }

@@ -6,8 +6,9 @@ import {
   isContextText,
   isToolCallPart,
 } from "@/lib/constants";
+import { appendCanvasPart } from "@/lib/plugins/compat";
 import { getTextFromContent } from "@/lib/messageUtils";
-import type { ContentPart, Message } from "@/types/chat";
+import type { CanvasPayload, ContentPart, Message } from "@/types/chat";
 
 type RawHistoryMessage = Record<string, unknown>;
 
@@ -39,6 +40,33 @@ function readHistoryRunId(raw: RawHistoryMessage): string | undefined {
     if (typeof value === "string" && value.length > 0) return value;
   }
   return undefined;
+}
+
+function readHistoryMessageId(raw: RawHistoryMessage): string | undefined {
+  const candidates = [
+    raw.messageId,
+    raw.message_id,
+    raw.messageKey,
+    raw.message_key,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
+}
+
+function buildStableHistoryId(raw: RawHistoryMessage, idx: number): string {
+  const messageId = readHistoryMessageId(raw);
+  if (messageId) return messageId;
+
+  const runId = readHistoryRunId(raw);
+  if (runId) {
+    if (raw.role === "assistant") return runId;
+    return `${runId}:${raw.role}`;
+  }
+
+  if (typeof raw.id === "string" && raw.id.length > 0) return `${raw.id}:${raw.role}`;
+  return `hist-${idx}`;
 }
 
 interface PrepareHistoryResult<TCommand extends { name: string }> {
@@ -108,10 +136,12 @@ export function buildHistoryMessages(rawMessages: RawHistoryMessage[]): Message[
   return rawMessages
     .filter((raw) => {
       const content = raw.content as ContentPart[] | string | null;
-      return content && !(Array.isArray(content) && content.length === 0);
+      const canvas = raw.canvas as CanvasPayload | undefined;
+      return !!canvas || (content && !(Array.isArray(content) && content.length === 0));
     })
     .map((raw, idx) => {
       const content = raw.content as ContentPart[] | string;
+      const canvas = raw.canvas as CanvasPayload | undefined;
       let reasoning: string | undefined;
       let filteredContent: ContentPart[] | string;
 
@@ -126,14 +156,13 @@ export function buildHistoryMessages(rawMessages: RawHistoryMessage[]): Message[
           reasoning = raw.reasoning;
         }
         // Keep thinking parts in content so they render interleaved with
-        // tool calls (MessageRow handles type=thinking inline). The reasoning
-        // field is still set as a fallback for messages with no thinking parts.
-        filteredContent = content;
+        // tool calls. Canvas payloads are appended as plugin parts.
+        filteredContent = appendCanvasPart(content, canvas);
       } else {
         if (typeof raw.reasoning === "string" && raw.reasoning) {
           reasoning = raw.reasoning;
         }
-        filteredContent = content;
+        filteredContent = appendCanvasPart(content, canvas);
       }
 
       let toolName: string | undefined;
@@ -159,7 +188,7 @@ export function buildHistoryMessages(rawMessages: RawHistoryMessage[]): Message[
         role: raw.role,
         content: filteredContent,
         timestamp: raw.timestamp,
-        id: `hist-${idx}`,
+        id: buildStableHistoryId(raw, idx),
         reasoning,
         toolName,
         isError: raw.stopReason === "error" || !!raw.isError,

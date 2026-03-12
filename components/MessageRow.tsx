@@ -12,11 +12,16 @@ import { ToolCallPill } from "@/components/ToolCallPill";
 import { ImageThumbnails } from "@/components/ImageThumbnails";
 import { SmoothGrow } from "@/components/SmoothGrow";
 import { ZenToggle } from "@/components/ZenToggle";
+import { PluginRenderer } from "@/components/plugins/PluginRenderer";
 import type { SubagentStore } from "@/hooks/useSubagentStore";
 import { isNativeMode, postLinkTap, postImageTap } from "@/lib/nativeBridge";
 import { ZEN_SLIDE_MS, ZEN_FADE_MS } from "@/lib/chat/zenUi";
 import { useUnfurl } from "@/hooks/useUnfurl";
 import { LinkPreviewCard } from "@/components/LinkPreviewCard";
+import { isPluginPart } from "@/lib/constants";
+import { pluginRegistry } from "@/lib/plugins/registry";
+import type { PluginActionHandler } from "@/lib/plugins/types";
+import type { PluginContentPart } from "@/types/chat";
 
 // ── File Thumbnails ──────────────────────────────────────────────────────────
 
@@ -525,6 +530,7 @@ export function MessageRow({
   onZenGroupToggle,
   isSentAnim = false,
   onSentAnimationEnd,
+  onPluginAction,
 }: {
   message: Message;
   isStreaming: boolean;
@@ -542,6 +548,7 @@ export function MessageRow({
   onZenGroupToggle?: () => void;
   isSentAnim?: boolean;
   onSentAnimationEnd?: () => void;
+  onPluginAction?: PluginActionHandler;
 }) {
   const messageRef = useRef<HTMLDivElement>(null);
   useNativeClickInterceptor(messageRef);
@@ -654,19 +661,16 @@ export function MessageRow({
   type AssistantBlock = {
     key: string;
     node: React.ReactNode;
+    width?: "bubble" | "message" | "chat";
   };
 
   // Check if content array has structured thinking parts
   const hasThinkingParts = Array.isArray(message.content)
     && (message.content).some((p) => p.type === "thinking");
 
-  // Force assistant container to fill max-width when a spawn tool is present
-  const hasSpawnTool = !isUser && Array.isArray(message.content)
-    && (message.content).some((p) => isToolCallPart(p) && p.name === SPAWN_TOOL_NAME);
-
   const assistantBlocks: AssistantBlock[] = [];
-  const pushAssistantBlock = (key: string, node: React.ReactNode) => {
-    assistantBlocks.push({ key, node });
+  const pushAssistantBlock = (key: string, node: React.ReactNode, width: AssistantBlock["width"] = "bubble") => {
+    assistantBlocks.push({ key, node, width });
   };
 
   if (!isUser) {
@@ -699,6 +703,22 @@ export function MessageRow({
                 onUnpin={isSpawn ? onUnpin : undefined}
               />
             ),
+            isSpawn ? "message" : "bubble",
+          );
+          return;
+        }
+        if (isPluginPart(part) && part.partId && part.pluginType && part.state) {
+          pushAssistantBlock(
+            `plugin-${part.partId}`,
+            (
+              <PluginRenderer
+                part={part as PluginContentPart}
+                messageId={message.id ?? ""}
+                isStreaming={isStreaming}
+                onAction={onPluginAction}
+              />
+            ),
+            pluginRegistry.getWidth(part.pluginType) === "chat" ? "chat" : "bubble",
           );
           return;
         }
@@ -708,7 +728,7 @@ export function MessageRow({
           const remainingParts = contentParts.slice(i + 1);
           const isLastText = !remainingParts.some((p) => p.type === "text" && p.text);
           // Hide cursor if tool call or thinking appears after this text
-          const hasLaterNonText = remainingParts.some((p) => isToolCallPart(p) || p.type === "thinking");
+          const hasLaterNonText = remainingParts.some((p) => isToolCallPart(p) || p.type === "thinking" || isPluginPart(p));
           const showCursor = isStreaming && isLastText && !hasLaterNonText;
 
           if (extractedThinking && !hasThinkingParts && !message.reasoning) {
@@ -757,9 +777,24 @@ export function MessageRow({
 
   const zenCollapsible = !isUser && zenMode && zenGroupCollapsible;
   const streamingLayoutActive = isStreaming || freezeStreamingLayout;
-  const renderAssistantBlock = (block: AssistantBlock) => (
-    <React.Fragment key={block.key}>{block.node}</React.Fragment>
-  );
+  const hasWideAssistantBlock = assistantBlocks.some((block) => block.width && block.width !== "bubble");
+  const renderAssistantBlock = (block: AssistantBlock) => {
+    const widthClass = hasWideAssistantBlock
+      ? block.width === "chat"
+        ? "w-full min-w-0"
+        : block.width === "message"
+          ? "w-[85%] md:w-[75%] max-w-full min-w-0"
+          : "self-start w-fit max-w-[85%] md:max-w-[75%] min-w-0"
+      : block.width === "message" || block.width === "chat"
+        ? "w-full min-w-0"
+        : "self-start w-fit max-w-full min-w-0";
+
+    return (
+      <div key={block.key} className={widthClass}>
+        {block.node}
+      </div>
+    );
+  };
 
   const effectiveZenSlideOpen = zenCollapsedByGroup ? zenGroupSlideOpen : zenGroupExpanded;
   const effectiveZenFadeVisible = zenCollapsedByGroup ? zenGroupFadeVisible : zenGroupExpanded;
@@ -773,7 +808,7 @@ export function MessageRow({
       style={collapsedZenSibling ? { marginBottom: "-0.75rem", transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` } : { transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` }}
     >
       <div
-        className={`max-w-[85%] md:max-w-[75%] min-w-0 ${isUser ? "px-4 py-2.5 text-primary-foreground" : ""} ${hasSpawnTool ? "w-[85%] md:w-[75%]" : ""}`}
+        className={`${isUser ? "max-w-[85%] md:max-w-[75%]" : hasWideAssistantBlock ? "w-full" : "max-w-[85%] md:max-w-[75%]"} min-w-0 ${isUser ? "px-4 py-2.5 text-primary-foreground" : ""}`}
         style={isUser ? {
           borderRadius: SQUIRCLE_RADIUS,
           background: "oklch(from var(--primary) l c h / 0.85)",

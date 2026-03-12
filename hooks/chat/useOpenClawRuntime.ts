@@ -25,10 +25,13 @@ import {
 import type {
   AgentEventPayload,
   BackendMode,
+  CanvasPayload,
+  CanvasUpdateEventPayload,
   ChatEventPayload,
   ConnectChallengePayload,
   Message,
   ModelChoice,
+  PluginContentPart,
   WSIncomingMessage,
 } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
@@ -39,6 +42,10 @@ interface StreamActions {
   startThinkingBlock: (runId: string, ts: number) => void;
   addToolCall: (runId: string, name: string, ts: number, toolCallId?: string, args?: string) => void;
   resolveToolCall: (runId: string, name: string, toolCallId?: string, result?: string, isError?: boolean) => void;
+  mountPluginPart: (runId: string, part: PluginContentPart, ts: number, index?: number) => void;
+  replacePluginPart: (runId: string, partId: string, next: Pick<PluginContentPart, "state" | "data" | "revision">) => void;
+  removePluginPart: (runId: string, partId: string, tombstone?: boolean) => void;
+  upsertCanvasPluginByMessageId: (messageId: string, canvas: CanvasPayload) => void;
 }
 
 interface UseOpenClawRuntimeOptions extends StreamActions {
@@ -131,6 +138,10 @@ export function useOpenClawRuntime({
   startThinkingBlock,
   addToolCall,
   resolveToolCall,
+  mountPluginPart,
+  replacePluginPart,
+  removePluginPart,
+  upsertCanvasPluginByMessageId,
 }: UseOpenClawRuntimeOptions) {
   const sessionIdRef = useRef<string | null>(null);
   const sessionKeyRef = useRef<string>("main");
@@ -628,6 +639,28 @@ export function useOpenClawRuntime({
       const delta = (payload.data.delta || payload.data.text || payload.data.content || "") as string;
       if (!delta) return;
       appendContentDelta(payload.runId, delta, payload.ts);
+      return;
+    }
+
+    if (payload.stream === "plugin") {
+      const phase = payload.data.phase as string | undefined;
+      if (phase === "mount" && payload.data.part && typeof payload.data.part === "object") {
+        mountPluginPart(payload.runId, payload.data.part as PluginContentPart, payload.ts, typeof payload.data.index === "number" ? payload.data.index : undefined);
+      } else if (phase === "replace") {
+        const partId = payload.data.partId as string | undefined;
+        if (partId) {
+          replacePluginPart(payload.runId, partId, {
+            state: (payload.data.state as PluginContentPart["state"]) || "active",
+            data: payload.data.data,
+            revision: typeof payload.data.revision === "number" ? payload.data.revision : undefined,
+          });
+        }
+      } else if (phase === "remove") {
+        const partId = payload.data.partId as string | undefined;
+        if (partId) {
+          removePluginPart(payload.runId, partId, !!payload.data.tombstone);
+        }
+      }
     }
   }, [
     addToolCall,
@@ -638,6 +671,9 @@ export function useOpenClawRuntime({
     startThinkingBlock,
     markRunEnd,
     markRunStart,
+    mountPluginPart,
+    removePluginPart,
+    replacePluginPart,
     requestHistory,
     resolveToolCall,
     setAwaitingResponse,
@@ -745,6 +781,11 @@ export function useOpenClawRuntime({
         handleChatEvent(msg.payload as ChatEventPayload);
         return;
       }
+      if (msg.event === "canvas_update") {
+        const payload = msg.payload as CanvasUpdateEventPayload;
+        upsertCanvasPluginByMessageId(payload.messageId, payload.canvas);
+        return;
+      }
       if (msg.event === "agent") {
         handleAgentEvent(msg.payload as AgentEventPayload);
       }
@@ -758,6 +799,7 @@ export function useOpenClawRuntime({
     handleHelloOk,
     handleHistoryResponse,
     handleSessionsListResponse,
+    upsertCanvasPluginByMessageId,
     setAvailableModels,
     setConnectionError,
     setMessages,

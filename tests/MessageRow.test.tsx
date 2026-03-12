@@ -25,6 +25,158 @@ describe("MessageRow", () => {
     expect(screen.getByText("Hi there!")).toBeInTheDocument();
   });
 
+  it("renders a built-in status card plugin", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [
+        {
+          type: "plugin",
+          partId: "status-1",
+          pluginType: "status_card",
+          state: "active",
+          data: { label: "Deploy", status: "running", detail: "Shipping preview build" },
+        },
+      ],
+      id: "plugin-status",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+    expect(screen.getByTestId("status-card")).toBeInTheDocument();
+    expect(screen.getByText("Deploy")).toBeInTheDocument();
+    expect(screen.getByText("Shipping preview build")).toBeInTheDocument();
+  });
+
+  it("invokes pause card actions through the plugin host", async () => {
+    const onPluginAction = vi.fn().mockResolvedValue(undefined);
+    const message: Message = {
+      role: "assistant",
+      content: [
+        {
+          type: "plugin",
+          partId: "pause-1",
+          pluginType: "pause_card",
+          state: "active",
+          data: {
+            prompt: "Resume deployment?",
+            resumeUrl: "https://example.com/resume",
+            options: [
+              { id: "approve", label: "Approve", value: "approve", style: "primary" },
+              { id: "stop", label: "Stop", value: "stop", style: "destructive" },
+            ],
+          },
+        },
+      ],
+      id: "plugin-pause",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} onPluginAction={onPluginAction} />);
+    fireEvent.click(screen.getByRole("button", { name: /Approve/ }));
+
+    await waitFor(() => {
+      expect(onPluginAction).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByText("Response recorded for the agent.")).toBeInTheDocument();
+  });
+
+  it("renders pause card plugins at chat width", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [
+        {
+          type: "plugin",
+          partId: "pause-1",
+          pluginType: "pause_card",
+          state: "active",
+          data: {
+            prompt: "Resume deployment?",
+            resumeUrl: "https://example.com/resume",
+            options: [
+              { id: "approve", label: "Approve", value: "approve", style: "primary" },
+            ],
+          },
+        },
+      ],
+      id: "plugin-pause-width",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+
+    const pauseCard = screen.getByTestId("pause-card");
+    expect(pauseCard.parentElement).toHaveClass("w-full");
+  });
+
+  it("removes hover styling from disabled pause card options", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [
+        {
+          type: "plugin",
+          partId: "pause-disabled",
+          pluginType: "pause_card",
+          state: "settled",
+          data: {
+            prompt: "Resume deployment?",
+            resumeUrl: "https://example.com/resume",
+            selectedValue: "approve",
+            options: [
+              { id: "approve", label: "Approve", value: "approve", style: "primary" },
+              { id: "stop", label: "Stop", value: "stop", style: "destructive" },
+            ],
+          },
+        },
+      ],
+      id: "plugin-pause-disabled",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+
+    for (const button of screen.getAllByRole("button")) {
+      expect(button).toBeDisabled();
+      expect(button.className).not.toContain("hover:bg-secondary/45");
+    }
+  });
+
+  it("keeps status card plugins in the default bubble width", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [
+        {
+          type: "plugin",
+          partId: "status-1",
+          pluginType: "status_card",
+          state: "active",
+          data: { label: "Deploy", status: "running", detail: "Shipping preview build" },
+        },
+      ],
+      id: "plugin-status-width",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+
+    const statusCard = screen.getByTestId("status-card");
+    expect(statusCard.parentElement).toHaveClass("w-fit");
+  });
+
+  it("renders unknown plugin fallback for unregistered types", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [
+        {
+          type: "plugin",
+          partId: "unknown-1",
+          pluginType: "weather_map",
+          state: "active",
+          data: {},
+        },
+      ],
+      id: "plugin-unknown",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+    expect(screen.getByTestId("unknown-plugin-card")).toBeInTheDocument();
+    expect(screen.getByText("weather_map")).toBeInTheDocument();
+  });
+
   it("slides in thinking blocks when they first appear", async () => {
     const message: Message = {
       role: "assistant",

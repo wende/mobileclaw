@@ -16,6 +16,7 @@ export function hasVisibleMessageContent(msg: Message): boolean {
     if (isToolCallPart(part)) return !!(part.name || part.result || part.status);
     if (part.type === "image" || part.type === "image_url") return !!part.image_url?.url;
     if (part.type === "file") return !!(part.file_name || part.file_url);
+    if (part.type === "plugin") return !!part.pluginType;
     return false;
   });
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeHistoryWithOptimistic, prepareHistoryMessages } from "@/lib/chat/historyResponse";
+import { buildHistoryMessages, mergeHistoryWithOptimistic, prepareHistoryMessages } from "@/lib/chat/historyResponse";
 import type { Message } from "@/types/chat";
 
 describe("mergeHistoryWithOptimistic", () => {
@@ -159,4 +159,28 @@ describe("prepareHistoryMessages", () => {
       expect(result.rawMessages.map((m) => m.role)).toEqual(["user", "assistant"]);
     },
   );
+});
+
+describe("buildHistoryMessages", () => {
+  it("prefers stable server ids and normalizes legacy canvas payloads into plugin parts", () => {
+    const history = buildHistoryMessages([
+      {
+        role: "assistant",
+        messageId: "msg-1",
+        content: [{ type: "text", text: "Deployment started." }],
+        canvas: {
+          type: "status_card",
+          state: "active",
+          data: { label: "Deploy", status: "running" },
+        },
+        timestamp: 1000,
+      },
+    ]);
+
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe("msg-1");
+    expect(Array.isArray(history[0].content)).toBe(true);
+    const parts = history[0].content as Array<{ type: string; pluginType?: string }>;
+    expect(parts.some((part) => part.type === "plugin" && part.pluginType === "status_card")).toBe(true);
+  });
 });

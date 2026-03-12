@@ -10,6 +10,7 @@ import { STOP_REASON_INJECTED, isToolCallPart, MESSAGE_SEND_ANIMATION } from "@/
 import { ZEN_SLIDE_MS, ZEN_FADE_MS, ZEN_TOGGLE_FRAME_MS } from "@/lib/chat/zenUi";
 import type { Message } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
+import type { PluginActionHandler } from "@/lib/plugins/types";
 
 const TIME_GAP_THRESHOLD_MS = 10 * 60 * 1000;
 const ZEN_COLLAPSE_TOTAL_MS = ZEN_TOGGLE_FRAME_MS + ZEN_FADE_MS + ZEN_SLIDE_MS;
@@ -51,6 +52,7 @@ interface ChatViewportProps {
   quotePopup: { x: number; y: number; text: string } | null;
   quotePopupRef: React.RefObject<HTMLButtonElement | null>;
   onAcceptQuote: (text: string) => void;
+  onPluginAction?: PluginActionHandler;
 }
 
 export function ChatViewport({
@@ -83,6 +85,7 @@ export function ChatViewport({
   quotePopup,
   quotePopupRef,
   onAcceptQuote,
+  onPluginAction,
 }: ChatViewportProps) {
   const detachedShell = isDetached && !detachedNoBorder;
   const [zenRenderMode, setZenRenderMode] = useState(zenMode);
@@ -833,6 +836,7 @@ export function ChatViewport({
                     onZenGroupToggle={undefined}
                     isSentAnim={isSentUserAnim}
                     onSentAnimationEnd={isSentUserAnim ? onSentAnimationEnd : undefined}
+                    onPluginAction={onPluginAction}
                   />
                 </div>
               </React.Fragment>

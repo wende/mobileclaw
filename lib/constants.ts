@@ -73,6 +73,9 @@ export function isToolCallPart(p: { type: string }): boolean {
 export function isImagePart(p: { type: string }): boolean {
   return p.type === "image" || p.type === "image_url";
 }
+export function isPluginPart(p: { type: string }): boolean {
+  return p.type === "plugin";
+}
 
 // Tool name helpers (normalizes multiple aliases)
 export const SPAWN_TOOL_NAME = "sessions_spawn";

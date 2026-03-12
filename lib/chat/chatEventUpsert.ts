@@ -1,25 +1,23 @@
 import {
   isContextText,
-  isToolCallPart,
 } from "@/lib/constants";
+import { appendCanvasPart } from "@/lib/plugins/compat";
 import { getTextFromContent, updateAt } from "@/lib/messageUtils";
-import type { ChatEventPayload, ContentPart, Message } from "@/types/chat";
+import type { CanvasPayload, ChatEventPayload, ContentPart, Message, PluginContentPart } from "@/types/chat";
 
 function normalizeChatText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function normalizeChatEventContent(content: ContentPart[] | string): ContentPart[] {
-  return typeof content === "string"
-    ? [{ type: "text" as const, text: content }]
-    : content;
+function normalizeChatEventContent(content: ContentPart[] | string, canvas?: CanvasPayload): ContentPart[] {
+  return appendCanvasPart(content, canvas);
 }
 
 export function upsertChatEventMessage(prev: Message[], payload: ChatEventPayload): Message[] {
   if (!payload.message) return prev;
 
   const msg = payload.message;
-  const normalizedContent = normalizeChatEventContent(msg.content);
+  const normalizedContent = normalizeChatEventContent(msg.content, msg.canvas);
   const nextText = typeof msg.content === "string"
     ? msg.content
     : getTextFromContent(msg.content);
@@ -30,12 +28,21 @@ export function upsertChatEventMessage(prev: Message[], payload: ChatEventPayloa
       return updateAt(prev, existingIdx, (existing) => {
         const parts = Array.isArray(existing.content) ? [...existing.content] : [];
         if (nextText) {
-          const lastToolIdx = parts.findLastIndex((p: ContentPart) => isToolCallPart(p));
+          const lastToolIdx = parts.findLastIndex((p: ContentPart) => p.type !== "text");
           const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
           if (lastTextIdx > lastToolIdx) {
             parts[lastTextIdx] = { ...parts[lastTextIdx], text: nextText };
           } else {
             parts.push({ type: "text" as const, text: nextText });
+          }
+        }
+        const pluginParts = normalizedContent.filter((part): part is PluginContentPart => part.type === "plugin" && !!part.partId);
+        for (const pluginPart of pluginParts) {
+          const pluginIdx = parts.findIndex((part) => part.type === "plugin" && part.partId === pluginPart.partId);
+          if (pluginIdx >= 0) {
+            parts[pluginIdx] = { ...parts[pluginIdx], ...pluginPart };
+          } else {
+            parts.push(pluginPart);
           }
         }
         return {

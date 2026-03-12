@@ -1,5 +1,39 @@
-export type ContentPartType = "text" | "tool_call" | "toolCall" | "thinking" | "image" | "image_url" | "file";
+export type ContentPartType = "text" | "tool_call" | "toolCall" | "thinking" | "image" | "image_url" | "file" | "plugin";
 export type MessageRole = "user" | "assistant" | "system" | "tool" | "toolResult" | "tool_result";
+
+export type PluginState = "pending" | "active" | "settled" | "tombstone";
+export type PluginActionStyle = "primary" | "secondary" | "destructive";
+
+export type PluginActionRequest =
+  | {
+      kind: "http";
+      method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+      url: string;
+      body?: Record<string, unknown>;
+      headers?: Record<string, string>;
+      fireAndForget?: boolean;
+    }
+  | {
+      kind: "ws";
+      method: string;
+      params?: Record<string, unknown>;
+    };
+
+export interface PluginAction {
+  id: string;
+  label: string;
+  style?: PluginActionStyle;
+  request: PluginActionRequest;
+}
+
+export interface CanvasPayload {
+  type: string;
+  state: PluginState;
+  data: unknown;
+  partId?: string;
+  schemaVersion?: number;
+  revision?: number;
+}
 
 export interface ContentPart {
   type: ContentPartType;
@@ -17,6 +51,22 @@ export interface ContentPart {
   file_name?: string;
   file_mime?: string;
   subagentSessionKey?: string;
+  partId?: string;
+  pluginType?: string;
+  state?: PluginState;
+  data?: unknown;
+  schemaVersion?: number;
+  revision?: number;
+}
+
+export interface PluginContentPart extends ContentPart {
+  type: "plugin";
+  partId: string;
+  pluginType: string;
+  state: PluginState;
+  data: unknown;
+  schemaVersion?: number;
+  revision?: number;
 }
 
 export interface SubagentEntry {
@@ -83,8 +133,8 @@ export interface WSResponse {
 // Event (server → client)
 export interface WSEvent {
   type: "event";
-  event: "connect.challenge" | "chat" | "agent" | "presence" | "health";
-  payload: ConnectChallengePayload | ChatEventPayload | AgentEventPayload;
+  event: "connect.challenge" | "chat" | "agent" | "presence" | "health" | "canvas_update";
+  payload: ConnectChallengePayload | ChatEventPayload | AgentEventPayload | CanvasUpdateEventPayload;
   seq: number;
   stateVersion?: {
     presence: number;
@@ -104,16 +154,18 @@ export interface ChatEventPayload {
   sessionKey: string;
   state: "delta" | "final" | "aborted" | "error";
   message?: {
+    id?: string;
     role: "user" | "assistant" | "system" | "tool";
     content: ContentPart[] | string;
     timestamp: number;
     reasoning?: string;
+    canvas?: CanvasPayload;
   };
   errorMessage?: string;
 }
 
 // Agent event payload — actual format uses stream + data
-export type AgentStreamType = "lifecycle" | "content" | "tool" | "reasoning" | "assistant" | "error" | (string & {});
+export type AgentStreamType = "lifecycle" | "content" | "tool" | "reasoning" | "assistant" | "error" | "plugin" | (string & {});
 
 export interface AgentEventPayload {
   runId: string;
@@ -122,6 +174,11 @@ export interface AgentEventPayload {
   data: Record<string, unknown>;
   seq: number;
   ts: number;
+}
+
+export interface CanvasUpdateEventPayload {
+  messageId: string;
+  canvas: CanvasPayload;
 }
 
 // Hello message (server → client on connect)
