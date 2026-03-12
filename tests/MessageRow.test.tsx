@@ -13,6 +13,7 @@ describe("MessageRow", () => {
     };
     render(<MessageRow message={message} isStreaming={false} />);
     expect(screen.getByText("Hello, world!")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /copy contents/i })).not.toBeInTheDocument();
   });
 
   it("renders assistant message text", () => {
@@ -23,6 +24,43 @@ describe("MessageRow", () => {
     };
     render(<MessageRow message={message} isStreaming={false} />);
     expect(screen.getByText("Hi there!")).toBeInTheDocument();
+  });
+
+  it("renders a copy button for assistant messages and copies cleaned contents", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "<think>Internal notes</think><final>Hello there</final>" }],
+      id: "test-copy",
+      runDuration: 7,
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+    expect(screen.queryByText("Copy contents")).not.toBeInTheDocument();
+    expect(screen.getByText("· Worked for 7s")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy contents" }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("Hello there");
+      expect(screen.queryByText("Copied")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    });
+  });
+
+  it("hides the copy button while an assistant message is still streaming", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Streaming reply" }],
+      id: "test-copy-streaming",
+    };
+
+    render(<MessageRow message={message} isStreaming />);
+    expect(screen.queryByRole("button", { name: /copy contents/i })).not.toBeInTheDocument();
   });
 
   it("slides in thinking blocks when they first appear", async () => {
@@ -148,10 +186,14 @@ describe("MessageRow", () => {
       content: [{ type: "text", text: "/status result\nMore details here" }],
       id: "test-9",
       isCommandResponse: true,
+      runDuration: 2,
     };
     render(<MessageRow message={message} isStreaming={false} />);
     // Summary should be "/status result"
     expect(screen.getByText("/status result")).toBeInTheDocument();
+    const copyButton = screen.getByRole("button", { name: "Copy contents" });
+    const footer = copyButton.parentElement;
+    expect(footer).toHaveTextContent("· Worked for 2s");
   });
 
   it("renders command response spinner when text is empty", () => {
