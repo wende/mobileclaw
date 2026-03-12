@@ -237,6 +237,7 @@ function optionToneClass(style: PluginActionStyle | undefined) {
 }
 
 function PauseCardView({ state, data, invokeAction }: PluginViewProps<PauseCardData>) {
+  const [now, setNow] = useState(() => Date.now());
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [localSubmittedId, setLocalSubmittedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -246,10 +247,16 @@ function PauseCardView({ state, data, invokeAction }: PluginViewProps<PauseCardD
     || (data.selectedValue && option.value === data.selectedValue)
     || (data.selectedLabel && option.label === data.selectedLabel),
   );
-  const expired = !!data.expiresAt && data.expiresAt <= Date.now();
+  const expired = !!data.expiresAt && data.expiresAt <= now;
   const isLocked = expired || state === "tombstone" || (!!selectedOption && !error);
   const stateLabel = expired ? "expired" : state === "settled" && selectedOption ? "recorded" : state;
   const showHeaderSpinner = !selectedOption && !error && state === "active" && !expired;
+
+  useEffect(() => {
+    if (!data.expiresAt || expired || state === "tombstone" || !!selectedOption) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [data.expiresAt, expired, selectedOption?.id, state]);
 
   useEffect(() => {
     if (data.selectedValue || data.selectedLabel || state === "settled") {
@@ -375,7 +382,10 @@ function PauseCardView({ state, data, invokeAction }: PluginViewProps<PauseCardD
                 setSubmittingId(option.id);
                 setError(null);
                 try {
-                  await invokeAction(option.action);
+                  await invokeAction(option.action, {
+                    selectedLabel: option.label,
+                    selectedValue: option.value,
+                  });
                   setLocalSubmittedId(option.id);
                 } catch (err) {
                   setError(err instanceof Error ? err.message : "Unable to submit selection.");

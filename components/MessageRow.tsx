@@ -779,15 +779,16 @@ export function MessageRow({
   const streamingLayoutActive = isStreaming || freezeStreamingLayout;
   const hasWideAssistantBlock = assistantBlocks.some((block) => block.width && block.width !== "bubble");
   const renderAssistantBlock = (block: AssistantBlock) => {
-    const widthClass = hasWideAssistantBlock
-      ? block.width === "chat"
-        ? "w-full min-w-0"
-        : block.width === "message"
-          ? "w-[85%] md:w-[75%] max-w-full min-w-0"
-          : "self-start w-fit max-w-[85%] md:max-w-[75%] min-w-0"
-      : block.width === "message" || block.width === "chat"
-        ? "w-full min-w-0"
-        : "self-start w-fit max-w-full min-w-0";
+    let widthClass = "self-start w-fit max-w-full min-w-0";
+    if (block.width === "chat") {
+      widthClass = "w-full min-w-0";
+    } else if (block.width === "message") {
+      widthClass = hasWideAssistantBlock
+        ? "w-[85%] md:w-[75%] max-w-full min-w-0"
+        : "w-full min-w-0";
+    } else if (hasWideAssistantBlock) {
+      widthClass = "self-start w-fit max-w-[85%] md:max-w-[75%] min-w-0";
+    }
 
     return (
       <div key={block.key} className={widthClass}>

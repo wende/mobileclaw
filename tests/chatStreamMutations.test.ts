@@ -145,6 +145,71 @@ describe("chat stream mutations", () => {
     expect(parts[0].revision).toBe(2);
   });
 
+  it("ignores plugin replacements with an older revision", () => {
+    const pluginPart: PluginContentPart = {
+      type: "plugin",
+      partId: "status-1",
+      pluginType: "status_card",
+      state: "active",
+      data: { label: "Build", status: "running" },
+      revision: 3,
+    };
+
+    const mounted = mountPluginPart([], "run-plugin-stale", pluginPart, Date.now());
+    const stale = replacePluginPart(mounted.messages, "run-plugin-stale", "status-1", {
+      state: "settled",
+      data: { label: "Build", status: "succeeded" },
+      revision: 2,
+    });
+
+    const parts = stale[0].content as PluginContentPart[];
+    expect(parts).toHaveLength(1);
+    expect(parts[0].state).toBe("active");
+    expect(parts[0].data).toEqual({ label: "Build", status: "running" });
+    expect(parts[0].revision).toBe(3);
+  });
+
+  it("allows plugin replacements without a revision", () => {
+    const pluginPart: PluginContentPart = {
+      type: "plugin",
+      partId: "status-1",
+      pluginType: "status_card",
+      state: "active",
+      data: { label: "Build", status: "running" },
+      revision: 3,
+    };
+
+    const mounted = mountPluginPart([], "run-plugin-unversioned", pluginPart, Date.now());
+    const replaced = replacePluginPart(mounted.messages, "run-plugin-unversioned", "status-1", {
+      state: "settled",
+      data: { label: "Build", status: "succeeded" },
+      revision: undefined,
+    });
+
+    const parts = replaced[0].content as PluginContentPart[];
+    expect(parts).toHaveLength(1);
+    expect(parts[0].state).toBe("settled");
+    expect(parts[0].data).toEqual({ label: "Build", status: "succeeded" });
+    expect(parts[0].revision).toBeUndefined();
+  });
+
+  it("removes plugin parts outright when tombstone is false", () => {
+    const pluginPart: PluginContentPart = {
+      type: "plugin",
+      partId: "status-1",
+      pluginType: "status_card",
+      state: "active",
+      data: { label: "Build", status: "running" },
+      revision: 1,
+    };
+
+    const mounted = mountPluginPart([], "run-plugin-remove", pluginPart, Date.now());
+    const removed = removePluginPart(mounted.messages, "run-plugin-remove", "status-1", false);
+
+    expect(removed).toHaveLength(1);
+    expect(removed[0].content).toEqual([]);
+  });
+
   it("fills an existing placeholder from a final-only payload", () => {
     const initial: Message[] = [{
       role: "assistant",

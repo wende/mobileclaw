@@ -1,5 +1,9 @@
 import type { CanvasPayload, ContentPart, PluginContentPart } from "@/types/chat";
 
+function getLegacyCanvasPartId(canvas: CanvasPayload): string {
+  return canvas.partId || `legacy-canvas:${canvas.type}`;
+}
+
 export function ensureContentArray(content: ContentPart[] | string | null | undefined): ContentPart[] {
   if (!content) return [];
   if (typeof content === "string") {
@@ -11,7 +15,7 @@ export function ensureContentArray(content: ContentPart[] | string | null | unde
 export function canvasToPluginPart(canvas: CanvasPayload): PluginContentPart {
   return {
     type: "plugin",
-    partId: canvas.partId || "canvas",
+    partId: getLegacyCanvasPartId(canvas),
     pluginType: canvas.type,
     state: canvas.state,
     data: canvas.data,

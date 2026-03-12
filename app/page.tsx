@@ -60,7 +60,7 @@ import { useNativeBridgeMessage } from "@/hooks/chat/useNativeBridgeMessage";
 import { useDemoRuntime } from "@/hooks/chat/useDemoRuntime";
 import { useLmStudioRuntime } from "@/hooks/chat/useLmStudioRuntime";
 import { useMessageSender } from "@/hooks/chat/useMessageSender";
-import { mergePluginActionPayload } from "@/lib/plugins/actionPayload";
+import { appendPluginActionPayloadToUrl, mergePluginActionPayload } from "@/lib/plugins/actionPayload";
 import type { PluginActionInvocation } from "@/lib/plugins/types";
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null;
@@ -636,18 +636,31 @@ export default function Home() {
     }
 
     if (action.request.kind === "http") {
-      const headers: HeadersInit = {
-        "Content-Type": "application/json",
-        ...(action.request.headers || {}),
-      };
-      const body = action.request.method === "GET"
-        ? undefined
-        : JSON.stringify(payload);
-      const response = await fetch(action.request.url, {
+      const headers: HeadersInit = action.request.method === "GET"
+        ? { ...(action.request.headers || {}) }
+        : {
+            "Content-Type": "application/json",
+            ...(action.request.headers || {}),
+          };
+      const url = action.request.method === "GET"
+        ? appendPluginActionPayloadToUrl(action.request.url, payload)
+        : action.request.url;
+      const request = fetch(url, {
         method: action.request.method,
-        headers,
-        body,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        body: action.request.method === "GET" ? undefined : JSON.stringify(payload),
       });
+      if (action.request.fireAndForget) {
+        void request
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(`Request failed (${response.status})`);
+            }
+          })
+          .catch(() => {});
+        return;
+      }
+      const response = await request;
       if (!response.ok) {
         throw new Error(`Request failed (${response.status})`);
       }

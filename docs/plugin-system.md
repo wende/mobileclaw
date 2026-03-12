@@ -8,7 +8,7 @@
 
 The provided canvas spec is directionally right about one thing: MobileClaw should render live widgets inside the conversation thread, and the server should drive their state. The part that does not fit the current codebase is the proposed top-level `message.canvas` field.
 
-MobileClaw already models assistant output as ordered `content` parts (`text`, `thinking`, `tool_call`, `image`, `file`) and renders them in sequence inside [`components/MessageRow.tsx`](/Users/wende/projects/mobileclaw/components/MessageRow.tsx). A plugin system should extend that existing content pipeline, not introduce a second message-body channel.
+MobileClaw already models assistant output as ordered `content` parts (`text`, `thinking`, `tool_call`, `image`, `file`) and renders them in sequence inside [`components/MessageRow.tsx`](../components/MessageRow.tsx). A plugin system should extend that existing content pipeline, not introduce a second message-body channel.
 
 This design therefore proposes:
 
@@ -35,10 +35,10 @@ type Message = {
 
 MobileClaw does not work that way today. In the current app:
 
-- Messages already carry structured `content` arrays in [`types/chat.ts`](/Users/wende/projects/mobileclaw/types/chat.ts).
-- Streaming mutations append or resolve parts through [`lib/chat/streamMutations.ts`](/Users/wende/projects/mobileclaw/lib/chat/streamMutations.ts).
-- Chat history is rebuilt from content arrays in [`lib/chat/historyResponse.ts`](/Users/wende/projects/mobileclaw/lib/chat/historyResponse.ts).
-- Assistant rendering is single-pass and order-sensitive in [`components/MessageRow.tsx`](/Users/wende/projects/mobileclaw/components/MessageRow.tsx).
+- Messages already carry structured `content` arrays in [`types/chat.ts`](../types/chat.ts).
+- Streaming mutations append or resolve parts through [`lib/chat/streamMutations.ts`](../lib/chat/streamMutations.ts).
+- Chat history is rebuilt from content arrays in [`lib/chat/historyResponse.ts`](../lib/chat/historyResponse.ts).
+- Assistant rendering is single-pass and order-sensitive in [`components/MessageRow.tsx`](../components/MessageRow.tsx).
 
 Adding a top-level `canvas` field would create a parallel rendering path with duplicated logic for:
 
@@ -165,11 +165,12 @@ export type PluginParseResult<T> = {
 
 export interface PluginViewProps<TData = unknown> {
   messageId: string;
+  part: PluginContentPart;
   partId: string;
   state: PluginState;
   data: TData;
   isStreaming: boolean;
-  invokeAction: (actionId: string, input?: Record<string, unknown>) => Promise<void>;
+  invokeAction: (action: PluginAction, input?: Record<string, unknown>) => Promise<void>;
 }
 
 export interface MobileClawPlugin<TData = unknown> {
@@ -251,7 +252,7 @@ Whenever possible, plugin parts should be stored inline in normal message histor
 
 ### Live updates
 
-For streaming or in-place replacement, reuse the existing `agent` event channel instead of adding an unrelated top-level event. The current type model already allows custom agent streams via [`types/chat.ts`](/Users/wende/projects/mobileclaw/types/chat.ts).
+For streaming or in-place replacement, reuse the existing `agent` event channel instead of adding an unrelated top-level event. The current type model already allows custom agent streams via [`types/chat.ts`](../types/chat.ts).
 
 Proposed stream:
 
@@ -294,7 +295,7 @@ Why `agent.stream = "plugin"` instead of `event: "canvas_update"`:
 
 For live runs, the target message is the assistant message associated with `runId`.
 
-For history and reconnect, the message must preserve a stable server identity instead of synthetic `hist-*` ids wherever possible. This requires updating [`lib/chat/historyResponse.ts`](/Users/wende/projects/mobileclaw/lib/chat/historyResponse.ts) to prefer server-provided ids or run ids when present.
+For history and reconnect, the message must preserve a stable server identity instead of synthetic `hist-*` ids wherever possible. This requires updating [`lib/chat/historyResponse.ts`](../lib/chat/historyResponse.ts) to prefer server-provided ids or run ids when present.
 
 Without stable ids, a reconnecting client cannot reliably match future plugin updates to an existing message.
 
@@ -302,7 +303,7 @@ Without stable ids, a reconnecting client cannot reliably match future plugin up
 
 ## Store Mutations
 
-Add plugin-aware mutation helpers beside the existing stream mutation helpers in [`lib/chat/streamMutations.ts`](/Users/wende/projects/mobileclaw/lib/chat/streamMutations.ts).
+Add plugin-aware mutation helpers beside the existing stream mutation helpers in [`lib/chat/streamMutations.ts`](../lib/chat/streamMutations.ts).
 
 Suggested API:
 
@@ -394,7 +395,7 @@ Interactive plugin payloads may embed actions in their validated `data`.
 The plugin host exposes:
 
 ```ts
-invokeAction(actionId: string, input?: Record<string, unknown>): Promise<void>
+invokeAction(action: PluginAction, input?: Record<string, unknown>): Promise<void>
 ```
 
 The host is responsible for:
@@ -536,12 +537,12 @@ Integration tests should cover:
 
 The current codebase can absorb this with localized changes:
 
-- [`types/chat.ts`](/Users/wende/projects/mobileclaw/types/chat.ts): add `plugin` part and plugin state/types
-- [`components/MessageRow.tsx`](/Users/wende/projects/mobileclaw/components/MessageRow.tsx): add plugin-part rendering branch
-- [`lib/chat/streamMutations.ts`](/Users/wende/projects/mobileclaw/lib/chat/streamMutations.ts): add plugin mutation helpers and structural-boundary-aware text/thinking append logic
-- [`hooks/chat/useOpenClawRuntime.ts`](/Users/wende/projects/mobileclaw/hooks/chat/useOpenClawRuntime.ts): handle `payload.stream === "plugin"`
-- [`lib/chat/historyResponse.ts`](/Users/wende/projects/mobileclaw/lib/chat/historyResponse.ts): preserve stable message ids and retain plugin parts in history
-- [`lib/messageUtils.ts`](/Users/wende/projects/mobileclaw/lib/messageUtils.ts): keep text/image/file helpers ignoring plugin parts unless explicitly requested
+- [`types/chat.ts`](../types/chat.ts): add `plugin` part and plugin state/types
+- [`components/MessageRow.tsx`](../components/MessageRow.tsx): add plugin-part rendering branch
+- [`lib/chat/streamMutations.ts`](../lib/chat/streamMutations.ts): add plugin mutation helpers and structural-boundary-aware text/thinking append logic
+- [`hooks/chat/useOpenClawRuntime.ts`](../hooks/chat/useOpenClawRuntime.ts): handle `payload.stream === "plugin"`
+- [`lib/chat/historyResponse.ts`](../lib/chat/historyResponse.ts): preserve stable message ids and retain plugin parts in history
+- [`lib/messageUtils.ts`](../lib/messageUtils.ts): keep text/image/file helpers ignoring plugin parts unless explicitly requested
 
 ---
 

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getPluginActionHostPayload, mergePluginActionPayload } from "@/lib/plugins/actionPayload";
+import {
+  appendPluginActionPayloadToUrl,
+  getPluginActionHostPayload,
+  mergePluginActionPayload,
+} from "@/lib/plugins/actionPayload";
 import type { PluginActionInvocation } from "@/lib/plugins/types";
 
 const invocation: PluginActionInvocation = {
@@ -54,5 +58,24 @@ describe("plugin action payload", () => {
       partId: "pause-1",
       pluginType: "pause_card",
     });
+  });
+
+  it("returns only host-owned identifiers when no plugin payload is provided", () => {
+    expect(mergePluginActionPayload(
+      undefined,
+      { ...invocation, input: undefined },
+    )).toEqual({
+      messageId: "message-123",
+      partId: "pause-1",
+      pluginType: "pause_card",
+    });
+  });
+
+  it("encodes merged payload into GET query params", () => {
+    expect(appendPluginActionPayloadToUrl("/api/pause?existing=1", {
+      selectedValue: "continue",
+      selectedLabel: "Continue rollout",
+      meta: { dryRun: true },
+    })).toBe("/api/pause?existing=1&selectedValue=continue&selectedLabel=Continue+rollout&meta=%7B%22dryRun%22%3Atrue%7D");
   });
 });

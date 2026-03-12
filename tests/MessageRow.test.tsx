@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MessageRow } from "@/components/MessageRow";
 import type { Message } from "@/types/chat";
 import { findSlideGrid } from "./utils/zenDom";
@@ -73,8 +73,19 @@ describe("MessageRow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Approve/ }));
 
     await waitFor(() => {
-      expect(onPluginAction).toHaveBeenCalledTimes(1);
+      expect(onPluginAction).toHaveBeenCalledWith(expect.objectContaining({
+        messageId: "plugin-pause",
+        input: {
+          selectedLabel: "Approve",
+          selectedValue: "approve",
+        },
+        part: expect.objectContaining({
+          partId: "pause-1",
+          pluginType: "pause_card",
+        }),
+      }));
     });
+    expect(onPluginAction).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Response recorded for the agent.")).toBeInTheDocument();
   });
 
@@ -136,6 +147,46 @@ describe("MessageRow", () => {
     }
   });
 
+  it("updates pause cards to expired when their deadline passes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-12T12:00:00Z"));
+
+    try {
+      const message: Message = {
+        role: "assistant",
+        content: [
+          {
+            type: "plugin",
+            partId: "pause-expiring",
+            pluginType: "pause_card",
+            state: "active",
+            data: {
+              prompt: "Resume deployment?",
+              resumeUrl: "https://example.com/resume",
+              expiresAt: Date.now() + 1000,
+              options: [
+                { id: "approve", label: "Approve", value: "approve", style: "primary" },
+              ],
+            },
+          },
+        ],
+        id: "plugin-pause-expiring",
+      };
+
+      render(<MessageRow message={message} isStreaming={false} />);
+      expect(screen.getByText("active")).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      expect(screen.getByText("expired")).toBeInTheDocument();
+      expect(screen.getByText("This prompt has expired.")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps status card plugins in the default bubble width", () => {
     const message: Message = {
       role: "assistant",
@@ -175,6 +226,27 @@ describe("MessageRow", () => {
     render(<MessageRow message={message} isStreaming={false} />);
     expect(screen.getByTestId("unknown-plugin-card")).toBeInTheDocument();
     expect(screen.getByText("weather_map")).toBeInTheDocument();
+  });
+
+  it("renders invalid plugin fallback for malformed known plugin payloads", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [
+        {
+          type: "plugin",
+          partId: "status-invalid",
+          pluginType: "status_card",
+          state: "active",
+          data: {},
+        },
+      ],
+      id: "plugin-invalid",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+    expect(screen.getByTestId("invalid-plugin-card")).toBeInTheDocument();
+    expect(screen.getByText("status_card")).toBeInTheDocument();
+    expect(screen.queryByTestId("status-card")).not.toBeInTheDocument();
   });
 
   it("slides in thinking blocks when they first appear", async () => {

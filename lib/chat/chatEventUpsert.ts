@@ -28,9 +28,9 @@ export function upsertChatEventMessage(prev: Message[], payload: ChatEventPayloa
       return updateAt(prev, existingIdx, (existing) => {
         const parts = Array.isArray(existing.content) ? [...existing.content] : [];
         if (nextText) {
-          const lastToolIdx = parts.findLastIndex((p: ContentPart) => p.type !== "text");
+          const lastNonTextPartIdx = parts.findLastIndex((p: ContentPart) => p.type !== "text");
           const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
-          if (lastTextIdx > lastToolIdx) {
+          if (lastTextIdx > lastNonTextPartIdx) {
             parts[lastTextIdx] = { ...parts[lastTextIdx], text: nextText };
           } else {
             parts.push({ type: "text" as const, text: nextText });
