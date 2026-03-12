@@ -367,9 +367,84 @@ function UserTextWithQuotes({ text }: { text: string }) {
   );
 }
 
+function normalizeAssistantCopyText(text: string): string {
+  const { text: rawCleanText } = stripThinkTags(text);
+  return stripFinalTags(rawCleanText).trim();
+}
+
+function getCopyableAssistantText(message: Message): string {
+  if (message.role !== "assistant" || !message.content) return "";
+  if (typeof message.content === "string") return normalizeAssistantCopyText(message.content);
+
+  return message.content
+    .flatMap((part) => {
+      if (part.type !== "text" || !part.text) return [];
+      const cleanText = normalizeAssistantCopyText(part.text);
+      return cleanText ? [cleanText] : [];
+    })
+    .join("\n\n");
+}
+
+function getAssistantDurationText(message: Message): string | null {
+  if (message.role !== "assistant") return null;
+  if (message.runDuration && message.runDuration > 0) return `· Worked for ${message.runDuration}s`;
+  if (!message.runDuration && message.thinkingDuration && message.thinkingDuration > 0) return `· ${message.thinkingDuration}s`;
+  return null;
+}
+
+function AssistantCopyButton({ text, durationText }: { text: string; durationText?: string | null }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (resetTimerRef.current !== null) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+  }, []);
+
+  const copy = async () => {
+    if (!text || !navigator.clipboard?.writeText) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+      resetTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Ignore clipboard failures; the button remains available for retry.
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-start gap-1.5 pt-0.5">
+      <button
+        type="button"
+        onClick={() => { void copy(); }}
+        aria-label={copied ? "Copied" : "Copy contents"}
+        title={copied ? "Copied" : "Copy contents"}
+        className="inline-flex h-8 w-4 items-center justify-start rounded-full p-0 text-muted-foreground/35 transition-colors hover:text-muted-foreground/70"
+      >
+        {copied ? (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m5 12 5 5L20 7" />
+          </svg>
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="10" height="10" rx="2" />
+            <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+          </svg>
+        )}
+      </button>
+      {durationText ? <span className="text-2xs text-muted-foreground/50">{durationText}</span> : null}
+    </div>
+  );
+}
+
 // ── CommandResponsePill — expandable pill for slash command responses ────────
 
-function CommandResponsePill({ text, isStreaming }: { text: string; isStreaming?: boolean }) {
+function CommandResponsePill({ text, isStreaming, copyText, durationText }: { text: string; isStreaming?: boolean; copyText?: string; durationText?: string | null }) {
   const [userToggled, setUserToggled] = useState<boolean | null>(null);
   
   // Robust summary extraction
@@ -411,7 +486,8 @@ function CommandResponsePill({ text, isStreaming }: { text: string; isStreaming?
         >
           <div className="min-h-0">
             <div className="border-t border-border px-3 py-2 text-xs leading-[1.75rem] whitespace-pre-wrap break-words text-foreground/80">
-              {text}
+              <div>{text}</div>
+              {copyText ? <AssistantCopyButton text={copyText} durationText={durationText} /> : null}
             </div>
           </div>
         </div>
@@ -558,6 +634,9 @@ export function MessageRow({
   const text = getTextFromContent(message.content);
   const images = getImages(message.content);
   const files = getFiles(message.content);
+  const assistantCopyText = message.role === "assistant" ? getCopyableAssistantText(message) : "";
+  const assistantDurationText = getAssistantDurationText(message);
+  const showAssistantCopyButton = !isStreaming && !!assistantCopyText;
 
   if (message.role === "toolResult" || message.role === "tool_result" || message.role === "tool") {
     return null;
@@ -577,7 +656,7 @@ export function MessageRow({
         </div>
       );
     }
-    return <CommandResponsePill key={message.id} text={text} isStreaming={isStreaming} />;
+    return <CommandResponsePill key={message.id} text={text} isStreaming={isStreaming} copyText={!isStreaming ? (assistantCopyText || text) : undefined} durationText={assistantDurationText} />;
   }
 
   // Context pill — expandable pill for system-injected user messages
@@ -623,7 +702,8 @@ export function MessageRow({
     return (
       <div className="flex justify-center py-2">
         <div className="max-w-[85%] rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs leading-[1.75rem] text-destructive-foreground whitespace-pre-wrap break-words">
-          {errorText}
+          <div>{errorText}</div>
+          {message.role === "assistant" && !isStreaming ? <AssistantCopyButton text={assistantCopyText || errorText} durationText={assistantDurationText} /> : null}
         </div>
       </div>
     );
@@ -848,6 +928,7 @@ export function MessageRow({
                   : undefined}
               >
                 {assistantBlocks.map(renderAssistantBlock)}
+                {showAssistantCopyButton ? <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} /> : null}
               </div>
             </SlideContent>
           </SmoothGrow>
