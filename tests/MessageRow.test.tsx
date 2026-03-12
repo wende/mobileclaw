@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MessageRow } from "@/components/MessageRow";
 import type { Message } from "@/types/chat";
 import { findSlideGrid } from "./utils/zenDom";
