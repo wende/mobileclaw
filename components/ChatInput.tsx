@@ -108,6 +108,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   const [specularSrc, setSpecularSrc] = useState<string>(maps.specular);
   useEffect(() => {
     const w = filterDims.w, h = filterDims.h, r = cornerRadius;
+    if (!w || !h) return;
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
