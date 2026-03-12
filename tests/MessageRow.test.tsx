@@ -248,7 +248,8 @@ describe("MessageRow", () => {
     expect(screen.getByTestId("invalid-plugin-card")).toBeInTheDocument();
     expect(screen.getByText("status_card")).toBeInTheDocument();
     expect(screen.queryByTestId("status-card")).not.toBeInTheDocument();
-    
+  });
+
   it("renders a copy button for assistant messages and copies cleaned contents", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
