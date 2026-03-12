@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DEMO_HISTORY, createDemoHandler } from "@/lib/demoMode";
-import type { AgentEventPayload } from "@/types/chat";
+import type { PluginActionInvocation } from "@/lib/plugins/types";
+import type { AgentEventPayload, PluginContentPart } from "@/types/chat";
 
 describe("DEMO_HISTORY", () => {
   it("contains system + user + assistant messages", () => {
@@ -29,10 +30,11 @@ describe("DEMO_HISTORY", () => {
     const assistantMsg = DEMO_HISTORY[2];
     const content = assistantMsg.content as Array<{ type: string }>;
 
-    // Should have thinking, tool_call, and text parts
+    // Should have thinking, tool_call, plugin, and text parts
     const types = content.map(p => p.type);
     expect(types).toContain("thinking");
     expect(types).toContain("tool_call");
+    expect(types).toContain("plugin");
     expect(types).toContain("text");
   });
 });
@@ -69,6 +71,10 @@ describe("createDemoHandler", () => {
 
   function toolEvents() {
     return events.filter(e => e.stream === "tool");
+  }
+
+  function pluginEvents() {
+    return events.filter(e => e.stream === "plugin");
   }
 
   it("returns sendMessage and stop functions", () => {
@@ -195,5 +201,52 @@ describe("createDemoHandler", () => {
     }
     // Concatenated deltas reconstruct the full response
     expect(fullText).toContain("San Francisco");
+  });
+
+  it("emits plugin mount and replace events for plugin/widget keyword", () => {
+    const handler = createHandler();
+    handler.sendMessage("show me the plugin widgets");
+    flushAll();
+
+    const mounts = pluginEvents().filter(e => e.data.phase === "mount");
+    const replaces = pluginEvents().filter(e => e.data.phase === "replace");
+    expect(mounts.length).toBeGreaterThan(0);
+    expect(replaces.length).toBeGreaterThan(0);
+  });
+
+  it("can settle a pause card and continue after demo plugin action", async () => {
+    const handler = createHandler();
+    handler.sendMessage("pause");
+    flushAll();
+
+    const mount = pluginEvents().find(e => e.data.phase === "mount");
+    expect(mount).toBeDefined();
+
+    const invocation: PluginActionInvocation = {
+      messageId: mount!.runId,
+      part: mount!.data.part as PluginContentPart,
+      action: {
+        id: "continue",
+        label: "Continue rollout",
+        request: {
+          kind: "ws",
+          method: "demo.pause.respond",
+          params: {
+            selectedValue: "continue",
+            selectedLabel: "Continue rollout",
+            responseText: "Continuing the rollout and kicking off smoke tests now.",
+          },
+        },
+      },
+    };
+
+    await handler.invokePluginAction(invocation);
+
+    flushAll();
+
+    const settled = pluginEvents().find(e => e.data.phase === "replace");
+    expect(settled).toBeDefined();
+    const fullText = contentEvents().map(e => e.data.delta).join("");
+    expect(fullText).toContain("Continuing the rollout");
   });
 });

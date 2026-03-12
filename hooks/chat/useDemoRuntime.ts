@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { createDemoHandler } from "@/lib/demoMode";
-import type { AgentEventPayload } from "@/types/chat";
+import type { AgentEventPayload, PluginContentPart } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
 import { SPAWN_TOOL_NAME } from "@/lib/constants";
 
@@ -12,6 +12,9 @@ interface UseDemoRuntimeOptions {
   startThinkingBlock: (runId: string, ts: number) => void;
   addToolCall: (runId: string, name: string, ts: number, toolCallId?: string, args?: string) => void;
   resolveToolCall: (runId: string, name: string, toolCallId?: string, result?: string, isError?: boolean) => void;
+  mountPluginPart: (runId: string, part: PluginContentPart, ts: number, index?: number) => void;
+  replacePluginPart: (runId: string, partId: string, next: Pick<PluginContentPart, "state" | "data" | "revision">) => void;
+  removePluginPart: (runId: string, partId: string, tombstone?: boolean) => void;
   markRunStart: () => void;
   markRunEnd: () => number;
   setIsStreaming: (value: boolean) => void;
@@ -29,6 +32,9 @@ export function useDemoRuntime({
   startThinkingBlock,
   addToolCall,
   resolveToolCall,
+  mountPluginPart,
+  replacePluginPart,
+  removePluginPart,
   markRunStart,
   markRunEnd,
   setIsStreaming,
@@ -95,6 +101,27 @@ export function useDemoRuntime({
           resolveToolCall(payload.runId, toolName, toolCallId, resultText, !!payload.data.isError);
         }
       }
+
+      if (payload.stream === "plugin") {
+        const phase = payload.data.phase as string | undefined;
+        if (phase === "mount" && payload.data.part && typeof payload.data.part === "object") {
+          mountPluginPart(payload.runId, payload.data.part as PluginContentPart, payload.ts, typeof payload.data.index === "number" ? payload.data.index : undefined);
+        } else if (phase === "replace") {
+          const partId = payload.data.partId as string | undefined;
+          if (partId) {
+            replacePluginPart(payload.runId, partId, {
+              state: (payload.data.state as PluginContentPart["state"]) || "active",
+              data: payload.data.data,
+              revision: typeof payload.data.revision === "number" ? payload.data.revision : undefined,
+            });
+          }
+        } else if (phase === "remove") {
+          const partId = payload.data.partId as string | undefined;
+          if (partId) {
+            removePluginPart(payload.runId, partId, !!payload.data.tombstone);
+          }
+        }
+      }
     };
 
     demoHandlerRef.current = createDemoHandler({
@@ -117,6 +144,9 @@ export function useDemoRuntime({
     startThinkingBlock,
     addToolCall,
     resolveToolCall,
+    mountPluginPart,
+    replacePluginPart,
+    removePluginPart,
     markRunStart,
     markRunEnd,
     setIsStreaming,

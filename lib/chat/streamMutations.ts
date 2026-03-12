@@ -1,6 +1,7 @@
 import { isToolCallPart } from "@/lib/constants";
+import { appendCanvasPart, canvasToPluginPart, ensureContentArray } from "@/lib/plugins/compat";
 import { updateAt } from "@/lib/messageUtils";
-import type { ContentPart, Message } from "@/types/chat";
+import type { CanvasPayload, ContentPart, Message, PluginContentPart } from "@/types/chat";
 
 interface EnsureResult {
   messages: Message[];
@@ -48,10 +49,10 @@ export function appendContentDelta(messages: Message[], runId: string, delta: st
   return {
     created: ensured.created,
     messages: updateAt(updated, idx, (target) => {
-      const parts = Array.isArray(target.content) ? [...target.content] : [];
-      const lastToolIdx = parts.findLastIndex((p: ContentPart) => isToolCallPart(p));
+      const parts = ensureContentArray(target.content);
+      const lastNonTextIdx = parts.findLastIndex((p: ContentPart) => p.type !== "text");
       const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
-      if (lastTextIdx > lastToolIdx) {
+      if (lastTextIdx > lastNonTextIdx) {
         const existing = parts[lastTextIdx].text || "";
         parts[lastTextIdx] = { ...parts[lastTextIdx], text: mergeStreamText(existing, delta) };
       } else {
@@ -70,10 +71,10 @@ export function appendThinkingDelta(messages: Message[], runId: string, delta: s
   return {
     created: ensured.created,
     messages: updateAt(updated, idx, (target) => {
-      const parts = Array.isArray(target.content) ? [...target.content] : [];
+      const parts = ensureContentArray(target.content);
       const lastThinkIdx = parts.findLastIndex((p: ContentPart) => p.type === "thinking");
-      const lastToolIdx = parts.findLastIndex((p: ContentPart) => isToolCallPart(p));
-      if (lastThinkIdx > lastToolIdx) {
+      const lastNonThinkingIdx = parts.findLastIndex((p: ContentPart) => p.type !== "thinking");
+      if (lastThinkIdx > lastNonThinkingIdx) {
         const existing = parts[lastThinkIdx].text || "";
         parts[lastThinkIdx] = {
           ...parts[lastThinkIdx],
@@ -96,7 +97,7 @@ export function startThinkingBlock(messages: Message[], runId: string, ts: numbe
   return {
     created: ensured.created,
     messages: updateAt(updated, idx, (target) => {
-      const parts = Array.isArray(target.content) ? [...target.content] : [];
+      const parts = ensureContentArray(target.content);
       const lastPart = parts[parts.length - 1];
       if (lastPart?.type === "thinking" && !(lastPart.text || "").trim()) {
         return target;
@@ -124,7 +125,7 @@ export function addToolCall(
     messages: updateAt(updated, idx, (target) => ({
       ...target,
       content: [
-        ...(Array.isArray(target.content) ? target.content : []),
+        ...ensureContentArray(target.content),
         {
           type: "tool_call" as const,
           name,
@@ -167,12 +168,115 @@ export function resolveToolCall(
   }));
 }
 
-function normalizeIncomingContent(content: ContentPart[] | string): ContentPart[] {
-  if (typeof content === "string") return [{ type: "text", text: content }];
-  return content;
+function shouldApplyRevision(current: PluginContentPart, nextRevision?: number): boolean {
+  if (nextRevision == null) return true;
+  if (current.revision == null) return true;
+  return nextRevision >= current.revision;
 }
 
-function hasIncomingContent(content: ContentPart[] | string): boolean {
+function upsertPluginIntoParts(
+  parts: ContentPart[],
+  part: PluginContentPart,
+  index?: number,
+): ContentPart[] {
+  const existingIdx = parts.findIndex((entry) => entry.type === "plugin" && entry.partId === part.partId);
+  if (existingIdx >= 0) {
+    const current = parts[existingIdx] as PluginContentPart;
+    if (!shouldApplyRevision(current, part.revision)) return parts;
+    return updateAt(parts, existingIdx, (entry) => ({ ...entry, ...part }));
+  }
+
+  const next = [...parts];
+  if (typeof index === "number" && index >= 0 && index <= next.length) {
+    next.splice(index, 0, part);
+    return next;
+  }
+  next.push(part);
+  return next;
+}
+
+export function mountPluginPart(
+  messages: Message[],
+  runId: string,
+  part: PluginContentPart,
+  ts: number,
+  index?: number,
+): EnsureResult {
+  const ensured = ensureStreamingMessage(messages, runId, ts);
+  const updated = ensured.messages;
+  const idx = updated.findIndex((m) => m.id === runId);
+  if (idx < 0) return ensured;
+  return {
+    created: ensured.created,
+    messages: updateAt(updated, idx, (target) => ({
+      ...target,
+      content: upsertPluginIntoParts(ensureContentArray(target.content), part, index),
+    })),
+  };
+}
+
+export function replacePluginPart(
+  messages: Message[],
+  runId: string,
+  partId: string,
+  next: Pick<PluginContentPart, "state" | "data" | "revision">,
+): Message[] {
+  const idx = messages.findIndex((m) => m.id === runId);
+  if (idx < 0) return messages;
+  return updateAt(messages, idx, (target) => {
+    const parts = ensureContentArray(target.content);
+    const pluginIdx = parts.findIndex((part) => part.type === "plugin" && part.partId === partId);
+    if (pluginIdx < 0) return target;
+    const current = parts[pluginIdx] as PluginContentPart;
+    if (!shouldApplyRevision(current, next.revision)) return target;
+    return {
+      ...target,
+      content: updateAt(parts, pluginIdx, (part) => ({ ...part, ...next })),
+    };
+  });
+}
+
+export function removePluginPart(
+  messages: Message[],
+  runId: string,
+  partId: string,
+  tombstone?: boolean,
+): Message[] {
+  const idx = messages.findIndex((m) => m.id === runId);
+  if (idx < 0) return messages;
+  return updateAt(messages, idx, (target) => {
+    const parts = ensureContentArray(target.content);
+    const pluginIdx = parts.findIndex((part) => part.type === "plugin" && part.partId === partId);
+    if (pluginIdx < 0) return target;
+    return {
+      ...target,
+      content: tombstone
+        ? updateAt(parts, pluginIdx, (part) => ({ ...part, state: "tombstone" as const }))
+        : parts.filter((part) => !(part.type === "plugin" && part.partId === partId)),
+    };
+  });
+}
+
+export function upsertCanvasPluginByMessageId(
+  messages: Message[],
+  messageId: string,
+  canvas: CanvasPayload,
+): Message[] {
+  const idx = messages.findIndex((message) => message.id === messageId);
+  if (idx < 0) return messages;
+  const part = canvasToPluginPart(canvas);
+  return updateAt(messages, idx, (target) => ({
+    ...target,
+    content: upsertPluginIntoParts(ensureContentArray(target.content), part),
+  }));
+}
+
+function normalizeIncomingContent(content: ContentPart[] | string, canvas?: CanvasPayload): ContentPart[] {
+  return appendCanvasPart(content, canvas);
+}
+
+function hasIncomingContent(content: ContentPart[] | string, canvas?: CanvasPayload): boolean {
+  if (canvas) return true;
   if (typeof content === "string") return content.length > 0;
   return content.length > 0;
 }
@@ -181,17 +285,19 @@ export function upsertFinalRunMessage(
   messages: Message[],
   runId: string,
   incoming?: {
+    id?: string;
     role: "user" | "assistant" | "system" | "tool";
     content: ContentPart[] | string;
     timestamp?: number;
     reasoning?: string;
+    canvas?: CanvasPayload;
   },
 ): Message[] {
   if (!incoming) return messages;
   if (incoming.role === "user") return messages;
 
-  const nextContent = normalizeIncomingContent(incoming.content);
-  const shouldApplyContent = hasIncomingContent(incoming.content);
+  const nextContent = normalizeIncomingContent(incoming.content, incoming.canvas);
+  const shouldApplyContent = hasIncomingContent(incoming.content, incoming.canvas);
   const idx = messages.findIndex((m) => m.id === runId);
 
   if (idx >= 0) {

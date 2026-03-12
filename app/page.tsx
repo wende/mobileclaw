@@ -16,17 +16,23 @@ import {
   appendContentDelta as appendContentDeltaToMessages,
   appendThinkingDelta as appendThinkingDeltaToMessages,
   addToolCall as addToolCallToMessages,
+  mountPluginPart as mountPluginPartInMessages,
+  removePluginPart as removePluginPartInMessages,
+  replacePluginPart as replacePluginPartInMessages,
   resolveToolCall as resolveToolCallInMessages,
   startThinkingBlock as startThinkingBlockInMessages,
+  upsertCanvasPluginByMessageId as upsertCanvasPluginByMessageIdInMessages,
 } from "@/lib/chat/streamMutations";
 import { buildDisplayMessages } from "@/lib/chat/messageTransforms";
 import { applyNativeZenMode } from "@/lib/chat/zenBridge";
 
 import type {
   BackendMode,
+  CanvasPayload,
   ConnectionConfig,
   Message,
   ModelChoice,
+  PluginContentPart,
 } from "@/types/chat";
 
 import type { Command } from "@/components/CommandSheet";
@@ -54,6 +60,8 @@ import { useNativeBridgeMessage } from "@/hooks/chat/useNativeBridgeMessage";
 import { useDemoRuntime } from "@/hooks/chat/useDemoRuntime";
 import { useLmStudioRuntime } from "@/hooks/chat/useLmStudioRuntime";
 import { useMessageSender } from "@/hooks/chat/useMessageSender";
+import { appendPluginActionPayloadToUrl, mergePluginActionPayload } from "@/lib/plugins/actionPayload";
+import type { PluginActionInvocation } from "@/lib/plugins/types";
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null;
 const ZEN_TOGGLE_PIN_MS = 700;
@@ -306,6 +314,27 @@ export default function Home() {
     setMessages((prev) => resolveToolCallInMessages(prev, runId, name, toolCallId, result, isError));
   }, []);
 
+  const mountPluginPart = useCallback((runId: string, part: PluginContentPart, ts: number, index?: number) => {
+    beginContentArrival();
+    setMessages((prev) => {
+      const next = mountPluginPartInMessages(prev, runId, part, ts, index);
+      if (next.created) setStreamingId(runId);
+      return next.messages;
+    });
+  }, [beginContentArrival]);
+
+  const replacePluginPart = useCallback((runId: string, partId: string, next: Pick<PluginContentPart, "state" | "data" | "revision">) => {
+    setMessages((prev) => replacePluginPartInMessages(prev, runId, partId, next));
+  }, []);
+
+  const removePluginPart = useCallback((runId: string, partId: string, tombstone?: boolean) => {
+    setMessages((prev) => removePluginPartInMessages(prev, runId, partId, tombstone));
+  }, []);
+
+  const upsertCanvasPluginByMessageId = useCallback((messageId: string, canvas: CanvasPayload) => {
+    setMessages((prev) => upsertCanvasPluginByMessageIdInMessages(prev, messageId, canvas));
+  }, []);
+
   const applyRunDuration = useCallback((runId: string, runDuration: number) => {
     if (runDuration <= 0) return;
     setMessages((prev) => {
@@ -374,6 +403,10 @@ export default function Home() {
     startThinkingBlock,
     addToolCall,
     resolveToolCall,
+    mountPluginPart,
+    replacePluginPart,
+    removePluginPart,
+    upsertCanvasPluginByMessageId,
   });
 
   const { quoteText, setQuoteText, quotePopup, quotePopupRef, handleAcceptQuote } = useQuoteSelection({ scrollRef });
@@ -433,6 +466,9 @@ export default function Home() {
     startThinkingBlock,
     addToolCall,
     resolveToolCall,
+    mountPluginPart,
+    replacePluginPart,
+    removePluginPart,
     markRunStart,
     markRunEnd,
     setIsStreaming,
@@ -584,6 +620,64 @@ export default function Home() {
 
   const displayMessages = useMemo(() => buildDisplayMessages(messages), [messages]);
 
+  const handlePluginAction = useCallback(async (invocation: PluginActionInvocation) => {
+    const { action } = invocation;
+    const payload = mergePluginActionPayload(
+      action.request.kind === "http" ? action.request.body : action.request.params,
+      invocation,
+    );
+
+    if (backendMode === "demo") {
+      if (!demoHandlerRef.current?.invokePluginAction) {
+        throw new Error("Demo handler is unavailable.");
+      }
+      await demoHandlerRef.current.invokePluginAction({ ...invocation, input: payload });
+      return;
+    }
+
+    if (action.request.kind === "http") {
+      const headers: HeadersInit = action.request.method === "GET"
+        ? { ...(action.request.headers || {}) }
+        : {
+            "Content-Type": "application/json",
+            ...(action.request.headers || {}),
+          };
+      const url = action.request.method === "GET"
+        ? appendPluginActionPayloadToUrl(action.request.url, payload)
+        : action.request.url;
+      const request = fetch(url, {
+        method: action.request.method,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        body: action.request.method === "GET" ? undefined : JSON.stringify(payload),
+      });
+      if (action.request.fireAndForget) {
+        void request
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(`Request failed (${response.status})`);
+            }
+          })
+          .catch(() => {});
+        return;
+      }
+      const response = await request;
+      if (!response.ok) {
+        throw new Error(`Request failed (${response.status})`);
+      }
+      return;
+    }
+
+    const ok = sendWS({
+      type: "req",
+      id: `plugin-action-${Date.now()}`,
+      method: action.request.method,
+      params: payload,
+    });
+    if (!ok) {
+      throw new Error("Not connected");
+    }
+  }, [backendMode, demoHandlerRef, sendWS]);
+
   const currentSessionName = useMemo(() => {
     const current = sessions.find((session) => session.key === currentSessionKey);
     if (current) return formatSessionName(current);
@@ -710,6 +804,7 @@ export default function Home() {
         quotePopup={quotePopup}
         quotePopupRef={quotePopupRef}
         onAcceptQuote={handleAcceptQuote}
+        onPluginAction={handlePluginAction}
       />
 
       {!historyLoaded && (

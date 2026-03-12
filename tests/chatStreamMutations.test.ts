@@ -4,11 +4,14 @@ import {
   addToolCall,
   appendContentDelta,
   appendThinkingDelta,
+  mountPluginPart,
+  removePluginPart,
+  replacePluginPart,
   resolveToolCall,
   upsertFinalRunMessage,
   startThinkingBlock,
 } from "@/lib/chat/streamMutations";
-import type { Message } from "@/types/chat";
+import type { Message, PluginContentPart } from "@/types/chat";
 
 describe("chat stream mutations", () => {
   it("appends text after tool call boundary without destroying earlier text", () => {
@@ -77,6 +80,23 @@ describe("chat stream mutations", () => {
     expect(parts[0].text).toBe("Lets See what's in the file");
   });
 
+  it("treats plugin parts as text boundaries", () => {
+    const initial: Message[] = [{
+      role: "assistant",
+      id: "run-plugin-boundary",
+      content: [
+        { type: "text", text: "before" },
+        { type: "plugin", partId: "status-1", pluginType: "status_card", state: "active", data: { label: "Deploy", status: "running" } },
+      ],
+    }];
+
+    const next = appendContentDelta(initial, "run-plugin-boundary", " after", Date.now());
+    const parts = next.messages[0].content as Array<{ type: string; text?: string }>;
+    expect(parts).toHaveLength(3);
+    expect(parts[0].text).toBe("before");
+    expect(parts[2].text).toBe(" after");
+  });
+
   it("still appends normal repeated incremental chunks", () => {
     const initial: Message[] = [{ role: "assistant", id: "run-repeat", content: [] }];
     const step1 = appendContentDelta(initial, "run-repeat", "ha", Date.now());
@@ -98,6 +118,96 @@ describe("chat stream mutations", () => {
     const partByName = (byName[0].content as Array<{ status?: string; result?: string }>)[0];
     expect(partByName.status).toBe("success");
     expect(partByName.result).toBe("done");
+  });
+
+  it("mounts, replaces, and tombstones plugin parts", () => {
+    const pluginPart: PluginContentPart = {
+      type: "plugin",
+      partId: "status-1",
+      pluginType: "status_card",
+      state: "pending",
+      data: { label: "Build", status: "pending" },
+      revision: 1,
+    };
+
+    const mounted = mountPluginPart([], "run-plugin", pluginPart, Date.now());
+    const replaced = replacePluginPart(mounted.messages, "run-plugin", "status-1", {
+      state: "active",
+      data: { label: "Build", status: "running" },
+      revision: 2,
+    });
+    const tombstoned = removePluginPart(replaced, "run-plugin", "status-1", true);
+
+    const parts = tombstoned[0].content as PluginContentPart[];
+    expect(parts).toHaveLength(1);
+    expect(parts[0].type).toBe("plugin");
+    expect(parts[0].state).toBe("tombstone");
+    expect(parts[0].revision).toBe(2);
+  });
+
+  it("ignores plugin replacements with an older revision", () => {
+    const pluginPart: PluginContentPart = {
+      type: "plugin",
+      partId: "status-1",
+      pluginType: "status_card",
+      state: "active",
+      data: { label: "Build", status: "running" },
+      revision: 3,
+    };
+
+    const mounted = mountPluginPart([], "run-plugin-stale", pluginPart, Date.now());
+    const stale = replacePluginPart(mounted.messages, "run-plugin-stale", "status-1", {
+      state: "settled",
+      data: { label: "Build", status: "succeeded" },
+      revision: 2,
+    });
+
+    const parts = stale[0].content as PluginContentPart[];
+    expect(parts).toHaveLength(1);
+    expect(parts[0].state).toBe("active");
+    expect(parts[0].data).toEqual({ label: "Build", status: "running" });
+    expect(parts[0].revision).toBe(3);
+  });
+
+  it("allows plugin replacements without a revision", () => {
+    const pluginPart: PluginContentPart = {
+      type: "plugin",
+      partId: "status-1",
+      pluginType: "status_card",
+      state: "active",
+      data: { label: "Build", status: "running" },
+      revision: 3,
+    };
+
+    const mounted = mountPluginPart([], "run-plugin-unversioned", pluginPart, Date.now());
+    const replaced = replacePluginPart(mounted.messages, "run-plugin-unversioned", "status-1", {
+      state: "settled",
+      data: { label: "Build", status: "succeeded" },
+      revision: undefined,
+    });
+
+    const parts = replaced[0].content as PluginContentPart[];
+    expect(parts).toHaveLength(1);
+    expect(parts[0].state).toBe("settled");
+    expect(parts[0].data).toEqual({ label: "Build", status: "succeeded" });
+    expect(parts[0].revision).toBeUndefined();
+  });
+
+  it("removes plugin parts outright when tombstone is false", () => {
+    const pluginPart: PluginContentPart = {
+      type: "plugin",
+      partId: "status-1",
+      pluginType: "status_card",
+      state: "active",
+      data: { label: "Build", status: "running" },
+      revision: 1,
+    };
+
+    const mounted = mountPluginPart([], "run-plugin-remove", pluginPart, Date.now());
+    const removed = removePluginPart(mounted.messages, "run-plugin-remove", "status-1", false);
+
+    expect(removed).toHaveLength(1);
+    expect(removed[0].content).toEqual([]);
   });
 
   it("fills an existing placeholder from a final-only payload", () => {

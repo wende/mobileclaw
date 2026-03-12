@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeHistoryWithOptimistic, prepareHistoryMessages } from "@/lib/chat/historyResponse";
+import { buildHistoryMessages, mergeHistoryWithOptimistic, prepareHistoryMessages } from "@/lib/chat/historyResponse";
 import type { Message } from "@/types/chat";
 
 describe("mergeHistoryWithOptimistic", () => {
@@ -159,4 +159,113 @@ describe("prepareHistoryMessages", () => {
       expect(result.rawMessages.map((m) => m.role)).toEqual(["user", "assistant"]);
     },
   );
+});
+
+describe("buildHistoryMessages", () => {
+  it("prefers stable server ids and normalizes legacy canvas payloads into plugin parts", () => {
+    const history = buildHistoryMessages([
+      {
+        role: "assistant",
+        messageId: "msg-1",
+        content: [{ type: "text", text: "Deployment started." }],
+        canvas: {
+          type: "status_card",
+          state: "active",
+          data: { label: "Deploy", status: "running" },
+        },
+        timestamp: 1000,
+      },
+    ]);
+
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe("msg-1");
+    expect(Array.isArray(history[0].content)).toBe(true);
+    const parts = history[0].content as Array<{ type: string; pluginType?: string; partId?: string }>;
+    expect(parts.some((part) => part.type === "plugin" && part.pluginType === "status_card" && part.partId === "legacy-canvas:status_card")).toBe(true);
+  });
+
+  it("falls back to run ids when stable message ids are missing", () => {
+    const history = buildHistoryMessages([
+      {
+        role: "assistant",
+        runId: "run-123",
+        content: [{ type: "text", text: "Fallback id" }],
+        timestamp: 1000,
+      },
+    ]);
+
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe("run-123");
+  });
+
+  it("uses role-qualified run ids for non-assistant history entries without message ids", () => {
+    const history = buildHistoryMessages([
+      {
+        role: "user",
+        runId: "run-123",
+        content: [{ type: "text", text: "Fallback id" }],
+        timestamp: 1000,
+      },
+    ]);
+
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe("run-123:user");
+  });
+
+  it("keeps canvas-only messages even when there is no text content", () => {
+    const history = buildHistoryMessages([
+      {
+        role: "assistant",
+        runId: "run-canvas-only",
+        content: [],
+        canvas: {
+          type: "status_card",
+          state: "active",
+          data: { label: "Deploy", status: "running" },
+        },
+        timestamp: 1000,
+      },
+    ]);
+
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe("run-canvas-only");
+    expect(history[0].content).toEqual([
+      expect.objectContaining({
+        type: "plugin",
+        partId: "legacy-canvas:status_card",
+        pluginType: "status_card",
+        state: "active",
+        data: { label: "Deploy", status: "running" },
+      }),
+    ]);
+  });
+
+  it("namespaces legacy canvas part ids so they do not collide with existing plugin parts", () => {
+    const history = buildHistoryMessages([
+      {
+        role: "assistant",
+        messageId: "msg-canvas-collision",
+        content: [
+          {
+            type: "plugin",
+            partId: "canvas",
+            pluginType: "pause_card",
+            state: "active",
+            data: { prompt: "Resume?" },
+          },
+        ],
+        canvas: {
+          type: "status_card",
+          state: "active",
+          data: { label: "Deploy", status: "running" },
+        },
+        timestamp: 1000,
+      },
+    ]);
+
+    const parts = history[0].content as Array<{ type: string; pluginType?: string; partId?: string }>;
+    expect(parts.filter((part) => part.type === "plugin")).toHaveLength(2);
+    expect(parts.some((part) => part.pluginType === "pause_card" && part.partId === "canvas")).toBe(true);
+    expect(parts.some((part) => part.pluginType === "status_card" && part.partId === "legacy-canvas:status_card")).toBe(true);
+  });
 });
