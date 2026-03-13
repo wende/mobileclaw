@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useWidgetContext } from "@/lib/widgetContext";
 
-/** Read a URL search param. Returns null when absent or during SSR. */
+/** Read a URL search param. Only call on the client. */
 function getSearchParam(name: string): string | null {
-  if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get(name);
 }
 
@@ -24,8 +23,7 @@ const SSR_SAFE_MODE: InitialAppMode = {
 function getUrlAppMode(): InitialAppMode {
   const isDetached = getSearchParam("detached") !== null;
   const detachedNoBorder = isDetached && getSearchParam("noborder") !== null;
-  const nativeFlag = typeof window !== "undefined"
-    && (window as unknown as { __nativeMode?: boolean }).__nativeMode === true;
+  const nativeFlag = (window as unknown as { __nativeMode?: boolean }).__nativeMode === true;
   const isNative = getSearchParam("native") !== null || nativeFlag;
   const uploadDisabled = getSearchParam("upload") === "false";
   return { isDetached, detachedNoBorder, isNative, uploadDisabled };
