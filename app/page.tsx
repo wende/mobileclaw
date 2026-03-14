@@ -75,7 +75,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   const isStreamingRef = useRef(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sentAnimId, setSentAnimId] = useState<string | null>(null);
-  const { isDetached, detachedNoBorder, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
+  const { isDetached, detachedNoBorder, isNative, isStandalone, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
 
   const {
     scrollRef,
@@ -702,6 +702,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   const bottomPad = getChatBottomPad({
     isNative,
     isDetached,
+    isStandalone,
     inputZoneHeight,
     hasQueued: !!queuedMessage,
     hasPinnedSubagent: !!pinnedSubagent,
@@ -817,6 +818,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
       <ChatComposerBar
         isNative={isNative}
         isDetached={isDetached}
+        isStandalone={isStandalone}
         floatingBarRef={floatingBarRef}
         morphRef={morphRef}
         pinnedSubagent={pinnedSubagent}

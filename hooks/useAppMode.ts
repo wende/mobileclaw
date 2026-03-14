@@ -10,6 +10,7 @@ interface InitialAppMode {
   isDetached: boolean;
   detachedNoBorder: boolean;
   isNative: boolean;
+  isStandalone: boolean;
   uploadDisabled: boolean;
 }
 
@@ -17,6 +18,7 @@ const SSR_SAFE_MODE: InitialAppMode = {
   isDetached: false,
   detachedNoBorder: false,
   isNative: false,
+  isStandalone: false,
   uploadDisabled: false,
 };
 
@@ -25,14 +27,16 @@ function getUrlAppMode(): InitialAppMode {
   const detachedNoBorder = isDetached && getSearchParam("noborder") !== null;
   const nativeFlag = (window as unknown as { __nativeMode?: boolean }).__nativeMode === true;
   const isNative = getSearchParam("native") !== null || nativeFlag;
+  const isStandalone = !isNative && window.matchMedia("(display-mode: standalone)").matches;
   const uploadDisabled = getSearchParam("upload") === "false";
-  return { isDetached, detachedNoBorder, isNative, uploadDisabled };
+  return { isDetached, detachedNoBorder, isNative, isStandalone, uploadDisabled };
 }
 
 export interface AppMode {
   isDetached: boolean;
   detachedNoBorder: boolean;
   isNative: boolean;
+  isStandalone: boolean;
   uploadDisabled: boolean;
   hideChrome: boolean;
   isDetachedRef: React.MutableRefObject<boolean>;
@@ -50,6 +54,7 @@ export function useAppMode(): AppMode {
         isDetached: widgetCtx.isDetached,
         detachedNoBorder: widgetCtx.noBorder,
         isNative: false,
+        isStandalone: false,
         uploadDisabled: false,
       };
     }
@@ -65,6 +70,7 @@ export function useAppMode(): AppMode {
           isDetached: widgetCtx.isDetached,
           detachedNoBorder: widgetCtx.noBorder,
           isNative: false,
+          isStandalone: false,
           uploadDisabled: false,
         }
       : getUrlAppMode();
@@ -72,6 +78,10 @@ export function useAppMode(): AppMode {
     setMode(resolvedMode);
     isDetachedRef.current = resolvedMode.isDetached;
     isNativeRef.current = resolvedMode.isNative;
+
+    if (resolvedMode.isStandalone) {
+      document.body.classList.add("standalone");
+    }
 
     if (resolvedMode.isDetached) {
       document.body.style.background = "transparent";
@@ -94,6 +104,7 @@ export function useAppMode(): AppMode {
     isDetached: mode.isDetached,
     detachedNoBorder: mode.detachedNoBorder,
     isNative: mode.isNative,
+    isStandalone: mode.isStandalone,
     uploadDisabled: mode.uploadDisabled,
     hideChrome,
     isDetachedRef,

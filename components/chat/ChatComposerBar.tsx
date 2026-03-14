@@ -12,6 +12,7 @@ import type { BackendMode, ImageAttachment, ModelChoice } from "@/types/chat";
 interface ChatComposerBarProps {
   isNative: boolean;
   isDetached: boolean;
+  isStandalone: boolean;
   floatingBarRef: React.RefObject<HTMLDivElement | null>;
   morphRef: React.RefObject<HTMLDivElement | null>;
   pinnedSubagent: {
@@ -45,6 +46,7 @@ interface ChatComposerBarProps {
 export function ChatComposerBar({
   isNative,
   isDetached,
+  isStandalone,
   floatingBarRef,
   morphRef,
   pinnedSubagent,
@@ -74,7 +76,7 @@ export function ChatComposerBar({
   return (
     <div
       ref={floatingBarRef}
-      className={`pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 ${isDetached ? "pb-[1.5dvh]" : "pb-[3dvh]"} md:px-6 ${isDetached ? "md:pb-[1.5dvh]" : "md:pb-[3dvh]"} animate-[fadeIn_400ms_ease-out]`}
+      className={`pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 ${isDetached ? "pb-[1.5dvh]" : isStandalone ? "pb-[5.5dvh]" : "pb-[3dvh]"} md:px-6 ${isDetached ? "md:pb-[1.5dvh]" : isStandalone ? "md:pb-[5.5dvh]" : "md:pb-[3dvh]"} animate-[fadeIn_400ms_ease-out]`}
     >
       <div
         ref={morphRef}

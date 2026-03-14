@@ -1,4 +1,5 @@
 const BOTTOM_PAD_SVH = 4.5;
+const BOTTOM_PAD_SVH_STANDALONE = 7;
 const BOTTOM_PAD_BASE_REM = 7.5;
 const BOTTOM_PAD_QUEUED_REM = 10.5;
 const BOTTOM_PAD_PINNED_REM = 13.5;
@@ -17,12 +18,14 @@ function addCalc(...parts: string[]): string {
 export function getChatBottomPad({
   isNative,
   isDetached,
+  isStandalone = false,
   inputZoneHeight = DEFAULT_INPUT_ZONE_HEIGHT,
   hasQueued,
   hasPinnedSubagent,
 }: {
   isNative: boolean;
   isDetached: boolean;
+  isStandalone?: boolean;
   inputZoneHeight?: string;
   hasQueued: boolean;
   hasPinnedSubagent: boolean;
@@ -42,9 +45,10 @@ export function getChatBottomPad({
     return addCalc(inputZoneHeight, overlayPad);
   }
 
-  if (hasPinnedSubagent) return `calc(${BOTTOM_PAD_SVH}svh + ${BOTTOM_PAD_PINNED_REM}rem)`;
-  if (hasQueued) return `calc(${BOTTOM_PAD_SVH}svh + ${BOTTOM_PAD_QUEUED_REM}rem)`;
-  return `calc(${BOTTOM_PAD_SVH}svh + ${BOTTOM_PAD_BASE_REM}rem)`;
+  const svh = isStandalone ? BOTTOM_PAD_SVH_STANDALONE : BOTTOM_PAD_SVH;
+  if (hasPinnedSubagent) return `calc(${svh}svh + ${BOTTOM_PAD_PINNED_REM}rem)`;
+  if (hasQueued) return `calc(${svh}svh + ${BOTTOM_PAD_QUEUED_REM}rem)`;
+  return `calc(${svh}svh + ${BOTTOM_PAD_BASE_REM}rem)`;
 }
 
 export function getThinkingIndicatorBottom({
