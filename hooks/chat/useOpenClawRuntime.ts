@@ -13,6 +13,7 @@ import { getTextFromContent, updateAt } from "@/lib/messageUtils";
 import { upsertChatEventMessage } from "@/lib/chat/chatEventUpsert";
 import { mergeModels, parseConfigProviders, type ConfigParseResult } from "@/lib/parseBackendModels";
 import { useWebSocket, type WebSocketMessage } from "@/lib/useWebSocket";
+import { postConnectionState, postRunState, postSessionsState } from "@/lib/nativeBridge";
 import { mergeAndNormalizeToolResults } from "@/lib/chat/messageTransforms";
 import {
   buildHistoryMessages,
@@ -146,6 +147,9 @@ export function useOpenClawRuntime({
   const sessionIdRef = useRef<string | null>(null);
   const sessionKeyRef = useRef<string>("main");
   const activeRunIdRef = useRef<string | null>(null);
+  // Set to true after processing a final/aborted/error event to prevent a stale
+  // history response from re-enabling isRunActive before the server catches up.
+  const justFinalizedRef = useRef(false);
 
   const sendWSMessageRef = useRef<((message: WebSocketMessage) => boolean) | null>(null);
   const markEstablishedRef = useRef<(() => void) | null>(null);
@@ -370,11 +374,14 @@ export function useOpenClawRuntime({
     setMessages((prev: Message[]) => mergeHistoryWithOptimistic(finalMessages, prev));
 
     const runInProgress = isRunInProgressFromHistory(rawMessages);
-    if (runInProgress) {
+    if (runInProgress && !justFinalizedRef.current) {
       setAwaitingResponse(true);
       setIsStreaming(true);
       startHistoryPolling();
     } else {
+      // Clear the finalized flag once the server confirms no run in progress,
+      // or if we just finalized and the server hasn't caught up yet.
+      if (!runInProgress) justFinalizedRef.current = false;
       stopHistoryPolling();
       clearStreamingRuntimeState();
     }
@@ -467,6 +474,7 @@ export function useOpenClawRuntime({
         if (payload.message) {
           if (payload.message.role === "assistant") {
             beginContentArrival();
+            justFinalizedRef.current = false;
             setIsStreaming(true);
             if (!activeRunIdRef.current) {
               markRunStart();
@@ -496,6 +504,7 @@ export function useOpenClawRuntime({
 
           stopHistoryPolling();
           clearStreamingRuntimeState({ clearRunId: true });
+          justFinalizedRef.current = true;
           thinkTagStateRef.current = { insideThinkTag: false, tagBuffer: "" };
           subagentStore.clearAll();
           handleUnpinSubagent();
@@ -515,6 +524,7 @@ export function useOpenClawRuntime({
         markRunEnd();
         stopHistoryPolling();
         clearStreamingRuntimeState({ clearRunId: true });
+        justFinalizedRef.current = true;
         subagentStore.clearAll();
         handleUnpinSubagent();
         fetchedSubhistoryRef.current.clear();
@@ -531,6 +541,7 @@ export function useOpenClawRuntime({
         markRunEnd();
         stopHistoryPolling();
         clearStreamingRuntimeState({ clearRunId: true });
+        justFinalizedRef.current = true;
         const errorText = payload.errorMessage || "Chat error";
         const errorMsg: Message = {
           role: "system",
@@ -957,26 +968,20 @@ export function useOpenClawRuntime({
   // ── Phase 2: Post state changes to native shell ──────────────────────────
   useEffect(() => {
     if (!isNativeRef.current) return;
-    void import("@/lib/nativeBridge").then(({ postConnectionState }) => {
-      postConnectionState(connectionState);
-    });
+    postConnectionState(connectionState);
   }, [connectionState, isNativeRef]);
 
   useEffect(() => {
     if (!isNativeRef.current) return;
     const isActive = !!activeRunIdRef.current;
-    void import("@/lib/nativeBridge").then(({ postRunState }) => {
-      postRunState(isActive, false);
-    });
+    postRunState(isActive, false);
     // We can't directly depend on activeRunIdRef.current, but connectionState
     // changes indirectly trigger this. The streaming hooks below cover run state.
   }, [connectionState, isNativeRef]);
 
   useEffect(() => {
     if (!isNativeRef.current) return;
-    void import("@/lib/nativeBridge").then(({ postSessionsState }) => {
-      postSessionsState(sessions, currentSessionKey);
-    });
+    postSessionsState(sessions, currentSessionKey);
   }, [sessions, currentSessionKey, isNativeRef]);
 
   return {

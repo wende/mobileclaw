@@ -11,7 +11,7 @@ import {
   hasHeartbeatOnOwnLine,
   hasUnquotedMarker,
 } from "@/lib/constants";
-import { postScrollPosition, type BridgeMessage } from "@/lib/nativeBridge";
+import { postScrollPosition, postRunState, postModelState, type BridgeMessage } from "@/lib/nativeBridge";
 import {
   appendContentDelta as appendContentDeltaToMessages,
   appendThinkingDelta as appendThinkingDeltaToMessages,
@@ -536,17 +536,13 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   // Post run state to native shell
   useEffect(() => {
     if (!isNativeRef.current) return;
-    void import("@/lib/nativeBridge").then(({ postRunState }) => {
-      postRunState(isRunActive, isStreaming);
-    });
+    postRunState(isRunActive, isStreaming);
   }, [isRunActive, isStreaming, isNativeRef]);
 
   // Post model state to native shell
   useEffect(() => {
     if (!isNativeRef.current) return;
-    void import("@/lib/nativeBridge").then(({ postModelState }) => {
-      postModelState(currentModel);
-    });
+    postModelState(currentModel);
   }, [currentModel, isNativeRef]);
 
   const { hasUnreadTabMessage } = useUnreadTabIndicator({
