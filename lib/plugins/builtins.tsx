@@ -249,7 +249,6 @@ function PauseCardView({ state, data, invokeAction }: PluginViewProps<PauseCardD
   );
   const expired = !!data.expiresAt && data.expiresAt <= now;
   const isLocked = expired || state === "tombstone" || (!!selectedOption && !error);
-  const stateLabel = expired ? "expired" : state === "settled" && selectedOption ? "recorded" : state;
   const showHeaderSpinner = !selectedOption && !error && state === "active" && !expired;
 
   useEffect(() => {
@@ -268,19 +267,15 @@ function PauseCardView({ state, data, invokeAction }: PluginViewProps<PauseCardD
   if (state === "tombstone") {
     return (
       <div data-testid="pause-card" className={frameClass(state)}>
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center text-destructive">
+        <div className="flex items-center gap-3">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center text-destructive">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" />
               <line x1="15" y1="9" x2="9" y2="15" />
               <line x1="9" y1="9" x2="15" y2="15" />
             </svg>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Approval prompt</div>
-            <div className="mt-1 text-sm font-medium text-foreground">Action expired</div>
-            <div className="mt-1 text-xs leading-5 text-muted-foreground">This prompt is no longer available.</div>
-          </div>
+          <div className="text-sm text-muted-foreground">Expired</div>
         </div>
       </div>
     );
@@ -290,13 +285,7 @@ function PauseCardView({ state, data, invokeAction }: PluginViewProps<PauseCardD
     <div data-testid="pause-card" className={frameClass(state)}>
       <div className="flex items-start gap-3">
         <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center ${
-          showHeaderSpinner
-            ? "text-muted-foreground"
-            : expired
-              ? "text-destructive"
-              : selectedOption
-                ? "text-primary"
-                : "text-muted-foreground"
+          showHeaderSpinner ? "text-muted-foreground" : expired ? "text-destructive" : selectedOption ? "text-primary" : "text-muted-foreground"
         }`}>
           {selectedOption && !error ? (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
@@ -325,42 +314,9 @@ function PauseCardView({ state, data, invokeAction }: PluginViewProps<PauseCardD
             </svg>
           )}
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Approval prompt</div>
-              <div className="mt-1 text-sm font-medium text-foreground">Awaiting your input</div>
-            </div>
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] ${statePillClass(expired ? "destructive" : state === "active" ? "primary" : "neutral")}`}>
-              {stateLabel}
-            </span>
-          </div>
-          <div className="mt-2 text-sm leading-6 text-foreground">
-            {data.prompt}
-          </div>
+        <div className="min-w-0 flex-1 text-sm leading-6 text-foreground">
+          {data.prompt}
         </div>
-      </div>
-      <div className="mt-3 border-t border-border/80 pt-3">
-        {selectedOption && !error ? (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
-                <path d="m5 13 4 4L19 7" />
-              </svg>
-              {selectedOption.label}
-            </span>
-            <span>Response recorded for the agent.</span>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-xs text-muted-foreground">Choose one path to let the run continue.</div>
-            {expired ? (
-              <span className="text-xs text-destructive">This prompt has expired.</span>
-            ) : (
-              <span className="text-xs text-muted-foreground">One selection only.</span>
-            )}
-          </div>
-        )}
       </div>
       {error && (
         <div className="mt-3 border-t border-destructive/20 pt-3 text-xs leading-5 text-destructive">
@@ -394,13 +350,13 @@ function PauseCardView({ state, data, invokeAction }: PluginViewProps<PauseCardD
                 }
               }}
               className={[
-                "group w-full border-t border-border/70 px-3.5 py-3 text-left text-sm font-medium transition-colors first:border-t-0 disabled:cursor-not-allowed disabled:opacity-60",
+                "group w-full border-t border-border/70 px-3.5 py-2.5 text-left text-sm font-medium transition-colors first:border-t-0 disabled:cursor-not-allowed disabled:opacity-60",
                 isSelected ? "bg-secondary/70" : "",
                 !isDisabled ? "hover:bg-secondary/45" : "",
               ].join(" ")}
             >
-              <div className="flex items-start gap-3">
-                <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center ${
+              <div className="flex items-center gap-3">
+                <div className={`flex h-5 w-5 shrink-0 items-center justify-center ${
                   showOptionSpinner
                     ? "text-muted-foreground"
                     : isSelected
@@ -431,25 +387,7 @@ function PauseCardView({ state, data, invokeAction }: PluginViewProps<PauseCardD
                     </svg>
                   )}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span>{option.label}</span>
-                    {isSelected && (
-                      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Selected</span>
-                    )}
-                  </div>
-                  <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {isSubmitting
-                      ? "Sending your choice to the agent."
-                      : isSelected
-                        ? "This response has been recorded."
-                        : option.style === "destructive"
-                          ? "Stop the current path."
-                          : option.style === "primary"
-                            ? "Continue immediately."
-                            : "Pause here for review."}
-                  </div>
-                </div>
+                <span className="min-w-0 flex-1">{option.label}</span>
               </div>
             </button>
           );

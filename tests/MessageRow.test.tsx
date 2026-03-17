@@ -87,7 +87,7 @@ describe("MessageRow", () => {
       }));
     });
     expect(onPluginAction).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Response recorded for the agent.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Approve/ })).toBeDisabled();
   });
 
   it("renders pause card plugins at chat width", () => {
@@ -175,14 +175,14 @@ describe("MessageRow", () => {
       };
 
       render(<MessageRow message={message} isStreaming={false} />);
-      expect(screen.getByText("active")).toBeInTheDocument();
+      expect(screen.getByText("Resume deployment?")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Approve/ })).not.toBeDisabled();
 
       act(() => {
         vi.advanceTimersByTime(1000);
       });
 
-      expect(screen.getByText("expired")).toBeInTheDocument();
-      expect(screen.getByText("This prompt has expired.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Approve/ })).toBeDisabled();
     } finally {
       vi.useRealTimers();
     }
