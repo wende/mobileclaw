@@ -45,6 +45,7 @@ export interface ContentPart {
   status?: "running" | "success" | "error";
   result?: string;
   resultError?: boolean;
+  narration?: string;
   source?: Record<string, unknown>;
   image_url?: { url?: string };
   file_url?: string;

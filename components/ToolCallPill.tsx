@@ -34,6 +34,7 @@ interface ToolCallPillProps {
   status?: "running" | "success" | "error";
   result?: string;
   resultError?: boolean;
+  narration?: string;
   toolCallId?: string;
   subagentStore?: SubagentStore;
   isPinned?: boolean;
@@ -129,7 +130,7 @@ function Chevron({ open }: { open: boolean }) {
 
 // ── Main export ──────────────────────────────────────────────────────────────
 
-export function ToolCallPill({ name, args, status, result, resultError, toolCallId, subagentStore, isPinned, onPin, onUnpin }: ToolCallPillProps) {
+export function ToolCallPill({ name, args, status, result, resultError, narration, toolCallId, subagentStore, isPinned, onPin, onUnpin }: ToolCallPillProps) {
   const formatJson = (s: string) => { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; } };
   const display = getToolDisplay(name, args);
   const isEdit = isEditTool(name);
@@ -169,7 +170,9 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
         className={`w-full rounded-[inherit] text-left px-4 py-2.5 text-xs font-normal overflow-hidden text-ellipsis whitespace-nowrap max-w-full flex items-center ${hasContent ? "cursor-pointer" : "cursor-default"}`}
       >
         {hasStatusIcon ? <StatusIcon status={status} resultError={resultError} /> : <ToolIcon icon={display.icon} />}
-        {isEdit ? <><span className="font-medium opacity-70">edit</span>&nbsp;<span className="truncate">{display.label}</span></> : isRead ? <><span className="font-medium opacity-70">read</span>&nbsp;<span className="truncate">{display.label}</span></> : <span className="truncate">{display.label}</span>}
+        {narration
+          ? <span className="truncate">{narration}</span>
+          : isEdit ? <><span className="font-medium opacity-70">edit</span>&nbsp;<span className="truncate">{display.label}</span></> : isRead ? <><span className="font-medium opacity-70">read</span>&nbsp;<span className="truncate">{display.label}</span></> : <span className="truncate">{display.label}</span>}
         {status === "running" && <span className="ml-1.5 opacity-45 shrink-0">running...</span>}
         {hasContent && <Chevron open={open} />}
       </button>
