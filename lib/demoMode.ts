@@ -72,6 +72,32 @@ export const DEMO_HISTORY: Message[] = [
         },
         revision: 1,
       },
+      {
+        type: "plugin",
+        partId: "demo-history-pause",
+        pluginType: "pause_card",
+        state: "settled",
+        data: {
+          prompt: "Want me to add an AI-powered summary step to this flow?",
+          selectedLabel: "Yes, add it",
+          options: [
+            {
+              id: "yes",
+              label: "Yes, add it",
+              value: "yes",
+              style: "primary",
+              action: { id: "demo-yes", label: "Yes, add it", style: "primary", request: { kind: "ws", method: "demo.pause.respond", params: {} } },
+            },
+            {
+              id: "no",
+              label: "No thanks",
+              value: "no",
+              action: { id: "demo-no", label: "No thanks", request: { kind: "ws", method: "demo.pause.respond", params: {} } },
+            },
+          ],
+        },
+        revision: 1,
+      },
       // Simplified text
       {
         type: "text",

@@ -250,6 +250,7 @@ function unwrapLineUnderscoreEmphasis(text: string): string {
 }
 
 const STREAMING_VISIBLE_SENTENCES = 3;
+const MIN_SENTENCE_SPLIT_CHARS = 10;
 
 function splitIntoSentences(text: string): string[] {
   const sentences: string[] = [];
@@ -257,10 +258,31 @@ function splitIntoSentences(text: string): string[] {
     const trimmed = line.trim();
     if (!trimmed) continue;
     // Split on sentence-ending punctuation followed by space
-    const parts = trimmed.split(/(?<=[.!?])\s+/);
-    for (const p of parts) {
-      if (p.trim()) sentences.push(p.trim());
+    const parts = trimmed.split(/(?<=[.!?])\s+/).map((part) => part.trim()).filter(Boolean);
+    const lineSentences: string[] = [];
+    let carry = "";
+
+    for (let i = 0; i < parts.length; i++) {
+      const candidate = [carry, parts[i]].filter(Boolean).join(" ").trim();
+      const hasNext = i < parts.length - 1;
+
+      if (candidate.length < MIN_SENTENCE_SPLIT_CHARS && hasNext) {
+        carry = candidate;
+        continue;
+      }
+
+      if (candidate.length < MIN_SENTENCE_SPLIT_CHARS && lineSentences.length > 0) {
+        lineSentences[lineSentences.length - 1] = `${lineSentences[lineSentences.length - 1]} ${candidate}`.trim();
+        carry = "";
+        continue;
+      }
+
+      lineSentences.push(candidate);
+      carry = "";
     }
+
+    if (carry) lineSentences.push(carry);
+    sentences.push(...lineSentences);
   }
   return sentences;
 }

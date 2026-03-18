@@ -334,6 +334,26 @@ describe("MessageRow", () => {
     expect(screen.queryByText("_The user has an open_claw server_")).not.toBeInTheDocument();
   });
 
+  it("keeps short numbered list markers attached to the following thought line", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [],
+      reasoning: [
+        "Initial setup step.",
+        "1. Search current docs thoroughly.",
+        "2. Read the most relevant source.",
+        "3. Summarize findings for the user.",
+        "Final verification pass.",
+      ].join("\n"),
+      id: "test-thinking-numbered-list",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+
+    expect(screen.getByText("3. Summarize findings for the user.")).toBeInTheDocument();
+    expect(screen.queryByText(/^3\.$/)).not.toBeInTheDocument();
+  });
+
   it("renders system message centered", () => {
     const message: Message = {
       role: "system",

@@ -227,7 +227,11 @@ export function useScrollManager(
     const target = el.scrollHeight - el.clientHeight;
     const start = el.scrollTop;
     const distance = target - start;
-    if (distance <= 0) return;
+    if (distance <= 0) {
+      // Already at bottom — reset morph so a stale pill clears immediately.
+      setMorphTarget(0);
+      return;
+    }
 
     // During streaming/grace the rAF loop pins us to bottom every frame,
     // so just snap — a smooth animation would be overridden anyway.
@@ -262,7 +266,7 @@ export function useScrollManager(
     };
 
     requestAnimationFrame(animate);
-  }, [clearBounceTransform, clearManualStreamUnpin, isStreamingRef]);
+  }, [clearBounceTransform, clearManualStreamUnpin, isStreamingRef, setMorphTarget]);
 
   // Auto-scroll: whenever messages change, snap to bottom if pinned.
   // During streaming, the rAF loop handles smooth scrolling instead.
@@ -314,11 +318,19 @@ export function useScrollManager(
           el.scrollTop = el.scrollHeight;
         }
         pinnedToBottomRef.current = true;
+      } else if (!pinnedToBottomRef.current && !scrollGraceRef.current) {
+        // Content shrank (e.g. collapsing a tool call) while unpinned.
+        // If we're now back at the bottom, re-pin and clear the pill.
+        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (dist < 80) {
+          pinnedToBottomRef.current = true;
+          setMorphTarget(Math.min(Math.max(dist / 60, 0), 1));
+        }
       }
     });
     ro.observe(content);
     return () => ro.disconnect();
-  }, []);
+  }, [setMorphTarget]);
 
   // rAF loop: during streaming, smoothly scroll toward bottom.
   // Uses velocity with momentum — desired speed scales with gap size,

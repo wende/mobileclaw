@@ -28,7 +28,7 @@ fi
 mkdir -p "$API_DIR"
 
 # Clean stale build cache that references moved API routes
-rm -rf "$DIST_DIR" "$PROJECT_ROOT/out"
+rm -rf "$DIST_DIR" "$PROJECT_ROOT/out" "$PROJECT_ROOT/.next/dev/types"
 
 NEXT_EXPORT=1 NEXT_DIST_DIR="$DIST_DIR_REL" pnpm next build
 
