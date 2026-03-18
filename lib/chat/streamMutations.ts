@@ -115,6 +115,7 @@ export function addToolCall(
   ts: number,
   toolCallId?: string,
   args?: string,
+  narration?: string,
 ): EnsureResult {
   const ensured = ensureStreamingMessage(messages, runId, ts);
   const updated = ensured.messages;
@@ -132,6 +133,7 @@ export function addToolCall(
           toolCallId,
           arguments: args,
           status: "running" as const,
+          ...(narration ? { narration } : {}),
         },
       ],
     })),

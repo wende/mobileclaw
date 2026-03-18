@@ -299,4 +299,19 @@ describe("chat stream mutations", () => {
     });
     expect(next).toHaveLength(0);
   });
+
+  it("stores narration on tool call content part when provided", () => {
+    const result = addToolCall([], "run-narr", "list_flows", Date.now(), "tc-1", "{}", "Checking what flows you already have");
+    const parts = result.messages[0].content as Array<{ type: string; name?: string; narration?: string }>;
+    expect(parts).toHaveLength(1);
+    expect(parts[0].name).toBe("list_flows");
+    expect(parts[0].narration).toBe("Checking what flows you already have");
+  });
+
+  it("omits narration from tool call content part when not provided", () => {
+    const result = addToolCall([], "run-no-narr", "read_file", Date.now(), "tc-2", "{}");
+    const parts = result.messages[0].content as Array<{ type: string; narration?: string }>;
+    expect(parts).toHaveLength(1);
+    expect(parts[0].narration).toBeUndefined();
+  });
 });

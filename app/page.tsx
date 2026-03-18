@@ -290,10 +290,10 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     });
   }, [beginContentArrival]);
 
-  const addToolCall = useCallback((runId: string, name: string, ts: number, toolCallId?: string, args?: string) => {
+  const addToolCall = useCallback((runId: string, name: string, ts: number, toolCallId?: string, args?: string, narration?: string) => {
     beginContentArrival();
     setMessages((prev) => {
-      const next = addToolCallToMessages(prev, runId, name, ts, toolCallId, args);
+      const next = addToolCallToMessages(prev, runId, name, ts, toolCallId, args, narration);
       if (next.created) setStreamingId(runId);
       return next.messages;
     });

@@ -199,7 +199,7 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
                         return <ThinkingPill key={`thinking-${i}`} text={part.thinking || part.text || ""} />;
                       }
                       if (isToolCallPart(part)) {
-                        return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status} result={part.result} resultError={part.resultError} toolCallId={part.toolCallId} subagentStore={part.name === SPAWN_TOOL_NAME ? subagentStore : undefined} />;
+                        return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status} result={part.result} resultError={part.resultError} narration={part.narration} toolCallId={part.toolCallId} subagentStore={part.name === SPAWN_TOOL_NAME ? subagentStore : undefined} />;
                       }
                       if (part.type === "text" && part.text) {
                         return (
@@ -874,6 +874,7 @@ export function MessageRow({
                 status={part.status}
                 result={part.result}
                 resultError={part.resultError}
+                narration={part.narration}
                 toolCallId={part.toolCallId}
                 subagentStore={isSpawn ? subagentStore : undefined}
                 isPinned={isSpawn && !!part.toolCallId && part.toolCallId === pinnedToolCallId}

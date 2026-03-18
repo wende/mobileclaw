@@ -41,7 +41,7 @@ interface StreamActions {
   appendContentDelta: (runId: string, delta: string, ts: number) => void;
   appendThinkingDelta: (runId: string, delta: string, ts: number) => void;
   startThinkingBlock: (runId: string, ts: number) => void;
-  addToolCall: (runId: string, name: string, ts: number, toolCallId?: string, args?: string) => void;
+  addToolCall: (runId: string, name: string, ts: number, toolCallId?: string, args?: string, narration?: string) => void;
   resolveToolCall: (runId: string, name: string, toolCallId?: string, result?: string, isError?: boolean) => void;
   mountPluginPart: (runId: string, part: PluginContentPart, ts: number, index?: number) => void;
   replacePluginPart: (runId: string, partId: string, next: Pick<PluginContentPart, "state" | "data" | "revision">) => void;
@@ -616,7 +616,8 @@ export function useOpenClawRuntime({
         if (toolName === SPAWN_TOOL_NAME && toolCallId) {
           subagentStore.registerSpawn(toolCallId);
         }
-        addToolCall(payload.runId, toolName, payload.ts, toolCallId, payload.data.args ? JSON.stringify(payload.data.args) : undefined);
+        const narration = typeof payload.data.narration === "string" ? payload.data.narration : undefined;
+        addToolCall(payload.runId, toolName, payload.ts, toolCallId, payload.data.args ? JSON.stringify(payload.data.args) : undefined, narration);
       } else if (phase === "result" && toolName) {
         const resultText = typeof payload.data.result === "string"
           ? payload.data.result
