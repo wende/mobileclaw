@@ -243,6 +243,32 @@ function buildPluginDemoResponse(): DemoResponse {
   };
 }
 
+function buildAttachDemoResponse(): DemoResponse {
+  const partId = `demo-context-${Date.now()}`;
+  return {
+    thinking: "The user wants to see the input attachment plugin. I'll mount a context_chip that lets them attach context to their next message.",
+    text: "Here's a context chip — click **Attach** to add it to your compose bar, then send a message with it attached.",
+    pluginSteps: [
+      {
+        phase: "mount",
+        delayMs: 180,
+        part: {
+          type: "plugin",
+          partId,
+          pluginType: "context_chip",
+          state: "settled",
+          revision: 1,
+          data: {
+            label: "Project brief",
+            context: "MobileClaw is a mobile-first chat UI for the OpenClaw agent platform, built with Next.js, Tailwind CSS v4, and an extensible plugin system.",
+            description: "Attach this as context to your next message",
+          },
+        },
+      },
+    ],
+  };
+}
+
 function buildPauseDemoResponse(): DemoResponse {
   const partId = `demo-pause-${Date.now()}`;
   const expiresAt = Date.now() + 10 * 60 * 1000;
@@ -636,14 +662,14 @@ The most important principle is this: **design for failure**. Networks are unrel
     instant: true,
   },
   help: {
-    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **plugin** / **widget** | Live `status_card` plugin updates |\n| **pause** / **approval** | Interactive `pause_card` plugin |\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **zen** / **focus** | Multi-cycle think → talk → tool stream for Zen mode |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **link** / **url** / **preview** | Link preview unfurl cards |\n| **long** / **essay** | Long-form streaming (~1 minute) |\n| **/compact** | Compacting animation (5s) |\n| **help** | This list |\n\nSlash commands render as expandable pills — try **/commands**, **/status**, **/model**, **/whoami**, or **/context**.\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
+    text: "## Demo Mode Commands\n\nTry these keywords to see different UI features:\n\n| Keyword | What it shows |\n|---------|---------------|\n| **plugin** / **widget** | Live `status_card` plugin updates |\n| **pause** / **approval** | Interactive `pause_card` plugin |\n| **attach** / **context** | Input attachment plugin (adds context to compose bar) |\n| **weather** | Thinking + tool call + formatted result |\n| **code** / **function** | Thinking + file read + code blocks |\n| **edit** / **fix** | File read + inline diff display |\n| **image** / **picture** | Markdown image rendering |\n| **think** / **reason** | Extended reasoning + markdown |\n| **zen** / **focus** | Multi-cycle think → talk → tool stream for Zen mode |\n| **error** / **fail** | Chained tool calls that error |\n| **research** / **search** | Multi-step web search + reading |\n| **agent** / **project** | Full agent workflow: exec + read + sub-agent |\n| **subagent** / **spawn** | Live sub-agent activity feed |\n| **link** / **url** / **preview** | Link preview unfurl cards |\n| **long** / **essay** | Long-form streaming (~1 minute) |\n| **/compact** | Compacting animation (5s) |\n| **help** | This list |\n\nSlash commands render as expandable pills — try **/commands**, **/status**, **/model**, **/whoami**, or **/context**.\n\nYou can also try the **command palette** — tap the `/>` button to browse available OpenClaw slash commands.\n\n### About MobileClaw\n\nThis is a mobile-first chat UI for [OpenClaw](https://github.com/wende/mobileclaw). To connect to a real server, tap the claw icon in the header and enter your server URL.",
     instant: true,
   },
 };
 
 const DEFAULT_RESPONSE: DemoResponse = {
   thinking: "The user sent a message that doesn't match any specific demo trigger. I'll let them know they're in demo mode and suggest what they can try.",
-  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `plugin` — live `status_card` plugin updates\n- `pause` — interactive `pause_card` plugin\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `zen` — multi-cycle think/talk/tool stream for Zen mode\n- `link` — link preview unfurl cards\n- `long` — long-form streaming (~1 minute)\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `/compact` — compacting animation\n- `help` — full command list",
+  text: "I'm running in **demo mode** — no backend server is connected.\n\nI can show off the UI features though! Try:\n- `plugin` — live `status_card` plugin updates\n- `pause` — interactive `pause_card` plugin\n- `attach` — input attachment plugin (adds context to compose bar)\n- `weather` — thinking + tool call + formatted result\n- `code` — file reading + code blocks\n- `edit` — file read + inline diff display\n- `image` — markdown image rendering\n- `research` — multi-step web search workflow\n- `agent` — full workflow with exec, read, and sub-agent\n- `subagent` — live sub-agent activity feed\n- `zen` — multi-cycle think/talk/tool stream for Zen mode\n- `link` — link preview unfurl cards\n- `long` — long-form streaming (~1 minute)\n- `think` — extended reasoning block\n- `error` — chained tool failures\n- `/compact` — compacting animation\n- `help` — full command list",
 };
 
 // ── Match keywords ───────────────────────────────────────────────────────────
@@ -664,6 +690,8 @@ function matchResponse(input: string): DemoResponse {
     return RESPONSES.weather;
   if (lower.includes("plugin") || lower.includes("widget"))
     return buildPluginDemoResponse();
+  if (lower.includes("attach") || lower.includes("context chip") || lower.includes("context"))
+    return buildAttachDemoResponse();
   if (lower.includes("pause") || lower.includes("approval"))
     return buildPauseDemoResponse();
   if (lower.includes("image") || lower.includes("picture") || lower.includes("photo") || lower.includes("img"))

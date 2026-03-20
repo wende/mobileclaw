@@ -380,6 +380,8 @@ function ThinkingPill({ text, isStreaming }: { text: string; isStreaming?: boole
 // ── UserTextWithQuotes ────────────────────────────────────────────────────────
 
 /** Parse user message text into quoted (`> ...`) and plain segments. */
+const CONTEXT_HEADER_RE = /^\[context:\s*(.+)\]$/i;
+
 function UserTextWithQuotes({ text }: { text: string }) {
   const lines = text.split("\n");
   const segments: { quoted: boolean; lines: string[] }[] = [];
@@ -410,15 +412,39 @@ function UserTextWithQuotes({ text }: { text: string }) {
 
   return (
     <>
-      {filtered.map((seg, i) =>
-        seg.quoted ? (
-          <div key={i} className="border-l-2 border-primary-foreground/30 pl-2.5 my-1 opacity-75">
-            {seg.lines.join("\n")}
-          </div>
-        ) : (
+      {filtered.map((seg, i) => {
+        if (seg.quoted) {
+          // Detect [context: label] header on the first line
+          const headerMatch = seg.lines[0]?.match(CONTEXT_HEADER_RE);
+          if (headerMatch) {
+            const label = headerMatch[1];
+            const body = seg.lines.slice(1).join("\n").trim();
+            return (
+              <div key={i} className="my-1 rounded-lg border border-primary-foreground/15 bg-primary-foreground/10 px-2.5 py-1.5">
+                <div className="flex items-center gap-1.5">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-primary-foreground/70">
+                    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+                    <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+                    <path d="M10 12h4" /><path d="M10 16h4" />
+                  </svg>
+                  <span className="text-xs font-medium text-primary-foreground/90">{label}</span>
+                </div>
+                {body && (
+                  <div className="mt-1 text-2xs leading-4 text-primary-foreground/60 line-clamp-2">{body}</div>
+                )}
+              </div>
+            );
+          }
+          return (
+            <div key={i} className="border-l-2 border-primary-foreground/30 pl-2.5 my-1 opacity-75">
+              {seg.lines.join("\n")}
+            </div>
+          );
+        }
+        return (
           <React.Fragment key={i}>{seg.lines.join("\n")}</React.Fragment>
-        )
-      )}
+        );
+      })}
     </>
   );
 }
@@ -671,6 +697,7 @@ export function MessageRow({
   isSentAnim = false,
   onSentAnimationEnd,
   onPluginAction,
+  onAddInputAttachment,
 }: {
   message: Message;
   isStreaming: boolean;
@@ -689,6 +716,7 @@ export function MessageRow({
   isSentAnim?: boolean;
   onSentAnimationEnd?: () => void;
   onPluginAction?: PluginActionHandler;
+  onAddInputAttachment?: (kind: string, data: unknown) => void;
 }) {
   const messageRef = useRef<HTMLDivElement>(null);
   useNativeClickInterceptor(messageRef);
@@ -866,6 +894,7 @@ export function MessageRow({
                 messageId={message.id ?? ""}
                 isStreaming={isStreaming}
                 onAction={onPluginAction}
+                onAddInputAttachment={onAddInputAttachment}
               />
             ),
             pluginRegistry.getWidth(part.pluginType) === "chat" ? "chat" : "bubble",

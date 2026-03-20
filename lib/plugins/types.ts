@@ -22,6 +22,7 @@ export interface PluginViewProps<TData = unknown> {
   data: TData;
   isStreaming: boolean;
   invokeAction: (action: PluginAction, input?: Record<string, unknown>) => Promise<void>;
+  addInputAttachment?: (kind: string, data: unknown) => void;
 }
 
 export interface MobileClawPlugin<TData = unknown> {

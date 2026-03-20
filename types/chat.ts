@@ -198,6 +198,11 @@ export interface ImageAttachment {
   previewUrl: string; // object URL for local preview
 }
 
+export interface InputAttachment {
+  kind: string;
+  data: unknown;
+}
+
 export type BackendMode = "openclaw" | "lmstudio" | "demo";
 
 export interface ConnectionConfig {

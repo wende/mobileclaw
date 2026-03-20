@@ -11,11 +11,13 @@ export function PluginRenderer({
   messageId,
   isStreaming,
   onAction,
+  onAddInputAttachment,
 }: {
   part: PluginContentPart;
   messageId: string;
   isStreaming: boolean;
   onAction?: PluginActionHandler;
+  onAddInputAttachment?: (kind: string, data: unknown) => void;
 }) {
   const pluginType = part.pluginType || "unknown";
   const plugin = pluginRegistry.get(pluginType);
@@ -43,6 +45,7 @@ export function PluginRenderer({
           }
           await onAction({ messageId, part, action, input });
         },
+        addInputAttachment: onAddInputAttachment,
       })}
     </>
   );
