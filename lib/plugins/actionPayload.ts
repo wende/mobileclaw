@@ -1,4 +1,4 @@
-import type { PluginActionInvocation } from "@/lib/plugins/types";
+import type { PluginActionInvocation } from "@mc/lib/plugins/types";
 
 export interface PluginActionHostPayload {
   messageId: string;

@@ -2,10 +2,10 @@ import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 
-import { ChatViewport } from "@/components/chat/ChatViewport";
-import { STOP_REASON_INJECTED } from "@/lib/constants";
-import type { Message } from "@/types/chat";
-import type { useSubagentStore } from "@/hooks/useSubagentStore";
+import { ChatViewport } from "@mc/components/chat/ChatViewport";
+import { STOP_REASON_INJECTED } from "@mc/lib/constants";
+import type { Message } from "@mc/types/chat";
+import type { useSubagentStore } from "@mc/hooks/useSubagentStore";
 import { findSlideGrid } from "./utils/zenDom";
 
 function renderViewport(

@@ -1,4 +1,4 @@
-import contextPrefixes from "@/shared/contextPrefixes.json";
+import contextPrefixes from "@mc/shared/contextPrefixes.json";
 
 // Context detection — single source of truth is shared/contextPrefixes.json
 export const CONTEXT_STARTS_WITH: string[] = contextPrefixes.startsWith;

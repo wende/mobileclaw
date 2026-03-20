@@ -127,7 +127,7 @@ export async function signConnectChallenge(
 ): Promise<{ id: string; publicKey: string; signature: string; signedAt: number; nonce?: string }> {
   if (opts.isNative) {
     // Delegate to Swift Keychain via bridge — private key never enters JS
-    const { requestNativeIdentitySign } = await import("@/lib/nativeBridge");
+    const { requestNativeIdentitySign } = await import("@mc/lib/nativeBridge");
     const result = await requestNativeIdentitySign(opts.nonce ?? "", opts.token);
     return {
       id: result.deviceId,

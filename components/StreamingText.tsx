@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { MarkdownContent, StreamingCursor } from "@/components/markdown/MarkdownContent";
+import { MarkdownContent, StreamingCursor } from "@mc/components/markdown/MarkdownContent";
 
 // Module-level: remembered rate from previous responses (persists across component instances)
 let learnedCharsPerMs = 0.15; // Default: ~150 chars/sec, learned from history

@@ -1,9 +1,9 @@
 import { useState, useCallback } from "react";
 
-import { LITTERBOX_UPLOAD_URL } from "@/lib/constants";
-import { requestNotificationPermission } from "@/lib/notifications";
-import { PIN_LOCK_MS } from "@/hooks/useScrollManager";
-import type { ContentPart, ImageAttachment, Message } from "@/types/chat";
+import { LITTERBOX_UPLOAD_URL } from "@mc/lib/constants";
+import { requestNotificationPermission } from "@mc/lib/notifications";
+import { PIN_LOCK_MS } from "@mc/hooks/useScrollManager";
+import type { ContentPart, ImageAttachment, Message } from "@mc/types/chat";
 
 interface UseMessageSenderOptions {
   backendMode: "openclaw" | "lmstudio" | "demo";

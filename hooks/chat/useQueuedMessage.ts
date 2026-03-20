@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { ImageAttachment } from "@/types/chat";
+import type { ImageAttachment } from "@mc/types/chat";
 
 type QueuedMessage = { text: string; attachments?: ImageAttachment[] };
 

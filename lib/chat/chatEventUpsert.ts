@@ -1,9 +1,9 @@
 import {
   isContextText,
-} from "@/lib/constants";
-import { appendCanvasPart } from "@/lib/plugins/compat";
-import { getTextFromContent, updateAt } from "@/lib/messageUtils";
-import type { CanvasPayload, ChatEventPayload, ContentPart, Message, PluginContentPart } from "@/types/chat";
+} from "@mc/lib/constants";
+import { appendCanvasPart } from "@mc/lib/plugins/compat";
+import { getTextFromContent, updateAt } from "@mc/lib/messageUtils";
+import type { CanvasPayload, ChatEventPayload, ContentPart, Message, PluginContentPart } from "@mc/types/chat";
 
 function normalizeChatText(text: string): string {
   return text.replace(/\s+/g, " ").trim();

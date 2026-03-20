@@ -1,6 +1,6 @@
-import { builtinInputAttachmentPlugins } from "@/lib/plugins/inputAttachmentBuiltins";
-import { appInputAttachmentPlugins } from "@/plugins/app";
-import type { AnyInputAttachmentPlugin } from "@/lib/plugins/inputAttachmentTypes";
+import { builtinInputAttachmentPlugins } from "@mc/lib/plugins/inputAttachmentBuiltins";
+import { appInputAttachmentPlugins } from "@mc/plugins/app";
+import type { AnyInputAttachmentPlugin } from "@mc/lib/plugins/inputAttachmentTypes";
 
 const registry = new Map<string, AnyInputAttachmentPlugin>();
 

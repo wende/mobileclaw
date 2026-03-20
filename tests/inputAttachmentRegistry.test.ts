@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { inputAttachmentRegistry } from "@/lib/plugins/inputAttachmentRegistry";
+import { inputAttachmentRegistry } from "@mc/lib/plugins/inputAttachmentRegistry";
 
 describe("inputAttachmentRegistry", () => {
   it("registers built-in image attachment plugin", () => {

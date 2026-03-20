@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo } from "react";
-import { ALL_COMMANDS, type Command } from "@/components/CommandSheet";
-import maps from "@/maps.json";
-import { ImageLightbox } from "@/components/ImageLightbox";
-import type { ModelChoice, ImageAttachment, InputAttachment } from "@/types/chat";
-import { inputAttachmentRegistry } from "@/lib/plugins/inputAttachmentRegistry";
-import { SQUIRCLE_RADIUS, PILL_BASE_HEIGHT, RADIUS_TRANSITION } from "@/lib/constants";
+import { ALL_COMMANDS, type Command } from "@mc/components/CommandSheet";
+import maps from "@mc/maps.json";
+import { ImageLightbox } from "@mc/components/ImageLightbox";
+import type { ModelChoice, ImageAttachment, InputAttachment } from "@mc/types/chat";
+import { inputAttachmentRegistry } from "@mc/lib/plugins/inputAttachmentRegistry";
+import { SQUIRCLE_RADIUS, PILL_BASE_HEIGHT, RADIUS_TRANSITION } from "@mc/lib/constants";
 
 export interface ModelSuggestion {
   id: string;

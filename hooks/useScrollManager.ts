@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import type { Message } from "@/types/chat";
+import type { Message } from "@mc/types/chat";
 
 /** After pinning, ignore scroll-based unpin checks for this long (ms).
  *  Prevents layout reflows from immediately unpinning after send. */

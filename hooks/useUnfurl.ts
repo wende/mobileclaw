@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { UnfurlData } from "@/lib/unfurl";
-import { extractUrls, shouldUnfurl, fetchUnfurl, isUnfurlDisabled } from "@/lib/unfurl";
+import type { UnfurlData } from "@mc/lib/unfurl";
+import { extractUrls, shouldUnfurl, fetchUnfurl, isUnfurlDisabled } from "@mc/lib/unfurl";
 
 const MAX_UNFURLS = 3;
 const DEBOUNCE_MS = 300;

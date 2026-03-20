@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { ConnectionConfig } from "@/types/chat";
-import { fetchLmStudioModels, type LmStudioModel } from "@/lib/lmStudio";
+import type { ConnectionConfig } from "@mc/types/chat";
+import { fetchLmStudioModels, type LmStudioModel } from "@mc/lib/lmStudio";
 
 const OPENCLAW_SAVED_CONFIGS_KEY = "openclaw-saved-configs";
 const OPENCLAW_SAVED_CONFIGS_LIMIT = 10;

@@ -2,18 +2,18 @@ import { describe, it, expect, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
-vi.mock("@/lib/nativeBridge", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/nativeBridge")>();
+vi.mock("@mc/lib/nativeBridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@mc/lib/nativeBridge")>();
   return {
     ...actual,
     resolveIdentitySign: vi.fn(),
   };
 });
 
-import { PIN_LOCK_MS } from "@/hooks/useScrollManager";
-import { useNativeBridgeMessage } from "@/hooks/chat/useNativeBridgeMessage";
-import { resolveIdentitySign } from "@/lib/nativeBridge";
-import type { ConnectionConfig, Message } from "@/types/chat";
+import { PIN_LOCK_MS } from "@mc/hooks/useScrollManager";
+import { useNativeBridgeMessage } from "@mc/hooks/chat/useNativeBridgeMessage";
+import { resolveIdentitySign } from "@mc/lib/nativeBridge";
+import type { ConnectionConfig, Message } from "@mc/types/chat";
 
 function createOptions(overrides: Partial<Parameters<typeof useNativeBridgeMessage>[0]> = {}) {
   return {

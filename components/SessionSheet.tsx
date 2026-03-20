@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import type { SessionInfo } from "@/types/chat";
-import { formatSessionName, formatRelativeTime } from "@/hooks/useSessionSwitcher";
+import type { SessionInfo } from "@mc/types/chat";
+import { formatSessionName, formatRelativeTime } from "@mc/hooks/useSessionSwitcher";
 
 const KIND_LABELS: Record<SessionInfo["kind"], string> = {
   main: "main",

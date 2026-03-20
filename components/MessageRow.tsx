@@ -1,27 +1,27 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import type { ContentPart, Message } from "@/types/chat";
-import { getTextFromContent, getImages, getFiles } from "@/lib/messageUtils";
-import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, MESSAGE_SEND_ANIMATION } from "@/lib/constants";
-import { useExpandablePanel } from "@/hooks/useExpandablePanel";
-import { SlideContent } from "@/components/SlideContent";
-import { MarkdownContent } from "@/components/markdown/MarkdownContent";
-import { StreamingText } from "@/components/StreamingText";
-import { ToolCallPill } from "@/components/ToolCallPill";
-import { ImageThumbnails } from "@/components/ImageThumbnails";
-import { SmoothGrow } from "@/components/SmoothGrow";
-import { ZenToggle } from "@/components/ZenToggle";
-import { PluginRenderer } from "@/components/plugins/PluginRenderer";
-import type { SubagentStore } from "@/hooks/useSubagentStore";
-import { isNativeMode, postLinkTap, postImageTap } from "@/lib/nativeBridge";
-import { ZEN_SLIDE_MS, ZEN_FADE_MS } from "@/lib/chat/zenUi";
-import { useUnfurl } from "@/hooks/useUnfurl";
-import { LinkPreviewCard } from "@/components/LinkPreviewCard";
-import { isPluginPart } from "@/lib/constants";
-import { pluginRegistry } from "@/lib/plugins/registry";
-import type { PluginActionHandler } from "@/lib/plugins/types";
-import type { PluginContentPart } from "@/types/chat";
+import type { ContentPart, Message } from "@mc/types/chat";
+import { getTextFromContent, getImages, getFiles } from "@mc/lib/messageUtils";
+import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, MESSAGE_SEND_ANIMATION } from "@mc/lib/constants";
+import { useExpandablePanel } from "@mc/hooks/useExpandablePanel";
+import { SlideContent } from "@mc/components/SlideContent";
+import { MarkdownContent } from "@mc/components/markdown/MarkdownContent";
+import { StreamingText } from "@mc/components/StreamingText";
+import { ToolCallPill } from "@mc/components/ToolCallPill";
+import { ImageThumbnails } from "@mc/components/ImageThumbnails";
+import { SmoothGrow } from "@mc/components/SmoothGrow";
+import { ZenToggle } from "@mc/components/ZenToggle";
+import { PluginRenderer } from "@mc/components/plugins/PluginRenderer";
+import type { SubagentStore } from "@mc/hooks/useSubagentStore";
+import { isNativeMode, postLinkTap, postImageTap } from "@mc/lib/nativeBridge";
+import { ZEN_SLIDE_MS, ZEN_FADE_MS } from "@mc/lib/chat/zenUi";
+import { useUnfurl } from "@mc/hooks/useUnfurl";
+import { LinkPreviewCard } from "@mc/components/LinkPreviewCard";
+import { isPluginPart } from "@mc/lib/constants";
+import { pluginRegistry } from "@mc/lib/plugins/registry";
+import type { PluginActionHandler } from "@mc/lib/plugins/types";
+import type { PluginContentPart } from "@mc/types/chat";
 
 // ── File Thumbnails ──────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useInputAttachments } from "@/hooks/chat/useInputAttachments";
+import { useInputAttachments } from "@mc/hooks/chat/useInputAttachments";
 
 describe("useInputAttachments", () => {
   const revokeObjectURL = vi.fn();

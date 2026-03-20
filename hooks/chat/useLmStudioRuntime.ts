@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
-import { createLmStudioHandler, type LmStudioCallbacks, type LmStudioConfig } from "@/lib/lmStudio";
-import type { ContentPart, Message } from "@/types/chat";
+import { createLmStudioHandler, type LmStudioCallbacks, type LmStudioConfig } from "@mc/lib/lmStudio";
+import type { ContentPart, Message } from "@mc/types/chat";
 
 interface UseLmStudioRuntimeOptions {
   backendMode: "openclaw" | "lmstudio" | "demo";

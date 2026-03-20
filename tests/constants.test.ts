@@ -7,7 +7,7 @@ import {
   TOOL_CALL_BUBBLE_MUTED,
   TOOL_CALL_BUBBLE_BORDER,
   TOOL_CALL_BUBBLE_BORDER_ERROR,
-} from "@/lib/constants";
+} from "@mc/lib/constants";
 
 describe("hasHeartbeatOnOwnLine", () => {
   it("matches HEARTBEAT_OK as the entire text", () => {

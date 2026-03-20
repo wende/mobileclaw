@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { MessageRow } from "@/components/MessageRow";
-import type { Message } from "@/types/chat";
-import { contextChipPlugin } from "@/plugins/app/contextChip";
+import { MessageRow } from "@mc/components/MessageRow";
+import type { Message } from "@mc/types/chat";
+import { contextChipPlugin } from "@mc/plugins/app/contextChip";
 
 describe("contextChipPlugin parse", () => {
   it("parses valid data", () => {

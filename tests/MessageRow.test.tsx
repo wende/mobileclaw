@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MessageRow } from "@/components/MessageRow";
-import type { Message } from "@/types/chat";
+import { MessageRow } from "@mc/components/MessageRow";
+import type { Message } from "@mc/types/chat";
 import { findSlideGrid } from "./utils/zenDom";
 
 describe("MessageRow", () => {

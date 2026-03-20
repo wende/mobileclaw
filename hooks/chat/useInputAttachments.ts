@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { InputAttachment } from "@/types/chat";
-import { inputAttachmentRegistry } from "@/lib/plugins/inputAttachmentRegistry";
+import type { InputAttachment } from "@mc/types/chat";
+import { inputAttachmentRegistry } from "@mc/lib/plugins/inputAttachmentRegistry";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
