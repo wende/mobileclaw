@@ -1,20 +1,20 @@
 import { useRef, useEffect, useCallback } from "react";
 
-import { parseServerCommands, ALL_COMMANDS, type Command } from "@/components/CommandSheet";
-import { usePullToRefresh } from "@/hooks/usePullToRefresh";
-import { useSessionSwitcher } from "@/hooks/useSessionSwitcher";
+import { parseServerCommands, ALL_COMMANDS, type Command } from "@mc/components/CommandSheet";
+import { usePullToRefresh } from "@mc/hooks/usePullToRefresh";
+import { useSessionSwitcher } from "@mc/hooks/useSessionSwitcher";
 import {
   isInternalCommandFetchRunId,
   SPAWN_TOOL_NAME,
   WS_HELLO_OK,
-} from "@/lib/constants";
-import { signConnectChallenge } from "@/lib/deviceIdentity";
-import { getTextFromContent, updateAt } from "@/lib/messageUtils";
-import { upsertChatEventMessage } from "@/lib/chat/chatEventUpsert";
-import { mergeModels, parseConfigProviders, type ConfigParseResult } from "@/lib/parseBackendModels";
-import { useWebSocket, type WebSocketMessage } from "@/lib/useWebSocket";
-import { postConnectionState, postRunState, postSessionsState } from "@/lib/nativeBridge";
-import { mergeAndNormalizeToolResults } from "@/lib/chat/messageTransforms";
+} from "@mc/lib/constants";
+import { signConnectChallenge } from "@mc/lib/deviceIdentity";
+import { getTextFromContent, updateAt } from "@mc/lib/messageUtils";
+import { upsertChatEventMessage } from "@mc/lib/chat/chatEventUpsert";
+import { mergeModels, parseConfigProviders, type ConfigParseResult } from "@mc/lib/parseBackendModels";
+import { useWebSocket, type WebSocketMessage } from "@mc/lib/useWebSocket";
+import { postConnectionState, postRunState, postSessionsState } from "@mc/lib/nativeBridge";
+import { mergeAndNormalizeToolResults } from "@mc/lib/chat/messageTransforms";
 import {
   buildHistoryMessages,
   extractSpawnChildSessionKeys,
@@ -22,7 +22,7 @@ import {
   isRunInProgressFromHistory,
   mergeHistoryWithOptimistic,
   prepareHistoryMessages,
-} from "@/lib/chat/historyResponse";
+} from "@mc/lib/chat/historyResponse";
 import type {
   AgentEventPayload,
   BackendMode,
@@ -34,8 +34,8 @@ import type {
   ModelChoice,
   PluginContentPart,
   WSIncomingMessage,
-} from "@/types/chat";
-import type { useSubagentStore } from "@/hooks/useSubagentStore";
+} from "@mc/types/chat";
+import type { useSubagentStore } from "@mc/hooks/useSubagentStore";
 
 interface StreamActions {
   appendContentDelta: (runId: string, delta: string, ts: number) => void;

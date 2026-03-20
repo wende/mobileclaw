@@ -1,5 +1,5 @@
-import type { BackendMode } from "@/types/chat";
-import type { ConnectionState } from "@/lib/useWebSocket";
+import type { BackendMode } from "@mc/types/chat";
+import type { ConnectionState } from "@mc/lib/useWebSocket";
 
 interface ChatHeaderProps {
   currentModel: string | null;

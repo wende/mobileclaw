@@ -1,7 +1,7 @@
 // Demo mode — simulates an OpenClaw backend with curated history and keyword-matched responses
 
-import type { PluginActionInvocation } from "@/lib/plugins/types";
-import type { AgentEventPayload, Message, PluginAction, PluginActionStyle, PluginContentPart, PluginState } from "@/types/chat";
+import type { PluginActionInvocation } from "@mc/lib/plugins/types";
+import type { AgentEventPayload, Message, PluginAction, PluginActionStyle, PluginContentPart, PluginState } from "@mc/types/chat";
 
 // ── Demo conversation history ────────────────────────────────────────────────
 // Single message exchange that showcases ALL display features

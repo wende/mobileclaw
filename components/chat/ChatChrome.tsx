@@ -1,10 +1,10 @@
 "use client";
 
-import { ChatHeader } from "@/components/ChatHeader";
-import { SessionSheet } from "@/components/SessionSheet";
-import { SetupDialog } from "@/components/SetupDialog";
-import type { ConnectionState } from "@/lib/useWebSocket";
-import type { BackendMode, ConnectionConfig, SessionInfo } from "@/types/chat";
+import { ChatHeader } from "@mc/components/ChatHeader";
+import { SessionSheet } from "@mc/components/SessionSheet";
+import { SetupDialog } from "@mc/components/SetupDialog";
+import type { ConnectionState } from "@mc/lib/useWebSocket";
+import type { BackendMode, ConnectionConfig, SessionInfo } from "@mc/types/chat";
 
 interface ChatChromeProps {
   hideChrome: boolean;

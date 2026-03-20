@@ -1,6 +1,6 @@
 import { useRef, useCallback } from "react";
-import type { SubagentEntry, SubagentSession, AgentEventPayload } from "@/types/chat";
-import { isToolCallPart } from "@/lib/constants";
+import type { SubagentEntry, SubagentSession, AgentEventPayload } from "@mc/types/chat";
+import { isToolCallPart } from "@mc/lib/constants";
 
 const TEXT_COALESCE_GAP_MS = 2000;
 /** Grace period after lifecycle:end before marking "done" — if lifecycle:start fires within this window, cancel. */

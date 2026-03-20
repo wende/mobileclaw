@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 
-import { useZenMode, ZEN_STORAGE_KEY } from "@/hooks/useZenMode";
+import { useZenMode, ZEN_STORAGE_KEY } from "@mc/hooks/useZenMode";
 
 function mockStorage(initial: Record<string, string> = {}) {
   const store = new Map<string, string>(Object.entries(initial));

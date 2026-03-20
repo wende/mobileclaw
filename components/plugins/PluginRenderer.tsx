@@ -1,10 +1,10 @@
 "use client";
 
-import { InvalidPluginCard } from "@/components/plugins/InvalidPluginCard";
-import { UnknownPluginCard } from "@/components/plugins/UnknownPluginCard";
-import { pluginRegistry } from "@/lib/plugins/registry";
-import type { PluginActionHandler, PluginParseResult } from "@/lib/plugins/types";
-import type { PluginContentPart } from "@/types/chat";
+import { InvalidPluginCard } from "@mc/components/plugins/InvalidPluginCard";
+import { UnknownPluginCard } from "@mc/components/plugins/UnknownPluginCard";
+import { pluginRegistry } from "@mc/lib/plugins/registry";
+import type { PluginActionHandler, PluginParseResult } from "@mc/lib/plugins/types";
+import type { PluginContentPart } from "@mc/types/chat";
 
 export function PluginRenderer({
   part,

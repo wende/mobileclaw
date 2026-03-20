@@ -2,11 +2,11 @@ import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { act, render, renderHook, screen } from "@testing-library/react";
 
-import { MessageRow } from "@/components/MessageRow";
-import { useMessageSender } from "@/hooks/chat/useMessageSender";
-import { upsertChatEventMessage } from "@/lib/chat/chatEventUpsert";
-import { mergeHistoryWithOptimistic } from "@/lib/chat/historyResponse";
-import type { ChatEventPayload, Message } from "@/types/chat";
+import { MessageRow } from "@mc/components/MessageRow";
+import { useMessageSender } from "@mc/hooks/chat/useMessageSender";
+import { upsertChatEventMessage } from "@mc/lib/chat/chatEventUpsert";
+import { mergeHistoryWithOptimistic } from "@mc/lib/chat/historyResponse";
+import type { ChatEventPayload, Message } from "@mc/types/chat";
 
 describe("/new flow integration", () => {
   it("keeps /new response as command pill after realtime update and history refresh", async () => {

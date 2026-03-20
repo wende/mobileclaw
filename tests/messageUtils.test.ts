@@ -5,8 +5,8 @@ import {
   getImages,
   getMessageSide,
   thinkingPreview,
-} from "@/lib/messageUtils";
-import type { MessageRole } from "@/types/chat";
+} from "@mc/lib/messageUtils";
+import type { MessageRole } from "@mc/types/chat";
 
 describe("getTextFromContent", () => {
   it("returns empty string for null", () => {

@@ -2,12 +2,12 @@
 
 import React from "react";
 
-import { ChatInput, type ChatInputHandle } from "@/components/ChatInput";
-import { FloatingSubagentPanel } from "@/components/FloatingSubagentPanel";
-import { QueuePill } from "@/components/chat/QueuePill";
-import type { Command } from "@/components/CommandSheet";
-import type { useSubagentStore } from "@/hooks/useSubagentStore";
-import type { BackendMode, ImageAttachment, InputAttachment, ModelChoice } from "@/types/chat";
+import { ChatInput, type ChatInputHandle } from "@mc/components/ChatInput";
+import { FloatingSubagentPanel } from "@mc/components/FloatingSubagentPanel";
+import { QueuePill } from "@mc/components/chat/QueuePill";
+import type { Command } from "@mc/components/CommandSheet";
+import type { useSubagentStore } from "@mc/hooks/useSubagentStore";
+import type { BackendMode, ImageAttachment, InputAttachment, ModelChoice } from "@mc/types/chat";
 
 interface ChatComposerBarProps {
   isNative: boolean;

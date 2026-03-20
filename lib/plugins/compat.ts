@@ -1,4 +1,4 @@
-import type { CanvasPayload, ContentPart, PluginContentPart } from "@/types/chat";
+import type { CanvasPayload, ContentPart, PluginContentPart } from "@mc/types/chat";
 
 function getLegacyCanvasPartId(canvas: CanvasPayload): string {
   return canvas.partId || `legacy-canvas:${canvas.type}`;

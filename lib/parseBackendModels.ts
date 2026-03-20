@@ -1,4 +1,4 @@
-import type { ModelChoice } from "@/types/chat";
+import type { ModelChoice } from "@mc/types/chat";
 
 export interface ConfigParseResult {
   /** Provider keys that have explicit model lists in models.providers */

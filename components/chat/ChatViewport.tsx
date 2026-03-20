@@ -2,16 +2,16 @@
 
 import React, { useMemo, useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 
-import { MessageRow } from "@/components/MessageRow";
-import { ThinkingIndicator } from "@/components/ThinkingIndicator";
-import { ZenToggle } from "@/components/ZenToggle";
-import { formatMessageTime, getMessageSide } from "@/lib/messageUtils";
-import { STOP_REASON_INJECTED, isToolCallPart, MESSAGE_SEND_ANIMATION } from "@/lib/constants";
-import { ZEN_SLIDE_MS, ZEN_FADE_MS, ZEN_TOGGLE_FRAME_MS } from "@/lib/chat/zenUi";
-import { getThinkingIndicatorBottom } from "@/lib/chat/layout";
-import type { Message } from "@/types/chat";
-import type { useSubagentStore } from "@/hooks/useSubagentStore";
-import type { PluginActionHandler } from "@/lib/plugins/types";
+import { MessageRow } from "@mc/components/MessageRow";
+import { ThinkingIndicator } from "@mc/components/ThinkingIndicator";
+import { ZenToggle } from "@mc/components/ZenToggle";
+import { formatMessageTime, getMessageSide } from "@mc/lib/messageUtils";
+import { STOP_REASON_INJECTED, isToolCallPart, MESSAGE_SEND_ANIMATION } from "@mc/lib/constants";
+import { ZEN_SLIDE_MS, ZEN_FADE_MS, ZEN_TOGGLE_FRAME_MS } from "@mc/lib/chat/zenUi";
+import { getThinkingIndicatorBottom } from "@mc/lib/chat/layout";
+import type { Message } from "@mc/types/chat";
+import type { useSubagentStore } from "@mc/hooks/useSubagentStore";
+import type { PluginActionHandler } from "@mc/lib/plugins/types";
 
 const TIME_GAP_THRESHOLD_MS = 10 * 60 * 1000;
 const ZEN_COLLAPSE_TOTAL_MS = ZEN_TOGGLE_FRAME_MS + ZEN_FADE_MS + ZEN_SLIDE_MS;

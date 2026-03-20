@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { PluginAction, PluginContentPart, PluginState } from "@/types/chat";
+import type { PluginAction, PluginContentPart, PluginState } from "@mc/types/chat";
 
 export type PluginWidth = "bubble" | "chat";
 

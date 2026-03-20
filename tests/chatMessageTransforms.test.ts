@@ -4,8 +4,8 @@ import {
   buildDisplayMessages,
   isUnreadCandidateMessage,
   mergeAndNormalizeToolResults,
-} from "@/lib/chat/messageTransforms";
-import type { ContentPart, Message } from "@/types/chat";
+} from "@mc/lib/chat/messageTransforms";
+import type { ContentPart, Message } from "@mc/types/chat";
 
 function assistant(content: Message["content"], extra: Partial<Message> = {}): Message {
   return { role: "assistant", content, id: `a-${Math.random()}`, ...extra };

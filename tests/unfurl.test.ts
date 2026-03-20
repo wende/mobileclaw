@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { extractUrls, shouldUnfurl, _resetForTests, _getCache, BARE_URL_REGEX } from "@/lib/unfurl";
+import { extractUrls, shouldUnfurl, _resetForTests, _getCache, BARE_URL_REGEX } from "@mc/lib/unfurl";
 
 beforeEach(() => {
   _resetForTests();

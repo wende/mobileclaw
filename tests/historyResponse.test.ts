@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { buildHistoryMessages, mergeHistoryWithOptimistic, prepareHistoryMessages } from "@/lib/chat/historyResponse";
-import type { Message } from "@/types/chat";
+import { buildHistoryMessages, mergeHistoryWithOptimistic, prepareHistoryMessages } from "@mc/lib/chat/historyResponse";
+import type { Message } from "@mc/types/chat";
 
 describe("mergeHistoryWithOptimistic", () => {
   it("keeps already-rendered realtime messages when history snapshot lags", () => {

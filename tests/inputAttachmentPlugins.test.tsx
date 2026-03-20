@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { imageAttachmentPlugin, fileAttachmentPlugin, quoteAttachmentPlugin } from "@/lib/plugins/inputAttachmentBuiltins";
-import { promptContextAttachmentPlugin } from "@/plugins/app/contextChip";
+import { imageAttachmentPlugin, fileAttachmentPlugin, quoteAttachmentPlugin } from "@mc/lib/plugins/inputAttachmentBuiltins";
+import { promptContextAttachmentPlugin } from "@mc/plugins/app/contextChip";
 
 describe("imageAttachmentPlugin", () => {
   it("renders a thumbnail preview", () => {

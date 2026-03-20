@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 
-import { PIN_LOCK_MS } from "@/hooks/useScrollManager";
-import { resolveIdentitySign, type BridgeMessage } from "@/lib/nativeBridge";
-import type { BackendMode, ConnectionConfig, Message } from "@/types/chat";
+import { PIN_LOCK_MS } from "@mc/hooks/useScrollManager";
+import { resolveIdentitySign, type BridgeMessage } from "@mc/lib/nativeBridge";
+import type { BackendMode, ConnectionConfig, Message } from "@mc/types/chat";
 
 interface UseNativeBridgeMessageOptions {
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;

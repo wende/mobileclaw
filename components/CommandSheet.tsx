@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import type { ModelChoice } from "@/types/chat";
+import type { ModelChoice } from "@mc/types/chat";
 
 export interface Command {
   name: string;

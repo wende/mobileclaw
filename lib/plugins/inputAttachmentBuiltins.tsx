@@ -1,6 +1,6 @@
 "use client";
 
-import type { AnyInputAttachmentPlugin, InputAttachmentPlugin } from "@/lib/plugins/inputAttachmentTypes";
+import type { AnyInputAttachmentPlugin, InputAttachmentPlugin } from "@mc/lib/plugins/inputAttachmentTypes";
 
 interface ImageData {
   mimeType: string;

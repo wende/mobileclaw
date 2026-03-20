@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
-import { useWebSocket } from "@/lib/useWebSocket";
+import { useWebSocket } from "@mc/lib/useWebSocket";
 
 // ── Mock WebSocket ──────────────────────────────────────────────────────────
 
