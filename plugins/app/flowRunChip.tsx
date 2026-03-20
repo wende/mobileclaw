@@ -1,6 +1,6 @@
 "use client";
 
-import type { InputAttachmentPlugin } from "@/lib/plugins/inputAttachmentTypes";
+import type { InputAttachmentPlugin } from "@mc/lib/plugins/inputAttachmentTypes";
 
 interface FlowRunData {
   id: string;

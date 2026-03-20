@@ -6,7 +6,7 @@ import type {
   MobileClawPlugin,
   PluginParseResult,
   PluginViewProps,
-} from "@/lib/plugins/types";
+} from "@mc/lib/plugins/types";
 
 const tourProgressSchema = z.object({
   step: z.number(),
