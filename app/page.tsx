@@ -56,6 +56,7 @@ import { useModeBootstrap } from "@/hooks/chat/useModeBootstrap";
 import { useOpenClawRuntime } from "@/hooks/chat/useOpenClawRuntime";
 import { useQuoteSelection } from "@/hooks/chat/useQuoteSelection";
 import { useQueuedMessage } from "@/hooks/chat/useQueuedMessage";
+import { useInputAttachments } from "@/hooks/chat/useInputAttachments";
 import { useUnreadTabIndicator } from "@/hooks/chat/useUnreadTabIndicator";
 import { useNativeBridgeMessage } from "@/hooks/chat/useNativeBridgeMessage";
 import { useDemoRuntime } from "@/hooks/chat/useDemoRuntime";
@@ -397,7 +398,13 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     upsertCanvasPluginByMessageId,
   });
 
-  const { quoteText, setQuoteText, quotePopup, quotePopupRef, handleAcceptQuote } = useQuoteSelection({ scrollRef });
+  const { setQuoteText, quotePopup, quotePopupRef, handleAcceptQuote: rawAcceptQuote } = useQuoteSelection({ scrollRef });
+  const { attachments: inputAttachments, add, addFiles, addQuote, removeAttachment: removeInputAttachment, clearAll: clearInputAttachments } = useInputAttachments();
+
+  const handleAcceptQuote = useCallback((text: string) => {
+    rawAcceptQuote(text);
+    addQuote(text);
+  }, [rawAcceptQuote, addQuote]);
 
   // Use refs so the bridge handler can call these without circular deps.
   const handleConnectRef = useRef<(config: ConnectionConfig) => void>(() => {});
@@ -793,6 +800,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
         quotePopupRef={quotePopupRef}
         onAcceptQuote={handleAcceptQuote}
         onPluginAction={handlePluginAction}
+        onAddInputAttachment={add}
       />
 
       {!historyLoaded && (
@@ -829,8 +837,17 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
         onFetchModels={fetchModels}
         backendMode={backendMode}
         serverCommands={serverCommands}
-        quoteText={quoteText}
-        onClearQuote={() => setQuoteText(null)}
+        attachments={inputAttachments}
+        onAddFiles={addFiles}
+        onRemoveAttachment={(index) => {
+          const att = inputAttachments[index];
+          if (att?.kind === "quote") setQuoteText(null);
+          removeInputAttachment(index);
+        }}
+        onClearAll={() => {
+          setQuoteText(null);
+          clearInputAttachments();
+        }}
         isRunActive={isRunActive}
         hasQueued={!!queuedMessage}
         onAbort={handleAbort}

@@ -464,6 +464,201 @@ This is the only built-in plugin that should accept user input initially.
 
 ---
 
+## Input Attachment Plugins
+
+The message plugin system extends the assistant rendering pipeline. Input attachment plugins extend the **compose** pipeline — they define new kinds of content that the user can attach to the input bar before sending a message.
+
+### Motivation
+
+The compose input supports image, file, and quote attachments. Each kind needs:
+
+- a preview chip in the attachment strip
+- a send-time conversion into the outgoing message payload
+- optional cleanup when the attachment is removed or the component unmounts
+
+Without a plugin system, adding a new attachment kind requires touching ChatInput rendering, the submit function, and the cleanup effect. Input attachment plugins localize all three concerns into one object, matching the message plugin pattern.
+
+### Interface
+
+```ts
+// lib/plugins/inputAttachmentTypes.ts
+
+export interface InputAttachmentPreviewProps<TData = unknown> {
+  data: TData;
+  onRemove: () => void;
+  onLightbox?: (src: string) => void;
+}
+
+export interface InputAttachmentSendContribution {
+  textPrefix?: string;         // prepended to message text
+  images?: ImageAttachment[];  // appended to the image attachment array
+}
+
+export interface InputAttachmentPlugin<TData = unknown> {
+  kind: string;
+  renderPreview: (props: InputAttachmentPreviewProps<TData>) => ReactNode;
+  toSendContribution: (data: TData) => InputAttachmentSendContribution;
+  cleanup?: (data: TData) => void;
+}
+```
+
+Each plugin is keyed by a `kind` string, analogous to the message plugin's `type`.
+
+### Storage Model
+
+Attachments are stored as generic envelopes:
+
+```ts
+// types/chat.ts
+
+export interface InputAttachment {
+  kind: string;
+  data: unknown;
+}
+```
+
+The `data` field is opaque at the type level. The plugin's `renderPreview` and `toSendContribution` functions cast it to their typed payload, following the same pattern as message plugins where `parse()` validates `data` before `render()` uses it.
+
+### Registry
+
+```ts
+// lib/plugins/inputAttachmentRegistry.ts
+
+export const inputAttachmentRegistry = {
+  get(kind: string): AnyInputAttachmentPlugin | undefined;
+  list(): AnyInputAttachmentPlugin[];
+};
+```
+
+The registry merges built-in plugins from `lib/plugins/inputAttachmentBuiltins.tsx` with app-level plugins from `plugins/app/index.ts`, the same pattern as the message plugin registry.
+
+### Built-In Kinds
+
+Three input attachment kinds ship as built-ins:
+
+| Kind    | Preview                          | Send contribution                                | Cleanup            |
+|---------|----------------------------------|--------------------------------------------------|--------------------|
+| `image` | Thumbnail with lightbox click    | `{ images: [ImageAttachment] }`                  | Revokes object URL |
+| `file`  | File icon + truncated name       | `{ images: [ImageAttachment] }`                  | Revokes object URL |
+| `quote` | Quote icon + truncated text      | `{ textPrefix: "> line1\n> line2" }`             | None               |
+
+### Hook
+
+The `useInputAttachments` hook manages the attachment list:
+
+```ts
+const {
+  attachments,            // InputAttachment[]
+  add,                    // (kind: string, data: unknown) => void
+  addFiles,               // (files: FileList | File[]) => void
+  addQuote,               // (text: string) => void
+  removeAttachment,       // (index: number) => void
+  clearAll,               // () => void
+} = useInputAttachments();
+```
+
+- `add(kind, data)` is the generic entry point for plugin-provided kinds
+- `addFiles` and `addQuote` are convenience wrappers for built-in kinds
+- `removeAttachment` and `clearAll` call each plugin's `cleanup` function
+- The hook revokes resources on unmount via the registry's `cleanup` methods
+
+### Rendering
+
+`ChatInput` iterates the attachment list and delegates each item's preview to the registry:
+
+```tsx
+{attachments.map((att, i) => {
+  const plugin = inputAttachmentRegistry.get(att.kind);
+  if (!plugin) return null;
+  return plugin.renderPreview({
+    data: att.data,
+    onRemove: () => onRemoveAttachment(i),
+    onLightbox: setLightboxSrc,
+  });
+})}
+```
+
+Unknown kinds are silently skipped. This matches the message plugin system's graceful fallback principle — missing renderers never crash the compose area.
+
+### Send Flow
+
+On submit, `ChatInput` collects contributions from all attachments via the registry:
+
+```ts
+const allImages: ImageAttachment[] = [];
+const textPrefixes: string[] = [];
+
+for (const att of attachments) {
+  const plugin = inputAttachmentRegistry.get(att.kind);
+  if (!plugin) continue;
+  const c = plugin.toSendContribution(att.data);
+  if (c.textPrefix) textPrefixes.push(c.textPrefix);
+  if (c.images) allImages.push(...c.images);
+}
+
+const prefix = textPrefixes.join("\n\n");
+const full = prefix ? (text ? `${prefix}\n\n\n${text}` : prefix) : text;
+onSend(full, allImages.length > 0 ? allImages : undefined);
+```
+
+The downstream `onSend(text, ImageAttachment[])` signature is unchanged. Input attachment plugins influence the message through `textPrefix` and `images`, not by modifying the transport.
+
+### Adding A Custom Kind
+
+To add a new input attachment kind, add a plugin to `plugins/app/index.ts`:
+
+```ts
+import type { AnyInputAttachmentPlugin } from "@/lib/plugins/inputAttachmentTypes";
+
+export const appInputAttachmentPlugins: AnyInputAttachmentPlugin[] = [
+  {
+    kind: "location",
+    renderPreview: ({ data, onRemove }) => (
+      <div className="relative shrink-0 h-10 flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-2.5">
+        <span className="text-xs text-muted-foreground">{data.name}</span>
+        <button type="button" onClick={onRemove} className="...">×</button>
+      </div>
+    ),
+    toSendContribution: (data) => ({
+      textPrefix: `📍 ${data.name} (${data.lat}, ${data.lng})`,
+    }),
+  },
+];
+```
+
+Then trigger it from application code:
+
+```ts
+const { add } = useInputAttachments();
+add("location", { name: "Office", lat: 37.77, lng: -122.42 });
+```
+
+### File Layout
+
+```text
+lib/plugins/
+  inputAttachmentTypes.ts       # plugin interface
+  inputAttachmentBuiltins.tsx   # image, file, quote plugins
+  inputAttachmentRegistry.ts    # registry combining builtins + app plugins
+
+hooks/chat/
+  useInputAttachments.ts        # state management hook
+
+plugins/app/
+  index.ts                      # exports appInputAttachmentPlugins[]
+```
+
+### Relationship To Message Plugins
+
+Input attachment plugins and message plugins are independent extension points:
+
+- **Message plugins** extend the assistant rendering pipeline (server-driven, inside `content` parts)
+- **Input attachment plugins** extend the compose pipeline (client-driven, inside the input bar)
+
+They share the same structural patterns — `kind`/`type` discriminator, build-time registry, graceful fallback — but do not reference each other. A message plugin cannot inject an input attachment, and an input attachment plugin does not render inside the message thread.
+
+---
+
 ## Compatibility With The Canvas Spec
 
 If the backend already emits the proposed top-level `canvas` field, MobileClaw can support a compatibility adapter during rollout.

@@ -249,4 +249,19 @@ describe("createDemoHandler", () => {
     const fullText = contentEvents().map(e => e.data.delta).join("");
     expect(fullText).toContain("Continuing the rollout");
   });
+
+  it("emits a context_chip plugin mount for attach keyword", () => {
+    const handler = createHandler();
+    handler.sendMessage("attach some context");
+    flushAll();
+
+    const mounts = pluginEvents().filter(e => e.data.phase === "mount");
+    expect(mounts).toHaveLength(1);
+    const part = mounts[0].data.part as Record<string, unknown>;
+    expect(part.pluginType).toBe("context_chip");
+    expect(part.state).toBe("settled");
+    const data = part.data as Record<string, unknown>;
+    expect(data.label).toBe("Project brief");
+    expect(typeof data.context).toBe("string");
+  });
 });

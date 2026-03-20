@@ -7,7 +7,7 @@ import { FloatingSubagentPanel } from "@/components/FloatingSubagentPanel";
 import { QueuePill } from "@/components/chat/QueuePill";
 import type { Command } from "@/components/CommandSheet";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
-import type { BackendMode, ImageAttachment, ModelChoice } from "@/types/chat";
+import type { BackendMode, ImageAttachment, InputAttachment, ModelChoice } from "@/types/chat";
 
 interface ChatComposerBarProps {
   isNative: boolean;
@@ -33,8 +33,10 @@ interface ChatComposerBarProps {
   onFetchModels: () => void;
   backendMode: BackendMode;
   serverCommands: Command[];
-  quoteText: string | null;
-  onClearQuote: () => void;
+  attachments: InputAttachment[];
+  onAddFiles: (files: FileList | File[]) => void;
+  onRemoveAttachment: (index: number) => void;
+  onClearAll: () => void;
   isRunActive: boolean;
   hasQueued: boolean;
   onAbort: () => void;
@@ -61,8 +63,10 @@ export function ChatComposerBar({
   onFetchModels,
   backendMode,
   serverCommands,
-  quoteText,
-  onClearQuote,
+  attachments,
+  onAddFiles,
+  onRemoveAttachment,
+  onClearAll,
   isRunActive,
   hasQueued,
   onAbort,
@@ -110,8 +114,10 @@ export function ChatComposerBar({
           onFetchModels={onFetchModels}
           backendMode={backendMode}
           serverCommands={serverCommands}
-          quoteText={quoteText}
-          onClearQuote={onClearQuote}
+          attachments={attachments}
+          onAddFiles={onAddFiles}
+          onRemoveAttachment={onRemoveAttachment}
+          onClearAll={onClearAll}
           isRunActive={isRunActive}
           hasQueued={hasQueued}
           onAbort={onAbort}

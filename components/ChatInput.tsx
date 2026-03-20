@@ -1,13 +1,12 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, useMemo } from "react";
+import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo } from "react";
 import { ALL_COMMANDS, type Command } from "@/components/CommandSheet";
 import maps from "@/maps.json";
 import { ImageLightbox } from "@/components/ImageLightbox";
-import type { ModelChoice, ImageAttachment } from "@/types/chat";
+import type { ModelChoice, ImageAttachment, InputAttachment } from "@/types/chat";
+import { inputAttachmentRegistry } from "@/lib/plugins/inputAttachmentRegistry";
 import { SQUIRCLE_RADIUS, PILL_BASE_HEIGHT, RADIUS_TRANSITION } from "@/lib/constants";
-
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB (litterbox allows up to 1GB)
 
 export interface ModelSuggestion {
   id: string;
@@ -29,8 +28,10 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   onFetchModels?: () => void;
   backendMode?: "openclaw" | "lmstudio" | "demo";
   serverCommands?: Command[];
-  quoteText?: string | null;
-  onClearQuote?: () => void;
+  attachments?: InputAttachment[];
+  onAddFiles?: (files: FileList | File[]) => void;
+  onRemoveAttachment?: (index: number) => void;
+  onClearAll?: () => void;
   isRunActive?: boolean;
   hasQueued?: boolean;
   onAbort?: () => void;
@@ -45,8 +46,10 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   onFetchModels,
   backendMode = "openclaw",
   serverCommands = [],
-  quoteText = null,
-  onClearQuote,
+  attachments = [],
+  onAddFiles,
+  onRemoveAttachment,
+  onClearAll,
   isRunActive = false,
   hasQueued = false,
   onAbort,
@@ -71,9 +74,8 @@ export const ChatInput = forwardRef<ChatInputHandle, {
     if (draft) setValue(draft);
   }, []);
 
-  // ── Image attachments ──────────────────────────────────────────────────────
+  // ── Attachments ─────────────────────────────────────────────────────────────
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Detect mobile: SVG feImage data URIs + feDisplacementMap don't work
@@ -139,36 +141,6 @@ export const ChatInput = forwardRef<ChatInputHandle, {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff" stop-opacity="0.45"/><stop offset="20%" stop-color="#ffffff" stop-opacity="0"/><stop offset="80%" stop-color="#ffffff" stop-opacity="0"/><stop offset="100%" stop-color="#ffffff" stop-opacity="0.12"/></linearGradient></defs><rect x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" rx="${rx}" fill="none" stroke="url(#s)" stroke-width="1.5" opacity="0.8"/></svg>`;
     setSpecularSrc("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg));
   }, [filterDims.w, filterDims.h, cornerRadius]);
-
-  const addFiles = useCallback((files: FileList | File[]) => {
-    Array.from(files).forEach((file) => {
-      if (file.size > MAX_FILE_SIZE) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = (reader.result as string).split(",")[1];
-        const previewUrl = URL.createObjectURL(file);
-        setAttachments((prev) => [
-          ...prev,
-          { mimeType: file.type, fileName: file.name, content: base64, previewUrl },
-        ]);
-      };
-      reader.readAsDataURL(file);
-    });
-  }, []);
-
-  const removeAttachment = useCallback((idx: number) => {
-    setAttachments((prev) => {
-      URL.revokeObjectURL(prev[idx].previewUrl);
-      return prev.filter((_, i) => i !== idx);
-    });
-  }, []);
-
-  // Clean up object URLs on unmount
-  useEffect(() => {
-    return () => {
-      attachments.forEach((a) => URL.revokeObjectURL(a.previewUrl));
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist draft to localStorage
   useEffect(() => {
@@ -279,15 +251,24 @@ export const ChatInput = forwardRef<ChatInputHandle, {
 
   const submit = () => {
     const t = value.trim();
-    if (!t && !quoteText && attachments.length === 0) return;
-    const quoted = quoteText
-      ? quoteText.split("\n").map((l) => `> ${l}`).join("\n")
-      : "";
-    const full = quoted ? (t ? `${quoted}\n\n\n${t}` : quoted) : t;
-    onSend(full, attachments.length > 0 ? attachments : undefined);
+    if (!t && attachments.length === 0) return;
+
+    // Collect send contributions from all attachment plugins
+    const allImages: ImageAttachment[] = [];
+    const textPrefixes: string[] = [];
+    for (const att of attachments) {
+      const plugin = inputAttachmentRegistry.get(att.kind);
+      if (!plugin) continue;
+      const contribution = plugin.toSendContribution(att.data);
+      if (contribution.textPrefix) textPrefixes.push(contribution.textPrefix);
+      if (contribution.images) allImages.push(...contribution.images);
+    }
+
+    const prefix = textPrefixes.join("\n\n");
+    const full = prefix ? (t ? `${prefix}\n\n\n${t}` : prefix) : t;
+    onSend(full, allImages.length > 0 ? allImages : undefined);
     setValue("");
-    setAttachments([]);
-    onClearQuote?.();
+    onClearAll?.();
     if (ref.current) ref.current.style.height = "auto";
   };
 
@@ -361,7 +342,12 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   };
 
   const isPill = scrollPhase === "pill";
-  const hasContent = !!value.trim() || attachments.length > 0;
+  const hasContent = !!value.trim() || attachments.some((att) => {
+    const plugin = inputAttachmentRegistry.get(att.kind);
+    if (!plugin) return false;
+    const c = plugin.toSendContribution(att.data);
+    return !!c.images?.length;
+  });
 
   // maps.json is generated by gen_maps.py:
   //   displacement — PNG normal map (R=X, G=Y surface normals for a pill-shaped lens)
@@ -406,7 +392,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
         multiple
         className="hidden"
         onChange={(e) => {
-          if (e.target.files) addFiles(e.target.files);
+          if (e.target.files) onAddFiles?.(e.target.files);
           e.target.value = "";
         }}
       />
@@ -536,7 +522,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
           boxShadow: "0 2px 4px rgba(49, 49, 49,0.08)",
         } as React.CSSProperties}
       >
-        {/* Attachment preview strip */}
+        {/* Unified attachment preview strip — delegates to registry */}
         {attachments.length > 0 && !isPill && (
           <div
             className="flex gap-1.5 overflow-x-auto px-3 pt-2.5 pb-1 scrollbar-hide"
@@ -546,64 +532,18 @@ export const ChatInput = forwardRef<ChatInputHandle, {
             } as React.CSSProperties}
           >
             {attachments.map((att, i) => {
-              const isImage = att.mimeType.startsWith("image/");
+              const plugin = inputAttachmentRegistry.get(att.kind);
+              if (!plugin) return null;
               return (
-                <div key={att.previewUrl} className={`relative shrink-0 rounded-lg overflow-hidden border border-border bg-secondary ${isImage ? "h-10 w-10" : "h-10 flex items-center gap-1.5 px-2.5"}`}>
-                  {isImage ? (
-                    <img
-                      src={att.previewUrl}
-                      alt={att.fileName}
-                      className="h-full w-full object-cover cursor-pointer"
-                      onClick={() => setLightboxSrc(att.previewUrl)}
-                    />
-                  ) : (
-                    <>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted-foreground">
-                        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" />
-                      </svg>
-                      <span className="max-w-[120px] truncate text-xs text-muted-foreground">{att.fileName}</span>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removeAttachment(i)}
-                    className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-background/80 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-                    </svg>
-                  </button>
-                </div>
+                <React.Fragment key={`${att.kind}-${i}`}>
+                  {plugin.renderPreview({
+                    data: att.data,
+                    onRemove: () => onRemoveAttachment?.(i),
+                    onLightbox: setLightboxSrc,
+                  })}
+                </React.Fragment>
               );
             })}
-          </div>
-        )}
-
-        {/* Quote preview */}
-        {quoteText && !isPill && (
-          <div
-            className="flex items-center gap-2 border-b border-border/30 px-4 py-1.5"
-            style={{
-              opacity: "calc(1 - var(--sp, 0))",
-              pointerEvents: isPill ? "none" : "auto",
-            } as React.CSSProperties}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted-foreground/60">
-              <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" />
-              <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" />
-            </svg>
-            <span className="flex-1 min-w-0 truncate text-xs text-muted-foreground">
-              {quoteText}
-            </span>
-            <button
-              type="button"
-              onClick={onClearQuote}
-              className="shrink-0 rounded-full p-0.5 text-muted-foreground/60 hover:text-foreground transition-colors"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-              </svg>
-            </button>
           </div>
         )}
 
@@ -638,7 +578,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
                 .filter((f): f is File => f !== null);
               if (files.length > 0) {
                 e.preventDefault();
-                addFiles(files);
+                onAddFiles?.(files);
               }
             }}
             placeholder={isRunActive ? (hasQueued ? "Replace queued message..." : "Queue a message...") : "Send a message..."}

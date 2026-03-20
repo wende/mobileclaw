@@ -54,6 +54,7 @@ interface ChatViewportProps {
   quotePopupRef: React.RefObject<HTMLButtonElement | null>;
   onAcceptQuote: (text: string) => void;
   onPluginAction?: PluginActionHandler;
+  onAddInputAttachment?: (kind: string, data: unknown) => void;
 }
 
 export function ChatViewport({
@@ -87,6 +88,7 @@ export function ChatViewport({
   quotePopupRef,
   onAcceptQuote,
   onPluginAction,
+  onAddInputAttachment,
 }: ChatViewportProps) {
   const detachedShell = isDetached && !detachedNoBorder;
   const thinkingIndicatorBottom = getThinkingIndicatorBottom({ isDetached, inputZoneHeight });
@@ -839,6 +841,7 @@ export function ChatViewport({
                     isSentAnim={isSentUserAnim}
                     onSentAnimationEnd={isSentUserAnim ? onSentAnimationEnd : undefined}
                     onPluginAction={onPluginAction}
+                    onAddInputAttachment={onAddInputAttachment}
                   />
                 </div>
               </React.Fragment>
