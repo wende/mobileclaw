@@ -2,10 +2,6 @@ import type { ReactNode } from "react";
 
 import type { ImageAttachment } from "@/types/chat";
 
-export type InputAttachmentParseResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: string };
-
 export interface InputAttachmentPreviewProps<TData = unknown> {
   data: TData;
   onRemove: () => void;

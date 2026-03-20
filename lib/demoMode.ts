@@ -690,7 +690,7 @@ function matchResponse(input: string): DemoResponse {
     return RESPONSES.weather;
   if (lower.includes("plugin") || lower.includes("widget"))
     return buildPluginDemoResponse();
-  if (lower.includes("attach") || lower.includes("context chip"))
+  if (lower.includes("attach") || lower.includes("context chip") || lower.includes("context"))
     return buildAttachDemoResponse();
   if (lower.includes("pause") || lower.includes("approval"))
     return buildPauseDemoResponse();
