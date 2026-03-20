@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DEMO_HISTORY, createDemoHandler } from "@/lib/demoMode";
-import type { PluginActionInvocation } from "@/lib/plugins/types";
-import type { AgentEventPayload, PluginContentPart } from "@/types/chat";
+import { DEMO_HISTORY, createDemoHandler } from "@mc/lib/demoMode";
+import type { PluginActionInvocation } from "@mc/lib/plugins/types";
+import type { AgentEventPayload, PluginContentPart } from "@mc/types/chat";
 
 describe("DEMO_HISTORY", () => {
   it("contains system + user + assistant messages", () => {

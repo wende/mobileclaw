@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { z } from "zod";
 
-import type { PluginAction, PluginActionStyle } from "@/types/chat";
-import type { AnyMobileClawPlugin, MobileClawPlugin, PluginParseResult, PluginViewProps } from "@/lib/plugins/types";
+import type { PluginAction, PluginActionStyle } from "@mc/types/chat";
+import type { AnyMobileClawPlugin, MobileClawPlugin, PluginParseResult, PluginViewProps } from "@mc/lib/plugins/types";
 
 const pluginStyleSchema = z.enum(["primary", "secondary", "destructive"]);
 

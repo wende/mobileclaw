@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { MobileClawPlugin, PluginViewProps } from "@/lib/plugins/types";
-import type { InputAttachmentPlugin } from "@/lib/plugins/inputAttachmentTypes";
+import type { MobileClawPlugin, PluginViewProps } from "@mc/lib/plugins/types";
+import type { InputAttachmentPlugin } from "@mc/lib/plugins/inputAttachmentTypes";
 
 // ── Message plugin: renders a button in the chat thread ──────────────────────
 

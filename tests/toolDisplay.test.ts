@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getToolDisplay } from "@/lib/toolDisplay";
+import { getToolDisplay } from "@mc/lib/toolDisplay";
 
 describe("getToolDisplay", () => {
   describe("exec tool", () => {

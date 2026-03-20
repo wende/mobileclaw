@@ -1,11 +1,11 @@
 import { useEffect, useCallback, useRef } from "react";
 
-import { useWidgetContext } from "@/lib/widgetContext";
-import { DEMO_HISTORY } from "@/lib/demoMode";
-import type { LmStudioConfig } from "@/lib/lmStudio";
-import { notifyWebViewReady, registerBridgeHandler, updateBridgeHandler, type BridgeMessage } from "@/lib/nativeBridge";
-import type { Command } from "@/components/CommandSheet";
-import type { BackendMode, ConnectionConfig, Message } from "@/types/chat";
+import { useWidgetContext } from "@mc/lib/widgetContext";
+import { DEMO_HISTORY } from "@mc/lib/demoMode";
+import type { LmStudioConfig } from "@mc/lib/lmStudio";
+import { notifyWebViewReady, registerBridgeHandler, updateBridgeHandler, type BridgeMessage } from "@mc/lib/nativeBridge";
+import type { Command } from "@mc/components/CommandSheet";
+import type { BackendMode, ConnectionConfig, Message } from "@mc/types/chat";
 
 /** Read a URL search param. Returns null when absent or during SSR. */
 function getSearchParam(name: string): string | null {

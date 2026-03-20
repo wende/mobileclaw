@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { BackendMode } from "@/types/chat";
+import type { BackendMode } from "@mc/types/chat";
 
 interface PullToRefreshOptions {
   scrollRef: React.RefObject<HTMLDivElement | null>;

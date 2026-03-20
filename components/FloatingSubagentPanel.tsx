@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useState, useEffect } from "react";
-import { SubagentActivityFeed } from "@/components/SubagentActivityFeed";
-import { SlideContent } from "@/components/SlideContent";
-import type { SubagentStore } from "@/hooks/useSubagentStore";
-import { useSwipeAction } from "@/hooks/useSwipeAction";
+import { SubagentActivityFeed } from "@mc/components/SubagentActivityFeed";
+import { SlideContent } from "@mc/components/SlideContent";
+import type { SubagentStore } from "@mc/hooks/useSubagentStore";
+import { useSwipeAction } from "@mc/hooks/useSwipeAction";
 
 interface FloatingSubagentPanelProps {
   toolCallId: string | null;

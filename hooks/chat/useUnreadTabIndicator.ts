@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import type { Message } from "@/types/chat";
-import { isUnreadCandidateMessage } from "@/lib/chat/messageTransforms";
+import type { Message } from "@mc/types/chat";
+import { isUnreadCandidateMessage } from "@mc/lib/chat/messageTransforms";
 
 interface UseUnreadTabIndicatorOptions {
   messages: Message[];

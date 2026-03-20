@@ -3,9 +3,9 @@
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-import type { ContentPart, Message } from "@/types/chat";
-import { STOP_REASON_INJECTED } from "@/lib/constants";
-import { getTextFromContent } from "@/lib/messageUtils";
+import type { ContentPart, Message } from "@mc/types/chat";
+import { STOP_REASON_INJECTED } from "@mc/lib/constants";
+import { getTextFromContent } from "@mc/lib/messageUtils";
 
 export interface LmStudioConfig {
   baseUrl: string;

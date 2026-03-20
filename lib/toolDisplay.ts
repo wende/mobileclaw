@@ -1,6 +1,6 @@
 // Tool display logic — maps tool names/args to human-friendly labels and icons
 
-import { isReadTool, isEditTool, isWriteTool, isGatewayTool, SPAWN_TOOL_NAME } from "@/lib/constants";
+import { isReadTool, isEditTool, isWriteTool, isGatewayTool, SPAWN_TOOL_NAME } from "@mc/lib/constants";
 
 export type ToolIcon = "terminal" | "file" | "tool" | "robot" | "globe" | "gear";
 

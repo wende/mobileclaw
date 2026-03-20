@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { ContentPart } from "@/types/chat";
-import { ImageLightbox } from "@/components/ImageLightbox";
+import type { ContentPart } from "@mc/types/chat";
+import { ImageLightbox } from "@mc/components/ImageLightbox";
 
 export function ImageThumbnails({ images }: { images: ContentPart[] }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);

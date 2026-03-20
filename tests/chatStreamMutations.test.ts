@@ -10,8 +10,8 @@ import {
   resolveToolCall,
   upsertFinalRunMessage,
   startThinkingBlock,
-} from "@/lib/chat/streamMutations";
-import type { Message, PluginContentPart } from "@/types/chat";
+} from "@mc/lib/chat/streamMutations";
+import type { Message, PluginContentPart } from "@mc/types/chat";
 
 describe("chat stream mutations", () => {
   it("appends text after tool call boundary without destroying earlier text", () => {
