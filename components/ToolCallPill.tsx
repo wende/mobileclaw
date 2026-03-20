@@ -52,7 +52,7 @@ function getToolBubbleStyle(resultError?: boolean): ToolBubbleStyle {
   return {
     borderRadius: `${SQUIRCLE_RADIUS}px`,
     background: TOOL_CALL_BUBBLE_BG,
-    border: `1px solid ${resultError ? TOOL_CALL_BUBBLE_BORDER_ERROR : TOOL_CALL_BUBBLE_BORDER}`,
+    border: resultError ? `1px solid ${TOOL_CALL_BUBBLE_BORDER_ERROR}` : "none",
     boxShadow: TOOL_CALL_BUBBLE_SHADOW,
     color: TOOL_CALL_BUBBLE_TEXT,
     "--foreground": TOOL_CALL_BUBBLE_TEXT,
