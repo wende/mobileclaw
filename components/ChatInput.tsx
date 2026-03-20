@@ -17,6 +17,7 @@ export interface ModelSuggestion {
 
 export interface ChatInputHandle {
   setValue: (v: string) => void;
+  addInputAttachment: (kind: string, data: unknown) => void;
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, {
@@ -66,6 +67,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
       setValue(v);
       setTimeout(() => ref.current?.focus(), 0);
     },
+    addInputAttachment: () => {},
   }), []);
 
   // Restore draft from localStorage after hydration to avoid mismatch

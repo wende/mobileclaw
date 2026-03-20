@@ -513,7 +513,8 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
 
   useImperativeHandle(forwardedRef, () => ({
     setValue: (v: string) => chatInputRef.current?.setValue(v),
-  }), []);
+    addInputAttachment: (kind: string, data: unknown) => add(kind, data),
+  }), [add]);
 
   const {
     queuedMessage,
