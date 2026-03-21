@@ -99,7 +99,6 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   const {
     awaitingResponse,
     setAwaitingResponse,
-    thinkingStartTime,
     setThinkingStartTime,
     beginContentArrival,
     resetThinkingState,
@@ -523,8 +522,6 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     ? { text: queuedMessage.text, attachments: queuedMessage.attachments as unknown[] | undefined }
     : null;
 
-  const thinkingLabel = isRunActive && lastCommand === "/compact" ? "Compacting" : undefined;
-
   useEffect(() => {
     const save = () => {
       try { sessionStorage.setItem("mc-run-active", isRunActive ? "1" : "0"); } catch {}
@@ -786,7 +783,6 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
         onPin={handlePinSubagent}
         onUnpin={handleUnpinSubagent}
         zenMode={zenMode}
-        isRunActive={isRunActive}
         quotePopup={quotePopup}
         quotePopupRef={quotePopupRef}
         onAcceptQuote={handleAcceptQuote}

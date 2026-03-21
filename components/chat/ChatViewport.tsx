@@ -45,7 +45,6 @@ interface ChatViewportProps {
   }) => void;
   onUnpin: () => void;
   zenMode: boolean;
-  isRunActive: boolean;
   quotePopup: { x: number; y: number; text: string } | null;
   quotePopupRef: React.RefObject<HTMLButtonElement | null>;
   onAcceptQuote: (text: string) => void;
@@ -76,7 +75,6 @@ export function ChatViewport({
   onPin,
   onUnpin,
   zenMode,
-  isRunActive,
   quotePopup,
   quotePopupRef,
   onAcceptQuote,

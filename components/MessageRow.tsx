@@ -5,6 +5,7 @@ import type { ContentPart, Message } from "@/types/chat";
 import { getTextFromContent, getImages, getFiles } from "@/lib/messageUtils";
 import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, MESSAGE_SEND_ANIMATION } from "@/lib/constants";
 import { useExpandablePanel } from "@/hooks/useExpandablePanel";
+import { useElapsedSeconds } from "@/hooks/useElapsedSeconds";
 import { SlideContent } from "@/components/SlideContent";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
 import { StreamingText } from "@/components/StreamingText";
@@ -427,17 +428,7 @@ function getAssistantDurationText(message: Message): string | null {
 }
 
 function InlineThinkingIndicator({ startTime }: { startTime?: number }) {
-  const [elapsed, setElapsed] = useState(() =>
-    startTime ? Math.floor((Date.now() - startTime) / 1000) : 0,
-  );
-
-  useEffect(() => {
-    if (!startTime) return;
-    const id = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startTime) / 1000));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [startTime]);
+  const elapsed = useElapsedSeconds({ startTime });
 
   return (
     <div className="text-2xs text-muted-foreground/50 flex items-baseline animate-[thinkingSentence_0.5s_ease-out_both]">
