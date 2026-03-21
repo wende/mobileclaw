@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MessageRow } from "@/components/MessageRow";
-import type { Message } from "@/types/chat";
+import { MessageRow } from "@mc/components/MessageRow";
+import type { Message } from "@mc/types/chat";
 import { findSlideGrid } from "./utils/zenDom";
 
 describe("MessageRow", () => {
@@ -348,6 +348,26 @@ describe("MessageRow", () => {
     render(<MessageRow message={message} isStreaming={false} />);
     expect(screen.getByText(/open_claw/)).toBeInTheDocument();
     expect(screen.queryByText("_The user has an open_claw server_")).not.toBeInTheDocument();
+  });
+
+  it("keeps short numbered list markers attached to the following thought line", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [],
+      reasoning: [
+        "Initial setup step.",
+        "1. Search current docs thoroughly.",
+        "2. Read the most relevant source.",
+        "3. Summarize findings for the user.",
+        "Final verification pass.",
+      ].join("\n"),
+      id: "test-thinking-numbered-list",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+
+    expect(screen.getByText("3. Summarize findings for the user.")).toBeInTheDocument();
+    expect(screen.queryByText(/^3\.$/)).not.toBeInTheDocument();
   });
 
   it("renders system message centered", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getChatBottomPad, getThinkingIndicatorBottom } from "@/lib/chat/layout";
+import { getChatBottomPad, getThinkingIndicatorBottom } from "@mc/lib/chat/layout";
 
 describe("chat layout spacing", () => {
   it("adds composer clearance to detached bottom padding", () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
-import { applyNativeZenMode } from "@/lib/chat/zenBridge";
+import { applyNativeZenMode } from "@mc/lib/chat/zenBridge";
 
 describe("applyNativeZenMode", () => {
   it("toggles zen mode when requested state differs from current state", () => {

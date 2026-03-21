@@ -214,13 +214,13 @@ export function MarkdownTable({ lines }: { lines: string[] }) {
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border bg-secondary">
-            {headers.map((h, i) => <th key={i} className="px-3 py-1.5 text-left font-semibold text-foreground">{h}</th>)}
+            {headers.map((h, i) => <th key={i} className="px-3 py-1.5 text-left font-semibold text-foreground">{renderInline(h)}</th>)}
           </tr>
         </thead>
         <tbody>
           {rows.map((row, i) => (
             <tr key={i} className="border-b border-border last:border-0">
-              {row.map((cell, j) => <td key={j} className="px-3 py-1.5 text-muted-foreground">{cell}</td>)}
+              {row.map((cell, j) => <td key={j} className="px-3 py-1.5 text-muted-foreground">{renderInline(cell)}</td>)}
             </tr>
           ))}
         </tbody>

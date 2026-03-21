@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
-import { useUnreadTabIndicator } from "@/hooks/chat/useUnreadTabIndicator";
-import type { Message } from "@/types/chat";
+import { useUnreadTabIndicator } from "@mc/hooks/chat/useUnreadTabIndicator";
+import type { Message } from "@mc/types/chat";
 
 function assistantMessage(id: string, text: string): Message {
   return {

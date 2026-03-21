@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
-import { useModeBootstrap } from "@/hooks/chat/useModeBootstrap";
-import type { BackendMode, Message } from "@/types/chat";
-import type { LmStudioConfig } from "@/lib/lmStudio";
-import type { Command } from "@/components/CommandSheet";
-import type { BridgeMessage } from "@/lib/nativeBridge";
+import { useModeBootstrap } from "@mc/hooks/chat/useModeBootstrap";
+import type { BackendMode, Message } from "@mc/types/chat";
+import type { LmStudioConfig } from "@mc/lib/lmStudio";
+import type { Command } from "@mc/components/CommandSheet";
+import type { BridgeMessage } from "@mc/lib/nativeBridge";
 
 function mockLocalStorage() {
   const store = new Map<string, string>();

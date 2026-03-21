@@ -1,5 +1,5 @@
-import type { ContentPart, Message, MessageRole } from "@/types/chat";
-import { isToolCallPart, isImagePart } from "@/lib/constants";
+import type { ContentPart, Message, MessageRole } from "@mc/types/chat";
+import { isToolCallPart, isImagePart } from "@mc/lib/constants";
 
 /** Immutable update of a single array element by index. */
 export function updateAt<T>(arr: T[], index: number, updater: (item: T) => T): T[] {

@@ -1,21 +1,23 @@
 "use client";
 
-import { InvalidPluginCard } from "@/components/plugins/InvalidPluginCard";
-import { UnknownPluginCard } from "@/components/plugins/UnknownPluginCard";
-import { pluginRegistry } from "@/lib/plugins/registry";
-import type { PluginActionHandler, PluginParseResult } from "@/lib/plugins/types";
-import type { PluginContentPart } from "@/types/chat";
+import { InvalidPluginCard } from "@mc/components/plugins/InvalidPluginCard";
+import { UnknownPluginCard } from "@mc/components/plugins/UnknownPluginCard";
+import { pluginRegistry } from "@mc/lib/plugins/registry";
+import type { PluginActionHandler, PluginParseResult } from "@mc/lib/plugins/types";
+import type { PluginContentPart } from "@mc/types/chat";
 
 export function PluginRenderer({
   part,
   messageId,
   isStreaming,
   onAction,
+  onAddInputAttachment,
 }: {
   part: PluginContentPart;
   messageId: string;
   isStreaming: boolean;
   onAction?: PluginActionHandler;
+  onAddInputAttachment?: (kind: string, data: unknown) => void;
 }) {
   const pluginType = part.pluginType || "unknown";
   const plugin = pluginRegistry.get(pluginType);
@@ -43,6 +45,7 @@ export function PluginRenderer({
           }
           await onAction({ messageId, part, action, input });
         },
+        addInputAttachment: onAddInputAttachment,
       })}
     </>
   );

@@ -2,16 +2,16 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 
-import { createLmStudioHandler, type LmStudioConfig } from "@/lib/lmStudio";
-import { notifyMessageComplete } from "@/lib/notifications";
-import { getTextFromContent, updateAt } from "@/lib/messageUtils";
+import { createLmStudioHandler, type LmStudioConfig } from "@mc/lib/lmStudio";
+import { notifyMessageComplete } from "@mc/lib/notifications";
+import { getTextFromContent, updateAt } from "@mc/lib/messageUtils";
 import {
   NO_REPLY_MARKER,
   STOP_REASON_INJECTED,
   hasHeartbeatOnOwnLine,
   hasUnquotedMarker,
-} from "@/lib/constants";
-import { postScrollPosition, postRunState, postModelState, type BridgeMessage } from "@/lib/nativeBridge";
+} from "@mc/lib/constants";
+import { postScrollPosition, postRunState, postModelState, type BridgeMessage } from "@mc/lib/nativeBridge";
 import {
   appendContentDelta as appendContentDeltaToMessages,
   appendThinkingDelta as appendThinkingDeltaToMessages,
@@ -22,10 +22,10 @@ import {
   resolveToolCall as resolveToolCallInMessages,
   startThinkingBlock as startThinkingBlockInMessages,
   upsertCanvasPluginByMessageId as upsertCanvasPluginByMessageIdInMessages,
-} from "@/lib/chat/streamMutations";
-import { buildDisplayMessages } from "@/lib/chat/messageTransforms";
-import { applyNativeZenMode } from "@/lib/chat/zenBridge";
-import { DEFAULT_INPUT_ZONE_HEIGHT, getChatBottomPad } from "@/lib/chat/layout";
+} from "@mc/lib/chat/streamMutations";
+import { buildDisplayMessages } from "@mc/lib/chat/messageTransforms";
+import { applyNativeZenMode } from "@mc/lib/chat/zenBridge";
+import { DEFAULT_INPUT_ZONE_HEIGHT, getChatBottomPad } from "@mc/lib/chat/layout";
 
 import type {
   BackendMode,
@@ -34,35 +34,36 @@ import type {
   Message,
   ModelChoice,
   PluginContentPart,
-} from "@/types/chat";
+} from "@mc/types/chat";
 
-import type { Command } from "@/components/CommandSheet";
-import { type ChatInputHandle } from "@/components/ChatInput";
-import { TurnstileGate } from "@/components/TurnstileGate";
-import { ChatChrome } from "@/components/chat/ChatChrome";
-import { ChatViewport } from "@/components/chat/ChatViewport";
-import { ChatComposerBar } from "@/components/chat/ChatComposerBar";
+import type { Command } from "@mc/components/CommandSheet";
+import { type ChatInputHandle } from "@mc/components/ChatInput";
+import { TurnstileGate } from "@mc/components/TurnstileGate";
+import { ChatChrome } from "@mc/components/chat/ChatChrome";
+import { ChatViewport } from "@mc/components/chat/ChatViewport";
+import { ChatComposerBar } from "@mc/components/chat/ChatComposerBar";
 
-import { useThinkingState } from "@/hooks/useThinkingState";
-import { PIN_LOCK_MS, useScrollManager } from "@/hooks/useScrollManager";
-import { useKeyboardLayout } from "@/hooks/useKeyboardLayout";
-import { useTheme } from "@/hooks/useTheme";
-import { useZenMode } from "@/hooks/useZenMode";
-import { useSubagentStore } from "@/hooks/useSubagentStore";
-import { formatSessionName } from "@/hooks/useSessionSwitcher";
-import { useAppMode } from "@/hooks/useAppMode";
+import { useThinkingState } from "@mc/hooks/useThinkingState";
+import { PIN_LOCK_MS, useScrollManager } from "@mc/hooks/useScrollManager";
+import { useKeyboardLayout } from "@mc/hooks/useKeyboardLayout";
+import { useTheme } from "@mc/hooks/useTheme";
+import { useZenMode } from "@mc/hooks/useZenMode";
+import { useSubagentStore } from "@mc/hooks/useSubagentStore";
+import { formatSessionName } from "@mc/hooks/useSessionSwitcher";
+import { useAppMode } from "@mc/hooks/useAppMode";
 
-import { useModeBootstrap } from "@/hooks/chat/useModeBootstrap";
-import { useOpenClawRuntime } from "@/hooks/chat/useOpenClawRuntime";
-import { useQuoteSelection } from "@/hooks/chat/useQuoteSelection";
-import { useQueuedMessage } from "@/hooks/chat/useQueuedMessage";
-import { useUnreadTabIndicator } from "@/hooks/chat/useUnreadTabIndicator";
-import { useNativeBridgeMessage } from "@/hooks/chat/useNativeBridgeMessage";
-import { useDemoRuntime } from "@/hooks/chat/useDemoRuntime";
-import { useLmStudioRuntime } from "@/hooks/chat/useLmStudioRuntime";
-import { useMessageSender } from "@/hooks/chat/useMessageSender";
-import { appendPluginActionPayloadToUrl, mergePluginActionPayload } from "@/lib/plugins/actionPayload";
-import type { PluginActionInvocation } from "@/lib/plugins/types";
+import { useModeBootstrap } from "@mc/hooks/chat/useModeBootstrap";
+import { useOpenClawRuntime } from "@mc/hooks/chat/useOpenClawRuntime";
+import { useQuoteSelection } from "@mc/hooks/chat/useQuoteSelection";
+import { useQueuedMessage } from "@mc/hooks/chat/useQueuedMessage";
+import { useInputAttachments } from "@mc/hooks/chat/useInputAttachments";
+import { useUnreadTabIndicator } from "@mc/hooks/chat/useUnreadTabIndicator";
+import { useNativeBridgeMessage } from "@mc/hooks/chat/useNativeBridgeMessage";
+import { useDemoRuntime } from "@mc/hooks/chat/useDemoRuntime";
+import { useLmStudioRuntime } from "@mc/hooks/chat/useLmStudioRuntime";
+import { useMessageSender } from "@mc/hooks/chat/useMessageSender";
+import { appendPluginActionPayloadToUrl, mergePluginActionPayload } from "@mc/lib/plugins/actionPayload";
+import type { PluginActionInvocation } from "@mc/lib/plugins/types";
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? null;
 const ZEN_TOGGLE_PIN_MS = 700;
@@ -396,7 +397,13 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     upsertCanvasPluginByMessageId,
   });
 
-  const { quoteText, setQuoteText, quotePopup, quotePopupRef, handleAcceptQuote } = useQuoteSelection({ scrollRef });
+  const { setQuoteText, quotePopup, quotePopupRef, handleAcceptQuote: rawAcceptQuote } = useQuoteSelection({ scrollRef });
+  const { attachments: inputAttachments, add, addFiles, addQuote, removeAttachment: removeInputAttachment, clearAll: clearInputAttachments } = useInputAttachments();
+
+  const handleAcceptQuote = useCallback((text: string) => {
+    rawAcceptQuote(text);
+    addQuote(text);
+  }, [rawAcceptQuote, addQuote]);
 
   // Use refs so the bridge handler can call these without circular deps.
   const handleConnectRef = useRef<(config: ConnectionConfig) => void>(() => {});
@@ -787,6 +794,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
         quotePopupRef={quotePopupRef}
         onAcceptQuote={handleAcceptQuote}
         onPluginAction={handlePluginAction}
+        onAddInputAttachment={add}
       />
 
       {!historyLoaded && (
@@ -823,8 +831,17 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
         onFetchModels={fetchModels}
         backendMode={backendMode}
         serverCommands={serverCommands}
-        quoteText={quoteText}
-        onClearQuote={() => setQuoteText(null)}
+        attachments={inputAttachments}
+        onAddFiles={addFiles}
+        onRemoveAttachment={(index) => {
+          const att = inputAttachments[index];
+          if (att?.kind === "quote") setQuoteText(null);
+          removeInputAttachment(index);
+        }}
+        onClearAll={() => {
+          setQuoteText(null);
+          clearInputAttachments();
+        }}
         isRunActive={isRunActive}
         hasQueued={!!queuedMessage}
         onAbort={handleAbort}

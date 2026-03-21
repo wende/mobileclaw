@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useWidgetContext } from "@/lib/widgetContext";
+import { useWidgetContext } from "@mc/lib/widgetContext";
 
 /** Read a URL search param. Only call on the client. */
 function getSearchParam(name: string): string | null {

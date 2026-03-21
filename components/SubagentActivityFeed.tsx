@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { SubagentEntry, SubagentSession } from "@/types/chat";
+import type { SubagentEntry, SubagentSession } from "@mc/types/chat";
 
 interface SubagentActivityFeedProps {
   getEntries: () => { entries: SubagentEntry[]; status: SubagentSession["status"] } | null;

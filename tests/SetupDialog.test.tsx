@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, fireEvent } from "@testing-library/react";
 
-import { SetupDialog } from "@/components/SetupDialog";
+import { SetupDialog } from "@mc/components/SetupDialog";
 
 function mockLocalStorage() {
   const store = new Map<string, string>();

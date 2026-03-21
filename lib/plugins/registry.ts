@@ -1,6 +1,6 @@
-import { builtinPlugins } from "@/lib/plugins/builtins";
-import { appPlugins } from "@/plugins/app";
-import type { AnyMobileClawPlugin, PluginWidth } from "@/lib/plugins/types";
+import { builtinPlugins } from "@mc/lib/plugins/builtins";
+import { appPlugins } from "@mc/plugins/app";
+import type { AnyMobileClawPlugin, PluginWidth } from "@mc/lib/plugins/types";
 
 const registry = new Map<string, AnyMobileClawPlugin>();
 

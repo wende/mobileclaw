@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { getToolDisplay, parseArgs } from "@/lib/toolDisplay";
-import { SubagentActivityFeed } from "@/components/SubagentActivityFeed";
-import { SlideContent } from "@/components/SlideContent";
-import type { SubagentStore } from "@/hooks/useSubagentStore";
+import { getToolDisplay, parseArgs } from "@mc/lib/toolDisplay";
+import { SubagentActivityFeed } from "@mc/components/SubagentActivityFeed";
+import { SlideContent } from "@mc/components/SlideContent";
+import type { SubagentStore } from "@mc/hooks/useSubagentStore";
 import {
   isEditTool,
   isReadTool,
@@ -18,8 +18,8 @@ import {
   TOOL_CALL_BUBBLE_BORDER,
   TOOL_CALL_BUBBLE_BORDER_ERROR,
   TOOL_CALL_BUBBLE_SHADOW,
-} from "@/lib/constants";
-import { useSwipeAction } from "@/hooks/useSwipeAction";
+} from "@mc/lib/constants";
+import { useSwipeAction } from "@mc/hooks/useSwipeAction";
 
 interface PinInfo {
   toolCallId: string | null;
@@ -52,7 +52,7 @@ function getToolBubbleStyle(resultError?: boolean): ToolBubbleStyle {
   return {
     borderRadius: `${SQUIRCLE_RADIUS}px`,
     background: TOOL_CALL_BUBBLE_BG,
-    border: `1px solid ${resultError ? TOOL_CALL_BUBBLE_BORDER_ERROR : TOOL_CALL_BUBBLE_BORDER}`,
+    border: resultError ? `1px solid ${TOOL_CALL_BUBBLE_BORDER_ERROR}` : "none",
     boxShadow: TOOL_CALL_BUBBLE_SHADOW,
     color: TOOL_CALL_BUBBLE_TEXT,
     "--foreground": TOOL_CALL_BUBBLE_TEXT,

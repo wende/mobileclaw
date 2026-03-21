@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { PluginAction, PluginContentPart, PluginState } from "@/types/chat";
+import type { PluginAction, PluginContentPart, PluginState } from "@mc/types/chat";
 
 export type PluginWidth = "bubble" | "chat";
 
@@ -22,6 +22,7 @@ export interface PluginViewProps<TData = unknown> {
   data: TData;
   isStreaming: boolean;
   invokeAction: (action: PluginAction, input?: Record<string, unknown>) => Promise<void>;
+  addInputAttachment?: (kind: string, data: unknown) => void;
 }
 
 export interface MobileClawPlugin<TData = unknown> {

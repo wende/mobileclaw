@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { UnfurlData } from "@/lib/unfurl";
+import type { UnfurlData } from "@mc/lib/unfurl";
 
 export function LinkPreviewCard({ data }: { data: UnfurlData }) {
   const [imgError, setImgError] = useState(false);

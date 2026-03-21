@@ -1,6 +1,6 @@
 "use client";
 
-import { useElapsedSeconds } from "@/hooks/useElapsedSeconds";
+import { useElapsedSeconds } from "@mc/hooks/useElapsedSeconds";
 
 interface ThinkingIndicatorProps {
   visible: boolean;

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import type { SessionInfo, BackendMode } from "@/types/chat";
+import type { SessionInfo, BackendMode } from "@mc/types/chat";
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 

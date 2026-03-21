@@ -1,12 +1,12 @@
-import { getTextFromContent } from "@/lib/messageUtils";
+import { getTextFromContent } from "@mc/lib/messageUtils";
 import {
   NO_REPLY_MARKER,
   STOP_REASON_INJECTED,
   hasHeartbeatOnOwnLine,
   hasUnquotedMarker,
   isToolCallPart,
-} from "@/lib/constants";
-import type { ContentPart, Message } from "@/types/chat";
+} from "@mc/lib/constants";
+import type { ContentPart, Message } from "@mc/types/chat";
 
 export function hasVisibleMessageContent(msg: Message): boolean {
   if (typeof msg.content === "string") return msg.content.trim().length > 0;

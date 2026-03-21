@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { updateAt } from "@/lib/messageUtils";
-import type { Message } from "@/types/chat";
+import { updateAt } from "@mc/lib/messageUtils";
+import type { Message } from "@mc/types/chat";
 
 /**
  * Manages the "thinking" indicator state: awaiting response, exit animation,

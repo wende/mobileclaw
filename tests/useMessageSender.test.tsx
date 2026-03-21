@@ -2,8 +2,8 @@ import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
-import { useMessageSender } from "@/hooks/chat/useMessageSender";
-import type { Message } from "@/types/chat";
+import { useMessageSender } from "@mc/hooks/chat/useMessageSender";
+import type { Message } from "@mc/types/chat";
 
 describe("useMessageSender", () => {
   afterEach(() => {

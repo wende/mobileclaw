@@ -1,7 +1,7 @@
-import { isToolCallPart } from "@/lib/constants";
-import { appendCanvasPart, canvasToPluginPart, ensureContentArray } from "@/lib/plugins/compat";
-import { updateAt } from "@/lib/messageUtils";
-import type { CanvasPayload, ContentPart, Message, PluginContentPart } from "@/types/chat";
+import { isToolCallPart } from "@mc/lib/constants";
+import { appendCanvasPart, canvasToPluginPart, ensureContentArray } from "@mc/lib/plugins/compat";
+import { updateAt } from "@mc/lib/messageUtils";
+import type { CanvasPayload, ContentPart, Message, PluginContentPart } from "@mc/types/chat";
 
 interface EnsureResult {
   messages: Message[];

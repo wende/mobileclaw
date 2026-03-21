@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 
-import { createDemoHandler } from "@/lib/demoMode";
-import type { AgentEventPayload, PluginContentPart } from "@/types/chat";
-import type { useSubagentStore } from "@/hooks/useSubagentStore";
-import { SPAWN_TOOL_NAME } from "@/lib/constants";
+import { createDemoHandler } from "@mc/lib/demoMode";
+import type { AgentEventPayload, PluginContentPart } from "@mc/types/chat";
+import type { useSubagentStore } from "@mc/hooks/useSubagentStore";
+import { SPAWN_TOOL_NAME } from "@mc/lib/constants";
 
 interface UseDemoRuntimeOptions {
   isDemoMode: boolean;

@@ -5,10 +5,10 @@ import {
   STOP_REASON_INJECTED,
   isContextText,
   isToolCallPart,
-} from "@/lib/constants";
-import { appendCanvasPart } from "@/lib/plugins/compat";
-import { getTextFromContent } from "@/lib/messageUtils";
-import type { CanvasPayload, ContentPart, Message } from "@/types/chat";
+} from "@mc/lib/constants";
+import { appendCanvasPart } from "@mc/lib/plugins/compat";
+import { getTextFromContent } from "@mc/lib/messageUtils";
+import type { CanvasPayload, ContentPart, Message } from "@mc/types/chat";
 
 type RawHistoryMessage = Record<string, unknown>;
 

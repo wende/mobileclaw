@@ -4,8 +4,8 @@ import {
   appendPluginActionPayloadToUrl,
   getPluginActionHostPayload,
   mergePluginActionPayload,
-} from "@/lib/plugins/actionPayload";
-import type { PluginActionInvocation } from "@/lib/plugins/types";
+} from "@mc/lib/plugins/actionPayload";
+import type { PluginActionInvocation } from "@mc/lib/plugins/types";
 
 const invocation: PluginActionInvocation = {
   messageId: "message-123",
