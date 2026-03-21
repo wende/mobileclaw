@@ -426,6 +426,32 @@ function getAssistantDurationText(message: Message): string | null {
   return null;
 }
 
+function InlineThinkingIndicator({ startTime }: { startTime?: number }) {
+  const [elapsed, setElapsed] = useState(() =>
+    startTime ? Math.floor((Date.now() - startTime) / 1000) : 0,
+  );
+
+  useEffect(() => {
+    if (!startTime) return;
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [startTime]);
+
+  return (
+    <div className="text-2xs text-muted-foreground/50 flex items-baseline animate-[thinkingSentence_0.5s_ease-out_both]">
+      <span>Thinking</span>
+      <span className="inline-flex w-[1em]">
+        <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
+        <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
+        <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
+      </span>
+      {elapsed > 0 && <span>{elapsed}s</span>}
+    </div>
+  );
+}
+
 function AssistantCopyButton({ text, durationText }: { text: string; durationText?: string | null }) {
   const [copied, setCopied] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -976,6 +1002,9 @@ export function MessageRow({
                   : undefined}
               >
                 {assistantBlocks.map(renderAssistantBlock)}
+                {isStreaming && message.role === "assistant" && (
+                  <InlineThinkingIndicator startTime={message.timestamp} />
+                )}
                 {showAssistantCopyButton ? <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} /> : null}
               </div>
             </SlideContent>

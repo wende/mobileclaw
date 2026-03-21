@@ -3,12 +3,10 @@
 import React, { useMemo, useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 
 import { MessageRow } from "@/components/MessageRow";
-import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 import { ZenToggle } from "@/components/ZenToggle";
 import { formatMessageTime, getMessageSide } from "@/lib/messageUtils";
 import { STOP_REASON_INJECTED, isToolCallPart, MESSAGE_SEND_ANIMATION } from "@/lib/constants";
 import { ZEN_SLIDE_MS, ZEN_FADE_MS, ZEN_TOGGLE_FRAME_MS } from "@/lib/chat/zenUi";
-import { getThinkingIndicatorBottom } from "@/lib/chat/layout";
 import type { Message } from "@/types/chat";
 import type { useSubagentStore } from "@/hooks/useSubagentStore";
 import type { PluginActionHandler } from "@/lib/plugins/types";
@@ -48,8 +46,6 @@ interface ChatViewportProps {
   onUnpin: () => void;
   zenMode: boolean;
   isRunActive: boolean;
-  thinkingStartTime: number | null;
-  thinkingLabel?: string;
   quotePopup: { x: number; y: number; text: string } | null;
   quotePopupRef: React.RefObject<HTMLButtonElement | null>;
   onAcceptQuote: (text: string) => void;
@@ -81,15 +77,12 @@ export function ChatViewport({
   onUnpin,
   zenMode,
   isRunActive,
-  thinkingStartTime,
-  thinkingLabel,
   quotePopup,
   quotePopupRef,
   onAcceptQuote,
   onPluginAction,
 }: ChatViewportProps) {
   const detachedShell = isDetached && !detachedNoBorder;
-  const thinkingIndicatorBottom = getThinkingIndicatorBottom({ isDetached, inputZoneHeight });
   const [zenRenderMode, setZenRenderMode] = useState(zenMode);
   const [expandedZenGroups, setExpandedZenGroups] = useState<Record<string, boolean>>({});
   const [collapsingZenGroups, setCollapsingZenGroups] = useState<Record<string, boolean>>({});
@@ -847,11 +840,6 @@ export function ChatViewport({
           <div ref={bottomRef} />
         </div>
       </main>
-      <div className="pointer-events-none absolute inset-x-0 px-4 md:px-6" style={{ bottom: thinkingIndicatorBottom }}>
-        <div className="mx-auto w-full max-w-2xl pl-6">
-          <ThinkingIndicator visible={isRunActive} startTime={thinkingStartTime ?? undefined} label={thinkingLabel} />
-        </div>
-      </div>
 
       {isDetached && !isNative && <div style={{ height: inputZoneHeight, flexShrink: 0 }} />}
 

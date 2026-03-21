@@ -787,8 +787,6 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
         onUnpin={handleUnpinSubagent}
         zenMode={zenMode}
         isRunActive={isRunActive}
-        thinkingStartTime={thinkingStartTime}
-        thinkingLabel={thinkingLabel}
         quotePopup={quotePopup}
         quotePopupRef={quotePopupRef}
         onAcceptQuote={handleAcceptQuote}
