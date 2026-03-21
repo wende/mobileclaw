@@ -327,25 +327,27 @@ function ThinkingPill({ text, isStreaming }: { text: string; isStreaming?: boole
                 key={startIdx + i}
                 className="whitespace-pre-wrap break-words overflow-hidden animate-[thinkingSentence_0.5s_ease-out_both]"
               >
-                {sentence}
+                <span>{sentence}</span>
+                {i === visible.length - 1 && (
+                  <span className="ml-1 inline-flex items-baseline gap-1 align-baseline whitespace-nowrap">
+                    {isStreaming && (
+                      <span className="inline-flex items-baseline gap-0.5 opacity-40">
+                        <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
+                        <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
+                        <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
+                      </span>
+                    )}
+                    <svg
+                      width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                      className="shrink-0 opacity-60 transition-transform duration-200"
+                      style={{ transform: "rotate(-90deg)" }}
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </span>
+                )}
               </p>
             ))}
-          </div>
-          <div className="flex items-center gap-1 mt-0.5">
-            {isStreaming && (
-              <span className="inline-flex items-center gap-0.5 opacity-40">
-                <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
-                <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
-                <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
-              </span>
-            )}
-            <svg
-              width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-              className="shrink-0 opacity-60 transition-transform duration-200"
-              style={{ transform: "rotate(-90deg)" }}
-            >
-              <path d="m6 9 6 6 6-6" />
-            </svg>
           </div>
         </SlideContent>
         <SlideContent open={expanded}>

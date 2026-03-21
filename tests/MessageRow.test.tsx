@@ -308,6 +308,22 @@ describe("MessageRow", () => {
     });
   });
 
+  it("renders the collapsed thinking chevron inline with the last visible sentence", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [],
+      reasoning: "One.\nTwo.\nThree.\nFour.\nFive.",
+      id: "test-thinking-inline-chevron",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+
+    const lastVisibleSentence = screen.getByText("Five.");
+    const sentenceLine = lastVisibleSentence.closest("p");
+    expect(sentenceLine).not.toBeNull();
+    expect(sentenceLine?.querySelector("svg")).not.toBeNull();
+  });
+
   it("unwraps markdown-style underscore emphasis in thinking blocks", () => {
     const message: Message = {
       role: "assistant",
