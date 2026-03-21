@@ -121,12 +121,35 @@ export function addToolCall(
   const updated = ensured.messages;
   const idx = updated.findIndex((m) => m.id === runId);
   if (idx < 0) return ensured;
+
+  const parts = ensureContentArray(updated[idx].content);
+  // If a tool_call part with this toolCallId already exists, update it
+  // (e.g. narration arrived after the initial start event).
+  if (toolCallId) {
+    const existingIdx = parts.findIndex(
+      (p) => isToolCallPart(p) && p.toolCallId === toolCallId,
+    );
+    if (existingIdx >= 0) {
+      return {
+        created: ensured.created,
+        messages: updateAt(updated, idx, (target) => ({
+          ...target,
+          content: (target.content as ContentPart[]).map((part, i) =>
+            i === existingIdx
+              ? { ...part, ...(narration ? { narration } : {}), ...(args ? { arguments: args } : {}) }
+              : part,
+          ),
+        })),
+      };
+    }
+  }
+
   return {
     created: ensured.created,
     messages: updateAt(updated, idx, (target) => ({
       ...target,
       content: [
-        ...ensureContentArray(target.content),
+        ...parts,
         {
           type: "tool_call" as const,
           name,

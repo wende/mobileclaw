@@ -314,4 +314,18 @@ describe("chat stream mutations", () => {
     expect(parts).toHaveLength(1);
     expect(parts[0].narration).toBeUndefined();
   });
+
+  it("updates existing tool call with narration instead of duplicating", () => {
+    // First call creates the tool_call part without narration (streaming start before args arrive)
+    const first = addToolCall([], "run-update", "list_flows", Date.now(), "tc-3");
+    const parts1 = first.messages[0].content as Array<{ type: string; name?: string; narration?: string; toolCallId?: string }>;
+    expect(parts1).toHaveLength(1);
+    expect(parts1[0].narration).toBeUndefined();
+
+    // Second call with same toolCallId should update, not duplicate
+    const second = addToolCall(first.messages, "run-update", "list_flows", Date.now(), "tc-3", "{}", "Checking your flows");
+    const parts2 = second.messages[0].content as Array<{ type: string; name?: string; narration?: string; toolCallId?: string }>;
+    expect(parts2).toHaveLength(1);
+    expect(parts2[0].narration).toBe("Checking your flows");
+  });
 });
