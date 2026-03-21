@@ -5,6 +5,7 @@ import type { ContentPart, Message } from "@mc/types/chat";
 import { getTextFromContent, getImages, getFiles } from "@mc/lib/messageUtils";
 import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, MESSAGE_SEND_ANIMATION } from "@mc/lib/constants";
 import { useExpandablePanel } from "@mc/hooks/useExpandablePanel";
+import { useElapsedSeconds } from "@mc/hooks/useElapsedSeconds";
 import { SlideContent } from "@mc/components/SlideContent";
 import { MarkdownContent } from "@mc/components/markdown/MarkdownContent";
 import { StreamingText } from "@mc/components/StreamingText";
@@ -348,25 +349,27 @@ function ThinkingPill({ text, isStreaming }: { text: string; isStreaming?: boole
                 key={startIdx + i}
                 className="whitespace-pre-wrap break-words overflow-hidden animate-[thinkingSentence_0.5s_ease-out_both]"
               >
-                {sentence}
+                <span>{sentence}</span>
+                {i === visible.length - 1 && (
+                  <span className="ml-1 inline-flex items-baseline gap-1 align-baseline whitespace-nowrap">
+                    {isStreaming && (
+                      <span className="inline-flex items-baseline gap-0.5 opacity-40">
+                        <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
+                        <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
+                        <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
+                      </span>
+                    )}
+                    <svg
+                      width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                      className="shrink-0 opacity-60 transition-transform duration-200"
+                      style={{ transform: "rotate(-90deg)" }}
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </span>
+                )}
               </p>
             ))}
-          </div>
-          <div className="flex items-center gap-1 mt-0.5">
-            {isStreaming && (
-              <span className="inline-flex items-center gap-0.5 opacity-40">
-                <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
-                <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
-                <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
-              </span>
-            )}
-            <svg
-              width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-              className="shrink-0 opacity-60 transition-transform duration-200"
-              style={{ transform: "rotate(-90deg)" }}
-            >
-              <path d="m6 9 6 6 6-6" />
-            </svg>
           </div>
         </SlideContent>
         <SlideContent open={expanded}>
@@ -472,6 +475,22 @@ function getAssistantDurationText(message: Message): string | null {
   if (message.runDuration && message.runDuration > 0) return `· Worked for ${message.runDuration}s`;
   if (!message.runDuration && message.thinkingDuration && message.thinkingDuration > 0) return `· ${message.thinkingDuration}s`;
   return null;
+}
+
+function InlineThinkingIndicator({ startTime }: { startTime?: number }) {
+  const elapsed = useElapsedSeconds({ startTime });
+
+  return (
+    <div className="text-2xs text-muted-foreground/50 flex items-baseline animate-[thinkingSentence_0.5s_ease-out_both]">
+      <span>Thinking</span>
+      <span className="inline-flex w-[1em]">
+        <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>
+        <span className="animate-[dotFade_1.4s_ease-in-out_0.2s_infinite]">.</span>
+        <span className="animate-[dotFade_1.4s_ease-in-out_0.4s_infinite]">.</span>
+      </span>
+      {elapsed > 0 && <span>{elapsed}s</span>}
+    </div>
+  );
 }
 
 function AssistantCopyButton({ text, durationText }: { text: string; durationText?: string | null }) {
@@ -1027,6 +1046,9 @@ export function MessageRow({
                   : undefined}
               >
                 {assistantBlocks.map(renderAssistantBlock)}
+                {isStreaming && message.role === "assistant" && (
+                  <InlineThinkingIndicator startTime={message.timestamp} />
+                )}
                 {showAssistantCopyButton ? <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} /> : null}
               </div>
             </SlideContent>

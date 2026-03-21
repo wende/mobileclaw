@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useElapsedSeconds } from "@mc/hooks/useElapsedSeconds";
 
 interface ThinkingIndicatorProps {
   visible: boolean;
@@ -9,37 +9,7 @@ interface ThinkingIndicatorProps {
 }
 
 export function ThinkingIndicator({ visible, startTime, label }: ThinkingIndicatorProps) {
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (!visible) setElapsedSeconds(0);
-  }, [visible]);
-
-  // Update elapsed time every second
-  useEffect(() => {
-    if (!startTime || !visible) {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      return;
-    }
-
-    const updateElapsed = () => {
-      setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
-    };
-    updateElapsed();
-
-    timerRef.current = setInterval(updateElapsed, 1000);
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [startTime, visible]);
+  const elapsedSeconds = useElapsedSeconds({ startTime, active: visible });
 
   const isCompacting = label === "Compacting";
   const displayLabel = label || "Thinking";
