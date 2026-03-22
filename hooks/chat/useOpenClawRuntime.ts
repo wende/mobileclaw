@@ -729,6 +729,10 @@ export function useOpenClawRuntime({
             isError: true,
           };
           setMessages((prev) => [...prev, errorMsg]);
+        } else if (msg.ok) {
+          // Non-streaming commands (e.g. /new) only send a res with ok:true
+          // and no subsequent streaming events, so clear streaming state here.
+          clearStreamingRuntimeState({ clearRunId: true });
         }
         return;
       }
