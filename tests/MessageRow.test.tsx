@@ -287,6 +287,32 @@ describe("MessageRow", () => {
     expect(screen.queryByRole("button", { name: /copy contents/i })).not.toBeInTheDocument();
   });
 
+  it("hides the copy button for assistant error context messages", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "System: [error] Context sync failed" }],
+      id: "test-copy-error-context",
+      isError: true,
+      stopReason: "injected",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+    expect(screen.getByText("System: [error] Context sync failed")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /copy contents/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the copy button for non-context assistant error messages", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Network request failed" }],
+      id: "test-copy-error-assistant",
+      isError: true,
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+    expect(screen.getByRole("button", { name: /copy contents/i })).toBeInTheDocument();
+  });
+
   it("slides in thinking blocks when they first appear", async () => {
     const message: Message = {
       role: "assistant",

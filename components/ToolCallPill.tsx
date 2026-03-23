@@ -16,6 +16,10 @@ import {
   isReadTool,
   isGatewayTool,
   SPAWN_TOOL_NAME,
+  SQUIRCLE_RADIUS,
+  TOOL_CALL_BUBBLE_BG,
+  TOOL_CALL_BUBBLE_BORDER,
+  TOOL_CALL_BUBBLE_BORDER_ERROR,
   TOOL_CALL_BUBBLE_TEXT,
   TOOL_CALL_BUBBLE_MUTED,
   TOOL_CALL_BUBBLE_SHADOW,
@@ -46,20 +50,31 @@ type ToolBubbleStyle = CSSProperties & {
   "--foreground"?: string;
   "--card-foreground"?: string;
   "--muted-foreground"?: string;
-  "--border"?: string;
 };
 
 function getToolBubbleStyle(expanded: boolean): ToolBubbleStyle {
   return {
     background: "transparent",
-    borderTop: expanded ? "1px solid var(--border)" : "none",
-    borderBottom: expanded ? "1px solid var(--border)" : "none",
+    borderTop: `1px solid ${expanded ? "var(--border)" : "transparent"}`,
+    borderBottom: `1px solid ${expanded ? "var(--border)" : "transparent"}`,
     boxShadow: TOOL_CALL_BUBBLE_SHADOW,
     color: TOOL_CALL_BUBBLE_TEXT,
     "--foreground": TOOL_CALL_BUBBLE_TEXT,
     "--card-foreground": TOOL_CALL_BUBBLE_TEXT,
     "--muted-foreground": TOOL_CALL_BUBBLE_MUTED,
-    "--border": "var(--border)",
+  };
+}
+
+function getSpawnBubbleStyle(resultError?: boolean): ToolBubbleStyle {
+  return {
+    borderRadius: `${SQUIRCLE_RADIUS}px`,
+    background: TOOL_CALL_BUBBLE_BG,
+    border: `1px solid ${resultError ? TOOL_CALL_BUBBLE_BORDER_ERROR : TOOL_CALL_BUBBLE_BORDER}`,
+    boxShadow: TOOL_CALL_BUBBLE_SHADOW,
+    color: TOOL_CALL_BUBBLE_TEXT,
+    "--foreground": TOOL_CALL_BUBBLE_TEXT,
+    "--card-foreground": TOOL_CALL_BUBBLE_TEXT,
+    "--muted-foreground": TOOL_CALL_BUBBLE_MUTED,
   };
 }
 
@@ -219,7 +234,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
         onKeyDown={hasContent ? (event) => handleToggleKeyDown(event, toggleOpen) : undefined}
         onMouseUp={hasContent ? (event) => handleToggleMouseUp(event, toggleOpen) : undefined}
         onTouchEnd={hasContent ? (event) => handleToggleTouchEnd(event, toggleOpen) : undefined}
-        className={`w-full px-4 py-1.5 text-left text-xs font-normal overflow-hidden text-ellipsis whitespace-nowrap max-w-full flex items-center select-text ${hasContent ? "cursor-pointer" : "cursor-default"}`}
+        className={`w-full px-4 py-2.5 text-left text-xs font-normal overflow-hidden text-ellipsis whitespace-nowrap max-w-full flex items-center select-text ${hasContent ? "cursor-pointer" : "cursor-default"}`}
       >
         {hasStatusIcon ? <StatusIcon status={status} resultError={resultError} /> : <ToolIcon icon={display.icon} />}
         {isEdit ? <><span className="font-medium opacity-70">edit</span>&nbsp;<span className="truncate">{display.label}</span></> : isRead ? <><span className="font-medium opacity-70">read</span>&nbsp;<span className="truncate">{display.label}</span></> : <span className="truncate">{display.label}</span>}
@@ -233,7 +248,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
             onMouseUp={(event) => handleToggleMouseUp(event, toggleOpen)}
           >
             {args && !isRead && !isGateway && (
-              <div className="px-4 py-1.5">
+              <div className="px-4 py-2.5">
                 {(() => {
                   if (isEdit) {
                     try {
@@ -286,7 +301,7 @@ export function ToolCallPill({ name, args, status, result, resultError, toolCall
               </div>
             )}
             {result && !isEdit && (
-              <div className="px-4 py-1.5">
+              <div className="px-4 py-2.5">
                 <span className="text-2xs font-normal opacity-45">Result</span>
                 <pre className="mt-1 whitespace-pre-wrap break-words overflow-visible">{result}</pre>
               </div>
@@ -376,8 +391,8 @@ function SpawnPill({
 
   return (
     <div
-      className={`relative w-full overflow-visible font-mono ${visibleOpen ? "mb-5" : ""}`}
-      style={getToolBubbleStyle(visibleOpen)}
+      className="relative w-full overflow-hidden font-mono"
+      style={getSpawnBubbleStyle(resultError)}
       {...handlers}
     >
       {/* Swipe action indicator (behind content) */}
@@ -391,6 +406,7 @@ function SpawnPill({
       )}
       {/* Sliding content */}
       <div
+        className="rounded-[inherit]"
         style={{
           transform: offset !== 0 ? `translateX(${offset}px)` : undefined,
           transition: animating ? "transform 200ms ease-out" : "none",
@@ -403,7 +419,7 @@ function SpawnPill({
           onKeyDown={canToggle ? (event) => handleToggleKeyDown(event, toggleOpen) : undefined}
           onMouseUp={canToggle ? (event) => handleToggleMouseUp(event, toggleOpen) : undefined}
           onTouchEnd={canToggle ? (event) => handleToggleTouchEnd(event, toggleOpen) : undefined}
-          className={`w-full px-4 py-1.5 text-left text-xs font-normal select-text ${canToggle ? "cursor-pointer" : "cursor-default"}`}
+          className={`w-full px-4 py-2.5 text-left text-xs font-normal select-text ${canToggle ? "cursor-pointer" : "cursor-default"}`}
         >
           <div className="flex items-center gap-1">
             <StatusIcon status={status} resultError={resultError} />
@@ -413,7 +429,7 @@ function SpawnPill({
             {isPinned && <PinIcon pinned />}
           </div>
           {model && (
-            <div className="text-2xs font-normal mt-0.5 ml-[18px] opacity-55">{model}</div>
+            <div className="text-2xs text-muted-foreground/40 font-normal mt-0.5 ml-[18px]">{model}</div>
           )}
         </div>
         <SlideContent open={visibleOpen}>
@@ -421,9 +437,6 @@ function SpawnPill({
             <SubagentActivityFeed getEntries={getEntries} storeVersion={subagentStore.versionRef} />
           )}
         </SlideContent>
-        {visibleOpen && (
-          <BottomChevronButton onToggle={toggleOpen} label="Collapse subagent activity" />
-        )}
       </div>
     </div>
   );
