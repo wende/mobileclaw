@@ -748,6 +748,10 @@ export function MessageRow({
   const assistantCopyText = message.role === "assistant" ? getCopyableAssistantText(message) : "";
   const assistantDurationText = getAssistantDurationText(message);
   const showAssistantCopyButton = !isStreaming && !!assistantCopyText;
+  const isErrorContextMessage = message.isContext
+    || message.stopReason === STOP_REASON_INJECTED
+    || text.startsWith(SYSTEM_PREFIX)
+    || text.startsWith(SYSTEM_MESSAGE_PREFIX);
   const hasStructuredCommandResponse =
     !!message.isCommandResponse &&
     (!!message.reasoning || (
@@ -816,11 +820,12 @@ export function MessageRow({
 
   if (message.isError && (message.role === "system" || message.role === "assistant")) {
     const errorText = text || "Unknown error";
+    const showAssistantErrorCopyButton = message.role === "assistant" && !isStreaming && !isErrorContextMessage;
     return (
       <div className="flex justify-center py-2">
         <div className="max-w-[85%] rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs leading-[1.75rem] text-destructive-foreground whitespace-pre-wrap break-words">
           <div>{errorText}</div>
-          {message.role === "assistant" && !isStreaming ? <AssistantCopyButton text={assistantCopyText || errorText} durationText={assistantDurationText} /> : null}
+          {showAssistantErrorCopyButton ? <AssistantCopyButton text={assistantCopyText || errorText} durationText={assistantDurationText} /> : null}
         </div>
       </div>
     );
@@ -976,17 +981,10 @@ export function MessageRow({
 
   const zenCollapsible = !isUser && zenMode && zenGroupCollapsible;
   const streamingLayoutActive = isStreaming || freezeStreamingLayout;
-  const hasWideAssistantBlock = assistantBlocks.some((block) => block.width && block.width !== "bubble");
   const renderAssistantBlock = (block: AssistantBlock) => {
     let widthClass = "self-start w-fit max-w-full min-w-0";
-    if (block.width === "chat") {
+    if (block.width === "chat" || block.width === "message") {
       widthClass = "w-full min-w-0";
-    } else if (block.width === "message") {
-      widthClass = hasWideAssistantBlock
-        ? "w-[85%] md:w-[75%] max-w-full min-w-0"
-        : "w-full min-w-0";
-    } else if (hasWideAssistantBlock) {
-      widthClass = "self-start w-fit max-w-[85%] md:max-w-[75%] min-w-0";
     }
 
     return (
@@ -1008,7 +1006,7 @@ export function MessageRow({
       style={collapsedZenSibling ? { marginBottom: "-0.75rem", transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` } : { transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` }}
     >
       <div
-        className={`${isUser ? "max-w-[85%] md:max-w-[75%]" : hasWideAssistantBlock ? "w-full" : "max-w-[85%] md:max-w-[75%]"} min-w-0 ${isUser ? "px-4 py-2.5 text-primary-foreground" : ""}`}
+        className={`${isUser ? "max-w-[85%] md:max-w-[75%]" : "w-full"} min-w-0 ${isUser ? "px-4 py-2.5 text-primary-foreground" : ""}`}
         style={isUser ? {
           borderRadius: SQUIRCLE_RADIUS,
           background: "oklch(from var(--primary) l c h / 0.85)",
