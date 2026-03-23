@@ -52,13 +52,14 @@ type ToolBubbleStyle = CSSProperties & {
 function getToolBubbleStyle(expanded: boolean): ToolBubbleStyle {
   return {
     background: "transparent",
-    borderTop: expanded ? "1px solid #E0E0E0" : "none",
-    borderBottom: expanded ? "1px solid #E0E0E0" : "none",
+    borderTop: expanded ? "1px solid var(--border)" : "none",
+    borderBottom: expanded ? "1px solid var(--border)" : "none",
     boxShadow: TOOL_CALL_BUBBLE_SHADOW,
     color: TOOL_CALL_BUBBLE_TEXT,
     "--foreground": TOOL_CALL_BUBBLE_TEXT,
     "--card-foreground": TOOL_CALL_BUBBLE_TEXT,
     "--muted-foreground": TOOL_CALL_BUBBLE_MUTED,
+    "--border": "var(--border)",
   };
 }
 
@@ -134,7 +135,7 @@ function BottomChevronButton({ onToggle, label }: { onToggle: () => void; label:
       aria-label={label}
       onClick={onToggle}
       className="absolute left-1/2 z-10 flex h-5 w-16 -translate-x-1/2 cursor-pointer items-center justify-center text-foreground/45"
-      style={{ background: "#FAFAFA", bottom: "-0.625rem" }}
+      style={{ background: "var(--background)", bottom: "-0.625rem" }}
     >
       <svg
         width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
@@ -145,10 +146,17 @@ function BottomChevronButton({ onToggle, label }: { onToggle: () => void; label:
   );
 }
 
-function hasSelectedText() {
+function hasSelectedTextWithin(target: HTMLElement) {
   if (typeof window === "undefined" || typeof window.getSelection !== "function") return false;
   const selection = window.getSelection();
-  return !!selection && !selection.isCollapsed && selection.toString().trim().length > 0;
+  if (!selection || selection.isCollapsed || selection.toString().trim().length === 0) return false;
+
+  for (let i = 0; i < selection.rangeCount; i += 1) {
+    const range = selection.getRangeAt(i);
+    if (target.contains(range.commonAncestorContainer)) return true;
+  }
+
+  return false;
 }
 
 function handleToggleKeyDown(event: ReactKeyboardEvent<HTMLElement>, onToggle: () => void) {
@@ -159,7 +167,7 @@ function handleToggleKeyDown(event: ReactKeyboardEvent<HTMLElement>, onToggle: (
 
 function handleToggleMouseUp(event: ReactMouseEvent<HTMLElement>, onToggle: () => void) {
   if (event.button !== 0) return;
-  if (hasSelectedText()) return;
+  if (hasSelectedTextWithin(event.currentTarget)) return;
   onToggle();
 }
 
@@ -345,6 +353,8 @@ function SpawnPill({
   }, [toolCallId, childSessionKey, subagentStore]);
 
   const hasFeed = !!subagentStore;
+  const canToggle = !isPinned;
+  const visibleOpen = open && canToggle;
 
   // Animate open on mount for streaming case only (not history)
   useEffect(() => {
@@ -366,8 +376,8 @@ function SpawnPill({
 
   return (
     <div
-      className={`relative w-full overflow-visible font-mono ${open && !isPinned ? "mb-5" : ""}`}
-      style={getToolBubbleStyle(open && !isPinned)}
+      className={`relative w-full overflow-visible font-mono ${visibleOpen ? "mb-5" : ""}`}
+      style={getToolBubbleStyle(visibleOpen)}
       {...handlers}
     >
       {/* Swipe action indicator (behind content) */}
@@ -387,31 +397,31 @@ function SpawnPill({
         }}
       >
         <div
-          role="button"
-          tabIndex={0}
-          aria-expanded={open && !isPinned}
-          onKeyDown={(event) => handleToggleKeyDown(event, toggleOpen)}
-          onMouseUp={(event) => handleToggleMouseUp(event, toggleOpen)}
-          onTouchEnd={(event) => handleToggleTouchEnd(event, toggleOpen)}
-          className="w-full cursor-pointer px-4 py-1.5 text-left text-xs font-normal select-text"
+          role={canToggle ? "button" : undefined}
+          tabIndex={canToggle ? 0 : undefined}
+          aria-expanded={canToggle ? visibleOpen : undefined}
+          onKeyDown={canToggle ? (event) => handleToggleKeyDown(event, toggleOpen) : undefined}
+          onMouseUp={canToggle ? (event) => handleToggleMouseUp(event, toggleOpen) : undefined}
+          onTouchEnd={canToggle ? (event) => handleToggleTouchEnd(event, toggleOpen) : undefined}
+          className={`w-full px-4 py-1.5 text-left text-xs font-normal select-text ${canToggle ? "cursor-pointer" : "cursor-default"}`}
         >
           <div className="flex items-center gap-1">
             <StatusIcon status={status} resultError={resultError} />
             {!status || status === "success" ? <ToolIcon icon="robot" /> : null}
             <span className="truncate">{task || "spawn agent"}</span>
-            <Chevron open={open && !isPinned} />
+            <Chevron open={visibleOpen} />
             {isPinned && <PinIcon pinned />}
           </div>
           {model && (
             <div className="text-2xs font-normal mt-0.5 ml-[18px] opacity-55">{model}</div>
           )}
         </div>
-        <SlideContent open={open && !isPinned}>
+        <SlideContent open={visibleOpen}>
           {hasFeed && (
             <SubagentActivityFeed getEntries={getEntries} storeVersion={subagentStore.versionRef} />
           )}
         </SlideContent>
-        {open && !isPinned && (
+        {visibleOpen && (
           <BottomChevronButton onToggle={toggleOpen} label="Collapse subagent activity" />
         )}
       </div>

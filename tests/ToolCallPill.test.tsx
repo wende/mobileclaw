@@ -29,8 +29,26 @@ describe("ToolCallPill", () => {
     fireEvent.mouseUp(header, { button: 0 });
     expect(slideGrid).toHaveStyle({ gridTemplateRows: "1fr" });
 
+    const externalNode = document.createTextNode("external selection");
+    document.body.appendChild(externalNode);
+
     getSelectionMock.mockReturnValue({
       isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: externalNode }) as unknown as Range,
+      toString: () => "external selection",
+    } as unknown as Selection);
+
+    fireEvent.mouseUp(header, { button: 0 });
+    expect(slideGrid).toHaveStyle({ gridTemplateRows: "0fr" });
+
+    fireEvent.mouseUp(header, { button: 0 });
+    expect(slideGrid).toHaveStyle({ gridTemplateRows: "1fr" });
+
+    getSelectionMock.mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: resultLabel }) as unknown as Range,
       toString: () => "line one",
     } as unknown as Selection);
 
