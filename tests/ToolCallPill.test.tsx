@@ -34,7 +34,7 @@ describe("ToolCallPill", () => {
       toString: () => "line one",
     } as unknown as Selection);
 
-    const resultContent = screen.getByText((content, node) => node?.textContent === "line one\nline two" && node.tagName === "PRE");
+    const resultContent = screen.getByText((_, node) => node?.textContent === "line one\nline two" && node.tagName === "PRE");
     fireEvent.mouseUp(resultContent, { button: 0 });
     expect(slideGrid).toHaveStyle({ gridTemplateRows: "1fr" });
 
