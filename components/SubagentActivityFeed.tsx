@@ -48,7 +48,7 @@ export function SubagentActivityFeed({ getEntries, storeVersion }: SubagentActiv
     <div
       ref={scrollContainerRef}
       onScroll={handleScroll}
-      className={`${entries.length === 0 && status === "done" ? "" : "h-28"} overflow-y-auto border-t border-border px-3 py-1.5 space-y-0.5 scrollbar-hide`}
+      className={`${entries.length === 0 && status === "done" ? "" : "h-28"} overflow-y-auto px-3 py-1.5 space-y-0.5 scrollbar-hide`}
     >
       {entries.length === 0 && status === "active" && (
         <div className="h-full flex items-center gap-1.5 text-xs text-muted-foreground/40">
