@@ -5,7 +5,7 @@ A mobile-first chat UI for [OpenClaw](https://github.com/openclaw/openclaw) and 
 
 **[Try the Live Demo](https://mobileclaw.vercel.app?demo)**
 
-**iOS App Soon™!**
+**[iOS App Live!](https://apps.apple.com/us/app/mobileclaw-local-llm-chat/id6759929493)**
 
 ## Why? 
 ### These two screens show the same conversation
