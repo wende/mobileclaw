@@ -73,9 +73,14 @@ export function useAppMode(): AppMode {
     isDetachedRef.current = resolvedMode.isDetached;
     isNativeRef.current = resolvedMode.isNative;
 
-    if (resolvedMode.isDetached) {
+    const shouldUseTransparentHostBackground = widgetCtx?.transparentHostBackground !== false
+
+    if (resolvedMode.isDetached && shouldUseTransparentHostBackground) {
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
+    } else if (resolvedMode.isDetached) {
+      document.body.style.background = "";
+      document.documentElement.style.background = "";
     }
 
     if (resolvedMode.isNative) {
