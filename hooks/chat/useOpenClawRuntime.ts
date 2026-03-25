@@ -52,6 +52,7 @@ interface StreamActions {
 interface UseOpenClawRuntimeOptions extends StreamActions {
   backendMode: BackendMode;
   isNative: boolean;
+  useDocumentScroll?: boolean;
   isDetachedRef: React.MutableRefObject<boolean>;
   isNativeRef: React.MutableRefObject<boolean>;
   scrollRef: React.RefObject<HTMLDivElement | null>;
@@ -109,6 +110,7 @@ const SLEEP_GAP_CHECK_MS = 15_000;
 export function useOpenClawRuntime({
   backendMode,
   isNative,
+  useDocumentScroll = false,
   isDetachedRef,
   isNativeRef,
   scrollRef,
@@ -211,7 +213,7 @@ export function useOpenClawRuntime({
     backendMode,
     sendWS,
     sessionKeyRef,
-    enabled: !isNative,
+    enabled: !isNative && !useDocumentScroll,
   });
 
   const requestHistory = useCallback(() => {
@@ -531,6 +533,13 @@ export function useOpenClawRuntime({
         if (!queuedMessageRef.current) requestHistory();
         break;
       }
+
+      case "retrying":
+        // Server is retrying after a rate-limit error — drop the partial
+        // assistant message so the fresh stream creates a clean one.
+        setMessages((prev) => prev.filter((m) => m.id !== payload.runId));
+        clearThinkingSource(payload.runId);
+        break;
 
       case "error": {
         if (activeRunIdRef.current && payload.runId && payload.runId !== activeRunIdRef.current) {
@@ -869,6 +878,14 @@ export function useOpenClawRuntime({
     if (shouldForceReconnect || connectionState !== "connected") {
       console.log(`[WS] Resume sync (${reason}) -> reconnect (inactive ${inactiveFor}ms)`);
       reconnectNow();
+      return;
+    }
+
+    // Skip history refetch during an active run — the WS is already
+    // delivering realtime events, and refetching would clobber streaming
+    // state (e.g. plugin cards mounted during the run).
+    if (activeRunIdRef.current) {
+      console.log(`[WS] Resume sync (${reason}) skipped — run in progress`);
       return;
     }
 

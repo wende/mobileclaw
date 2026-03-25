@@ -6,6 +6,10 @@ const BOTTOM_PAD_DETACHED_BASE = "4rem";
 const BOTTOM_PAD_DETACHED_QUEUED = "7rem";
 const BOTTOM_PAD_DETACHED_PINNED = "10rem";
 const BOTTOM_PAD_NATIVE = "8rem";
+const BOTTOM_PAD_DOCUMENT_SCROLL = "calc(env(safe-area-inset-bottom, 0px) + 1.5rem)";
+const FOOTER_RESERVE_DOCUMENT_SCROLL_BASE = "calc(env(safe-area-inset-bottom, 0px) + 4rem)";
+const FOOTER_RESERVE_DOCUMENT_SCROLL_QUEUED = "calc(env(safe-area-inset-bottom, 0px) + 7rem)";
+const FOOTER_RESERVE_DOCUMENT_SCROLL_PINNED = "calc(env(safe-area-inset-bottom, 0px) + 10rem)";
 const THINKING_INDICATOR_GAP = "1.5rem";
 
 export const DEFAULT_INPUT_ZONE_HEIGHT = "calc(1.5dvh + 3.5rem)";
@@ -17,17 +21,20 @@ function addCalc(...parts: string[]): string {
 export function getChatBottomPad({
   isNative,
   isDetached,
+  useDocumentScroll = false,
   inputZoneHeight = DEFAULT_INPUT_ZONE_HEIGHT,
   hasQueued,
   hasPinnedSubagent,
 }: {
   isNative: boolean;
   isDetached: boolean;
+  useDocumentScroll?: boolean;
   inputZoneHeight?: string;
   hasQueued: boolean;
   hasPinnedSubagent: boolean;
 }): string {
   if (isNative) return BOTTOM_PAD_NATIVE;
+  if (useDocumentScroll) return BOTTOM_PAD_DOCUMENT_SCROLL;
 
   if (isDetached) {
     const overlayPad = hasPinnedSubagent
@@ -49,12 +56,29 @@ export function getChatBottomPad({
 
 export function getThinkingIndicatorBottom({
   isDetached,
+  useDocumentScroll = false,
   inputZoneHeight = DEFAULT_INPUT_ZONE_HEIGHT,
 }: {
   isDetached: boolean;
+  useDocumentScroll?: boolean;
   inputZoneHeight?: string;
 }): string {
+  if (useDocumentScroll) {
+    return addCalc(BOTTOM_PAD_DOCUMENT_SCROLL, THINKING_INDICATOR_GAP);
+  }
   return isDetached
     ? addCalc(inputZoneHeight, inputZoneHeight, THINKING_INDICATOR_GAP)
     : addCalc(inputZoneHeight, THINKING_INDICATOR_GAP);
+}
+
+export function getDocumentScrollFooterReserve({
+  hasQueued,
+  hasPinnedSubagent,
+}: {
+  hasQueued: boolean;
+  hasPinnedSubagent: boolean;
+}): string {
+  if (hasPinnedSubagent) return FOOTER_RESERVE_DOCUMENT_SCROLL_PINNED;
+  if (hasQueued) return FOOTER_RESERVE_DOCUMENT_SCROLL_QUEUED;
+  return FOOTER_RESERVE_DOCUMENT_SCROLL_BASE;
 }

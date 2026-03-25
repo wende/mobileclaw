@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useWidgetContext } from "@mc/lib/widgetContext";
+import type { DetachedSurface } from "@mc/lib/chat/layoutMode";
 
 /** Read a URL search param. Only call on the client. */
 function getSearchParam(name: string): string | null {
@@ -32,6 +33,7 @@ function getUrlAppMode(): InitialAppMode {
 export interface AppMode {
   isDetached: boolean;
   detachedNoBorder: boolean;
+  detachedSurface: DetachedSurface;
   isNative: boolean;
   uploadDisabled: boolean;
   hideChrome: boolean;
@@ -41,6 +43,7 @@ export interface AppMode {
 
 export function useAppMode(): AppMode {
   const widgetCtx = useWidgetContext();
+  const detachedSurface: DetachedSurface = widgetCtx ? "widget" : "url";
 
   // When embedded via WidgetContextProvider, use context values as initial state
   // so the first render (including SSR) is already correct — no flash, no hydration mismatch.
@@ -73,9 +76,14 @@ export function useAppMode(): AppMode {
     isDetachedRef.current = resolvedMode.isDetached;
     isNativeRef.current = resolvedMode.isNative;
 
-    if (resolvedMode.isDetached) {
+    const shouldUseTransparentHostBackground = widgetCtx ? widgetCtx.transparentHostBackground !== false : false;
+
+    if (resolvedMode.isDetached && shouldUseTransparentHostBackground) {
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
+    } else if (resolvedMode.isDetached) {
+      document.body.style.background = "";
+      document.documentElement.style.background = "";
     }
 
     if (resolvedMode.isNative) {
@@ -93,6 +101,7 @@ export function useAppMode(): AppMode {
   return {
     isDetached: mode.isDetached,
     detachedNoBorder: mode.detachedNoBorder,
+    detachedSurface,
     isNative: mode.isNative,
     uploadDisabled: mode.uploadDisabled,
     hideChrome,
