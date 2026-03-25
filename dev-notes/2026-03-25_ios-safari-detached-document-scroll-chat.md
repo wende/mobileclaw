@@ -66,6 +66,10 @@ Once document scroll owned the page, the previous `visualViewport.resize` / `foc
 
 On iOS Safari, tapping the floating jump pill during active momentum scroll may require a second tap because the first tap is consumed by inertia cancellation. This appears to be browser behavior rather than a chat-specific bug.
 
-## Follow-Up
+## Desktop Follow-Up
 
-- BUG: Scrolling in detached mode on desktop no longer works.
+Detached desktop stays on the old shell path.
+
+- standalone `?detached` desktop now uses a declarative `100dvh` shell instead of relying on an imperative height override
+- embedded/widget detached desktop still uses `height: 100%` so it honors the host container
+- mobile detached still uses document scroll

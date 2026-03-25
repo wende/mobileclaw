@@ -26,6 +26,7 @@ import {
 import { buildDisplayMessages } from "@mc/lib/chat/messageTransforms";
 import { applyNativeZenMode } from "@mc/lib/chat/zenBridge";
 import { DEFAULT_INPUT_ZONE_HEIGHT, getChatBottomPad } from "@mc/lib/chat/layout";
+import { getChatLayoutConfig } from "@mc/lib/chat/layoutMode";
 
 import type {
   BackendMode,
@@ -77,9 +78,18 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   const isStreamingRef = useRef(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sentAnimId, setSentAnimId] = useState<string | null>(null);
-  const { isDetached, detachedNoBorder, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
+  const { isDetached, detachedNoBorder, detachedSurface, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
   const isMobileViewport = useIsMobileViewport();
-  const useDocumentScroll = isDetached && !isNative && isMobileViewport;
+  const {
+    useDocumentScroll,
+    shellHeight,
+    useKeyboardLayout: shouldUseKeyboardLayout,
+  } = getChatLayoutConfig({
+    isDetached,
+    isNative,
+    isMobileViewport,
+    detachedSurface,
+  });
 
   useEffect(() => {
     if (!useDocumentScroll) return;
@@ -287,7 +297,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     setTurnstileChecked(true);
   }, []);
 
-  useKeyboardLayout(appRef, floatingBarRef, bottomRef, !isNative && !useDocumentScroll);
+  useKeyboardLayout(appRef, floatingBarRef, bottomRef, shouldUseKeyboardLayout);
 
   const appendContentDelta = useCallback((runId: string, delta: string, ts: number) => {
     beginContentArrival();
@@ -745,7 +755,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   }, [messages]);
 
   const showAppBackground = useDocumentScroll || !hideChrome;
-  const shellStyle = useDocumentScroll ? undefined : { height: isDetached ? "100%" : "100dvh" };
+  const shellStyle = shellHeight ? { height: shellHeight } : undefined;
 
   if (!turnstileChecked) return null;
   if (!turnstileVerified && TURNSTILE_SITE_KEY) {
@@ -763,7 +773,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   return (
     <div
       ref={appRef}
-      className={`relative flex flex-col ${useDocumentScroll ? "min-h-svh overflow-visible" : "overflow-hidden"} ${showAppBackground ? "bg-background" : ""}`}
+      className={`relative flex flex-col ${useDocumentScroll ? "min-h-svh overflow-visible" : "min-h-0 overflow-hidden"} ${showAppBackground ? "bg-background" : ""}`}
       style={shellStyle}
     >
       <ChatChrome

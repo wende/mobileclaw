@@ -694,7 +694,7 @@ export function ChatViewport({
       className={`relative flex flex-col ${useDocumentScroll ? "" : "flex-1 min-h-0"} ${detachedShell ? "px-3 pt-3" : ""}`}
     >
 
-      {!isNative && !useDocumentScroll && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${detachedShell ? "inset-x-3 rounded-b-2xl" : "inset-x-0"}`} style={{ bottom: isDetached ? inputZoneHeight : 0, background: "linear-gradient(to top, var(--background) 40%, transparent)" }} />}
+      {!isNative && !useDocumentScroll && !detachedNoBorder && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${detachedShell ? "inset-x-3 rounded-b-2xl" : "inset-x-0"}`} style={{ bottom: isDetached ? inputZoneHeight : 0, background: "linear-gradient(to top, var(--background) 40%, transparent)" }} />}
       <main
         ref={scrollRef}
         onScroll={useDocumentScroll ? undefined : () => {
@@ -705,7 +705,7 @@ export function ChatViewport({
             onNativeScrollPosition(distFromBottom);
           }
         }}
-        className={`scrollbar-hide ${useDocumentScroll ? "overflow-visible" : "flex-1 overflow-y-auto overflow-x-hidden"} ${isNative ? "" : "bg-background"} ${detachedShell ? "rounded-2xl" : (!isDetached ? "pt-14" : "")}`}
+        className={`scrollbar-hide ${useDocumentScroll ? "overflow-visible" : "flex-1 overflow-y-auto overflow-x-hidden"} ${isNative || detachedNoBorder ? "" : "bg-background"} ${detachedShell ? "rounded-2xl" : (!isDetached ? "pt-14" : "")}`}
         style={{ ...(isNative || useDocumentScroll ? {} : { overscrollBehavior: "none" as const }), ...(detachedShell ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
       >
         <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
@@ -871,7 +871,7 @@ export function ChatViewport({
         </div>
       </main>
 
-      {isDetached && !isNative && !useDocumentScroll && <div style={{ height: inputZoneHeight, flexShrink: 0 }} />}
+      {isDetached && !detachedNoBorder && !isNative && !useDocumentScroll && <div style={{ height: inputZoneHeight, flexShrink: 0 }} />}
 
       {!isDetached && !isNative && (
         <div

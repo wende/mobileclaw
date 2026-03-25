@@ -79,7 +79,7 @@ export function ChatComposerBar({
 }: ChatComposerBarProps) {
   if (isNative) return null;
 
-  const showScrollPill = scrollPhase === "pill";
+  const showScrollPill = useDocumentScroll && scrollPhase === "pill";
   const documentScrollClassName = "pointer-events-none relative z-20 flex justify-center px-3 md:px-6 animate-[fadeIn_400ms_ease-out]";
   const wrapperClassName = useDocumentScroll
     ? documentScrollClassName
@@ -110,6 +110,11 @@ export function ChatComposerBar({
       </button>
     </div>
   ) : null;
+  const composerWidthStyle = useDocumentScroll
+    ? ({ maxWidth: "42rem" } as React.CSSProperties)
+    : ({
+        maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--lp, 0))), calc(200px + (42rem - 200px) * (1 - var(--lp, 0))))",
+      } as React.CSSProperties);
 
   const renderComposer = (ref: React.RefObject<HTMLDivElement | null>) => (
     <div
@@ -120,7 +125,7 @@ export function ChatComposerBar({
       <div
         ref={morphRef}
         className="pointer-events-auto w-full"
-        style={{ maxWidth: "42rem" } as React.CSSProperties}
+        style={composerWidthStyle}
       >
         {pinnedSubagent && (
           <div style={{ paddingLeft: "calc(48px * (1 - var(--lp, 0)))", paddingRight: "calc(48px * (1 - var(--lp, 0)))" } as React.CSSProperties}>
