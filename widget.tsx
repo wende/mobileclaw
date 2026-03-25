@@ -17,6 +17,7 @@ export interface ChatWidgetProps {
 
 export const ChatWidget = forwardRef<ChatInputHandle, ChatWidgetProps>(
   function ChatWidget({ wsUrl, className, demo, transparentHostBackground = true }, ref) {
+    const rootClassName = className ? `bg-background ${className}` : "bg-background"
     const modeValue = useMemo(
       () => ({
         isDetached: true,
@@ -29,7 +30,7 @@ export const ChatWidget = forwardRef<ChatInputHandle, ChatWidgetProps>(
     )
 
     return (
-      <div className={className} data-mobileclaw-embedded>
+      <div className={rootClassName} data-mobileclaw-embedded>
         <WidgetContextProvider value={modeValue}>
           <Home ref={ref} />
         </WidgetContextProvider>

@@ -221,7 +221,7 @@ export function ToolCallPill({ name, args, status, result, resultError, narratio
   // - result section is hidden for edit tools
   const hasVisibleArgs = !!(args && !isRead && !isGateway);
   const hasVisibleResult = !!(result && !isEdit);
-  const hasContent = hasVisibleArgs || hasVisibleResult;
+  const hasContent = hasVisibleArgs || hasVisibleResult || !!narration;
   const hasStatusIcon = status === "running" || resultError;
   const bubbleStyle = getToolBubbleStyle(open);
   const toggleOpen = () => setOpen((v) => !v);
@@ -250,6 +250,12 @@ export function ToolCallPill({ name, args, status, result, resultError, narratio
             className="overflow-hidden text-xs leading-[1.5] select-text"
             onMouseUp={(event) => handleToggleMouseUp(event, toggleOpen)}
           >
+            {narration && (
+              <div className="px-4 py-2.5">
+                <span className="text-2xs font-normal opacity-45">Tool</span>
+                <div className="mt-1">{display.label}</div>
+              </div>
+            )}
             {args && !isRead && !isGateway && (
               <div className="px-4 py-2.5">
                 {(() => {

@@ -9,12 +9,14 @@ import { flowRunListCardPlugin } from "@mc/plugins/app/flowRunListCard";
 import { flowRunDetailCardPlugin } from "@mc/plugins/app/flowRunDetailCard";
 import { connectionListCardPlugin } from "@mc/plugins/app/connectionListCard";
 import { notificationCardPlugin } from "@mc/plugins/app/notificationCard";
+import { pauseCardPlugin } from "@mc/plugins/app/pauseCard";
 import { tourProgressPlugin } from "./TourProgressPlugin";
 
 export const appPlugins: AnyMobileClawPlugin[] = [
   contextChipPlugin,
   tourProgressPlugin,
   notificationCardPlugin,
+  pauseCardPlugin,
   flowRunCardPlugin,
   flowRunListCardPlugin,
   flowRunDetailCardPlugin,

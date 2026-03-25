@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { z } from "zod";
 
@@ -131,6 +131,18 @@ export function relativeTimeFromEpoch(ts: number): string {
   return rtf.format(Math.round(diffMs / 86_400_000), "day");
 }
 
+function useRelativeTime(ts: number): string {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const absMs = Math.abs(ts - Date.now());
+    const ms =
+      absMs < 60_000 ? 1_000 : absMs < 3_600_000 ? 30_000 : 60_000;
+    const id = setInterval(() => tick((n) => n + 1), ms);
+    return () => clearInterval(id);
+  }, [ts]);
+  return relativeTimeFromEpoch(ts);
+}
+
 /* ── Shared inner component ── */
 
 export interface NotificationCardInnerProps {
@@ -169,6 +181,7 @@ export function NotificationCardInner({
   renderMarkdown,
 }: NotificationCardInnerProps) {
   const [expanded, setExpanded] = useState(false);
+  const timeAgo = useRelativeTime(createdAt);
   const isHigh = urgency === "high";
   const isNotify = mode === "notify" || options.length === 0;
   const primary = isNotify
@@ -203,7 +216,7 @@ export function NotificationCardInner({
             </span>
           )}
           <span className="font-normal normal-case tracking-normal text-muted-foreground/60">
-            {relativeTimeFromEpoch(createdAt)}
+            {timeAgo}
           </span>
         </div>
 
@@ -245,7 +258,7 @@ export function NotificationCardInner({
           pending
         </span>
         <span className="font-normal normal-case tracking-normal text-muted-foreground/60">
-          {relativeTimeFromEpoch(createdAt)}
+          {timeAgo}
         </span>
       </div>
 

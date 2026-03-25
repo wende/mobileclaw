@@ -263,9 +263,15 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
   const enriched = finalMessages.map((message) => {
     if (message.role === "assistant" && prevAssistantLocals.length > 0) {
       const msgText = normalizeTextForMatch(getTextFromContent(message.content));
-      const prev = prevAssistantLocals.find((p) =>
-        (p.ts && message.timestamp && p.ts === message.timestamp) || (msgText && p.text === msgText),
-      );
+      // For messages that already have a run-* ID (from historyStore), match only by ID.
+      // Text/timestamp matching causes false positives when multiple runs share the same
+      // error text (e.g. repeated rate-limit messages), leading to duplicate React keys.
+      const prev =
+        message.id && !message.id.startsWith("hist-")
+          ? prevAssistantLocals.find((p) => p.id === message.id)
+          : prevAssistantLocals.find(
+              (p) => (p.ts && message.timestamp && p.ts === message.timestamp) || (msgText && p.text === msgText),
+            );
       if (prev) {
         const carry: Partial<Message> = {};
         // Only carry over streaming/run IDs (e.g. "run-abc"), never hist-* IDs.
@@ -309,9 +315,22 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
       message.id?.startsWith("u-") &&
       !historyUserNorms.has(normalizeTextForMatch(getTextFromContent(message.content))),
   );
-  if (optimisticPending.length === 0) return enriched;
 
-  return [...enriched, ...optimisticPending].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+  // Preserve streaming assistant messages that aren't in history yet
+  // (e.g. mid-run messages with plugin cards like pause_card).
+  const enrichedIds = new Set(enriched.map((m) => m.id).filter(Boolean));
+  const streamingAssistant = previousMessages.filter(
+    (message) =>
+      message.role === "assistant" &&
+      message.id &&
+      !message.id.startsWith("hist-") &&
+      !enrichedIds.has(message.id),
+  );
+
+  const carry = [...optimisticPending, ...streamingAssistant];
+  if (carry.length === 0) return enriched;
+
+  return [...enriched, ...carry].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
 }
 
 export function isRunInProgressFromHistory(rawMessages: RawHistoryMessage[]): boolean {

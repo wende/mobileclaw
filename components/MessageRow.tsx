@@ -457,17 +457,42 @@ function normalizeAssistantCopyText(text: string): string {
   return stripFinalTags(rawCleanText).trim();
 }
 
-function getCopyableAssistantText(message: Message): string {
+/** Serialize the full assistant message — thinking, tool calls, and text — in chronological order. */
+function getFullAssistantCopyText(message: Message): string {
   if (message.role !== "assistant" || !message.content) return "";
-  if (typeof message.content === "string") return normalizeAssistantCopyText(message.content);
 
-  return message.content
-    .flatMap((part) => {
-      if (part.type !== "text" || !part.text) return [];
-      const cleanText = normalizeAssistantCopyText(part.text);
-      return cleanText ? [cleanText] : [];
-    })
-    .join("\n\n");
+  const sections: string[] = [];
+
+  const hasThinkingParts = Array.isArray(message.content)
+    && message.content.some((p) => p.type === "thinking");
+
+  // Top-level reasoning (only if no structured thinking parts)
+  if (message.reasoning && !hasThinkingParts) {
+    sections.push(`<thinking>\n${message.reasoning}\n</thinking>`);
+  }
+
+  if (typeof message.content === "string") {
+    const cleaned = normalizeAssistantCopyText(message.content);
+    if (cleaned) sections.push(cleaned);
+    return sections.join("\n\n");
+  }
+
+  for (const part of message.content) {
+    if (part.type === "thinking") {
+      const t = (part.thinking || part.text || "").trim();
+      if (t) sections.push(`<thinking>\n${t}\n</thinking>`);
+    } else if (isToolCallPart(part)) {
+      let block = `Tool: ${part.name || "tool"}`;
+      if (part.arguments) block += `\nArguments: ${part.arguments}`;
+      if (part.result) block += `\nResult: ${part.result}`;
+      sections.push(block);
+    } else if (part.type === "text" && part.text) {
+      const cleaned = normalizeAssistantCopyText(part.text);
+      if (cleaned) sections.push(cleaned);
+    }
+  }
+
+  return sections.join("\n\n");
 }
 
 function getAssistantDurationText(message: Message): string | null {
@@ -493,7 +518,7 @@ function InlineThinkingIndicator({ startTime }: { startTime?: number }) {
   );
 }
 
-function AssistantCopyButton({ text, durationText }: { text: string; durationText?: string | null }) {
+function AssistantCopyButton({ text, durationText, debugCopyText }: { text: string; durationText?: string | null; debugCopyText?: string }) {
   const [copied, setCopied] = useState(false);
   const [mounted, setMounted] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
@@ -527,27 +552,71 @@ function AssistantCopyButton({ text, durationText }: { text: string; durationTex
   return (
     <SlideContent open={mounted}>
       <div className="flex items-center justify-start gap-1.5 pt-0.5 animate-[thinkingSentence_0.5s_ease-out_both]">
-        <button
-          type="button"
-          onClick={() => { void copy(); }}
-          aria-label={copied ? "Copied" : "Copy contents"}
-          title={copied ? "Copied" : "Copy contents"}
-          className="inline-flex h-8 w-4 items-center justify-start rounded-full p-0 text-muted-foreground/35 transition-colors hover:text-muted-foreground/70"
-        >
-          {copied ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="m5 12 5 5L20 7" />
-            </svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="9" y="9" width="10" height="10" rx="2" />
-              <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
-            </svg>
-          )}
-        </button>
+        {text ? (
+          <button
+            type="button"
+            onClick={() => { void copy(); }}
+            aria-label={copied ? "Copied" : "Copy contents"}
+            title={copied ? "Copied" : "Copy contents"}
+            className="inline-flex h-8 w-4 items-center justify-start rounded-full p-0 text-muted-foreground/35 transition-colors hover:text-muted-foreground/70"
+          >
+            {copied ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m5 12 5 5L20 7" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="10" height="10" rx="2" />
+                <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+              </svg>
+            )}
+          </button>
+        ) : null}
+        {debugCopyText ? <DebugCopyButton text={debugCopyText} /> : null}
         {durationText ? <span className="text-2xs text-muted-foreground/50">{durationText}</span> : null}
       </div>
     </SlideContent>
+  );
+}
+
+function DebugCopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (resetTimerRef.current !== null) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+  }, []);
+
+  const copy = async () => {
+    if (!text || !navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => { void copy(); }}
+      aria-label={copied ? "Copied debug" : "Copy full message (thinking + tools + text)"}
+      title={copied ? "Copied debug" : "Copy full message"}
+      className="inline-flex h-8 w-4 items-center justify-start rounded-full p-0 text-muted-foreground/35 transition-colors hover:text-muted-foreground/70"
+    >
+      {copied ? (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m5 12 5 5L20 7" />
+        </svg>
+      ) : (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+        </svg>
+      )}
+    </button>
   );
 }
 
@@ -745,9 +814,11 @@ export function MessageRow({
   const text = getTextFromContent(message.content);
   const images = getImages(message.content);
   const files = getFiles(message.content);
-  const assistantCopyText = message.role === "assistant" ? getCopyableAssistantText(message) : "";
+  const assistantCopyText = message.role === "assistant" ? normalizeAssistantCopyText(getTextFromContent(message.content)) : "";
+  const debugCopyText = message.role === "assistant" ? getFullAssistantCopyText(message) : "";
   const assistantDurationText = getAssistantDurationText(message);
   const showAssistantCopyButton = !isStreaming && !!assistantCopyText;
+  const showDebugCopyButton = !isStreaming && !!debugCopyText;
   const isErrorContextMessage = message.isContext
     || message.stopReason === STOP_REASON_INJECTED
     || text.startsWith(SYSTEM_PREFIX)
@@ -938,7 +1009,7 @@ export function MessageRow({
           if (extractedThinking && !hasThinkingParts && !message.reasoning) {
             pushAssistantBlock(`text-thinking-${i}`, <ThinkingPill text={extractedThinking} isStreaming={isStreaming} />);
           }
-          if (cleanText) {
+          if (cleanText.trim()) {
             pushAssistantBlock(
               `text-${i}`,
               <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
@@ -986,9 +1057,10 @@ export function MessageRow({
     if (block.width === "chat" || block.width === "message") {
       widthClass = "w-full min-w-0";
     }
+    const isTool = block.key.startsWith("tool-");
 
     return (
-      <div key={block.key} className={widthClass}>
+      <div key={block.key} className={`${widthClass} empty:hidden ${isTool ? "" : "mt-1.5 first:mt-0"}`} data-block={isTool ? "tool" : "content"}>
         {block.node}
       </div>
     );
@@ -1009,9 +1081,9 @@ export function MessageRow({
         className={`${isUser ? "max-w-[85%] md:max-w-[75%]" : "w-full"} min-w-0 ${isUser ? "px-4 py-2.5 text-primary-foreground" : ""}`}
         style={isUser ? {
           borderRadius: SQUIRCLE_RADIUS,
-          background: "oklch(from var(--primary) l c h / 0.85)",
+          background: "var(--primary)",
           border: "1px solid oklch(from var(--foreground) l c h / 0.12)",
-          boxShadow: "0 2px 4px rgba(49, 49, 49,0.08)",
+          boxShadow: "0 2px 4px oklch(from var(--primary) l c h / 0.08)",
           ...(isSentAnim ? {
             animation: MESSAGE_SEND_ANIMATION,
             transformOrigin: "bottom right",
@@ -1039,7 +1111,7 @@ export function MessageRow({
             )}
             <SlideContent open={zenCollapsedByGroup ? effectiveZenSlideOpen : true}>
               <div
-                className={`flex flex-col gap-1.5 ${zenCollapsedByGroup ? "transition-opacity ease-out" : ""}`}
+                className={`flex flex-col ${zenCollapsedByGroup ? "transition-opacity ease-out" : ""}`}
                 style={zenCollapsedByGroup
                   ? { opacity: effectiveZenFadeVisible ? 1 : 0, transitionDuration: `${ZEN_FADE_MS}ms` }
                   : undefined}
@@ -1048,7 +1120,9 @@ export function MessageRow({
                 {isStreaming && message.role === "assistant" && (
                   <InlineThinkingIndicator startTime={message.timestamp} />
                 )}
-                {showAssistantCopyButton ? <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} /> : null}
+                {(showAssistantCopyButton || showDebugCopyButton) ? (
+                  <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} debugCopyText={showDebugCopyButton ? debugCopyText : undefined} />
+                ) : null}
               </div>
             </SlideContent>
           </SmoothGrow>
