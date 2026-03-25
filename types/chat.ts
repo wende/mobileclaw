@@ -153,7 +153,7 @@ export interface ConnectChallengePayload {
 export interface ChatEventPayload {
   runId: string;
   sessionKey: string;
-  state: "delta" | "final" | "aborted" | "error";
+  state: "delta" | "final" | "aborted" | "error" | "retrying";
   message?: {
     id?: string;
     role: "user" | "assistant" | "system" | "tool";
