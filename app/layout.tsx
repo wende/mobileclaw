@@ -37,7 +37,7 @@ const headScript = `
   var detached = params.has('detached');
   var detachedMode = detached ? params.get('mode') : null;
   var host = location.hostname;
-  var isIpV4 = /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(host);
+  var isIpV4 = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(host);
   var isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host.endsWith('.local');
   var isPrivateLanIp = /^10\\./.test(host) || /^192\\.168\\./.test(host) || /^172\\.(1[6-9]|2\\d|3[0-1])\\./.test(host);
   var shouldDisableServiceWorker = isDev || isLocalHost || (isIpV4 && isPrivateLanIp);

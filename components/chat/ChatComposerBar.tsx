@@ -146,7 +146,7 @@ export function ChatComposerBar({
           onSend={onSend}
           scrollPhase={scrollPhase}
           onScrollToBottom={onScrollToBottom}
-          disableScrollMorph
+          disableScrollMorph={useDocumentScroll}
           availableModels={availableModels}
           modelsLoading={modelsLoading}
           onFetchModels={onFetchModels}
