@@ -32,9 +32,15 @@ export const metadata: Metadata = {
 // Also registers the service worker for PWA support
 const headScript = `
 (function() {
+  var isDev = ${JSON.stringify(process.env.NODE_ENV !== 'production')};
   var params = new URLSearchParams(location.search);
   var detached = params.has('detached');
   var detachedMode = detached ? params.get('mode') : null;
+  var host = location.hostname;
+  var isIpV4 = /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(host);
+  var isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host.endsWith('.local');
+  var isPrivateLanIp = /^10\\./.test(host) || /^192\\.168\\./.test(host) || /^172\\.(1[6-9]|2\\d|3[0-1])\\./.test(host);
+  var shouldDisableServiceWorker = isDev || isLocalHost || (isIpV4 && isPrivateLanIp);
   try {
     if (detachedMode === 'dark') {
       document.documentElement.classList.add('dark');
@@ -53,8 +59,19 @@ const headScript = `
   if (detached) {
     document.documentElement.classList.add('detached-loading');
   }
-  if ('serviceWorker' in navigator && location.hostname !== 'localhost' && !window.__nativeMode) {
+  if ('serviceWorker' in navigator && !window.__nativeMode) {
     window.addEventListener('load', function() {
+      if (shouldDisableServiceWorker) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          registrations.forEach(function(registration) { registration.unregister(); });
+        });
+        if (window.caches && caches.keys) {
+          caches.keys().then(function(keys) {
+            keys.forEach(function(key) { caches.delete(key); });
+          });
+        }
+        return;
+      }
       navigator.serviceWorker.register('/sw.js');
     });
   }
@@ -67,7 +84,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className="bg-background text-foreground">
       <head>
         <script dangerouslySetInnerHTML={{ __html: headScript }} />
       </head>

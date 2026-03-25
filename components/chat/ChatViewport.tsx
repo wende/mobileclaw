@@ -20,6 +20,7 @@ interface ChatViewportProps {
   isDetached: boolean;
   detachedNoBorder?: boolean;
   isNative: boolean;
+  useDocumentScroll?: boolean;
   historyLoaded: boolean;
   inputZoneHeight: string;
   bottomPad: string;
@@ -56,6 +57,7 @@ export function ChatViewport({
   isDetached,
   detachedNoBorder = false,
   isNative,
+  useDocumentScroll = false,
   historyLoaded,
   inputZoneHeight,
   bottomPad,
@@ -209,6 +211,19 @@ export function ChatViewport({
     }
     flushGroup();
     return { byIndex, groupIds, multiGroupIds };
+  }, [zenDisplayMessages]);
+
+  // Group consecutive tool-only messages so they render in a single tight container
+  const toolGroupMap = useMemo(() => {
+    const isToolOnly = (m: typeof zenDisplayMessages[0]) =>
+      m.role === "assistant" && Array.isArray(m.content) && m.content.length > 0 &&
+      m.content.every((p: any) => isToolCallPart(p) || (p.type === "text" && !p.text?.trim()) || p.type === "thinking");
+    const map = new Map<number, number>(); // idx -> group head idx
+    for (let i = 0; i < zenDisplayMessages.length; i++) {
+      if (!isToolOnly(zenDisplayMessages[i])) continue;
+      map.set(i, i > 0 && map.has(i - 1) ? map.get(i - 1)! : i);
+    }
+    return map;
   }, [zenDisplayMessages]);
 
   const clearGroupTimers = useCallback((groupId: string) => {
@@ -674,12 +689,15 @@ export function ChatViewport({
   }, [clearModeTimers]);
 
   return (
-    <div ref={pullContentRef} className={`relative flex flex-1 flex-col min-h-0 ${detachedShell ? "px-3 pt-3" : ""}`}>
+    <div
+      ref={pullContentRef}
+      className={`relative flex flex-col ${useDocumentScroll ? "" : "flex-1 min-h-0"} ${detachedShell ? "px-3 pt-3" : ""}`}
+    >
 
-      {!isNative && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${detachedShell ? "inset-x-3 rounded-b-2xl" : "inset-x-0"}`} style={{ bottom: isDetached ? inputZoneHeight : 0, background: "linear-gradient(to top, var(--background) 40%, transparent)" }} />}
+      {!isNative && !useDocumentScroll && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${detachedShell ? "inset-x-3 rounded-b-2xl" : "inset-x-0"}`} style={{ bottom: isDetached ? inputZoneHeight : 0, background: "linear-gradient(to top, var(--background) 40%, transparent)" }} />}
       <main
         ref={scrollRef}
-        onScroll={() => {
+        onScroll={useDocumentScroll ? undefined : () => {
           onScroll();
           if (onNativeScrollPosition && scrollRef.current) {
             const el = scrollRef.current;
@@ -687,12 +705,13 @@ export function ChatViewport({
             onNativeScrollPosition(distFromBottom);
           }
         }}
-        className={`scrollbar-hide flex-1 overflow-y-auto overflow-x-hidden ${isNative ? "" : "bg-background"} ${detachedShell ? "rounded-2xl" : (!isDetached ? "pt-14" : "")}`}
-        style={{ ...(isNative ? {} : { overscrollBehavior: "none" as const }), ...(detachedShell ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
+        className={`scrollbar-hide ${useDocumentScroll ? "overflow-visible" : "flex-1 overflow-y-auto overflow-x-hidden"} ${isNative ? "" : "bg-background"} ${detachedShell ? "rounded-2xl" : (!isDetached ? "pt-14" : "")}`}
+        style={{ ...(isNative || useDocumentScroll ? {} : { overscrollBehavior: "none" as const }), ...(detachedShell ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
       >
         <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
           {isNative && <div aria-hidden="true" style={{ height: IOS_TOP_MESSAGE_SPACER_HEIGHT, flexShrink: 0 }} />}
           {zenDisplayMessages.map((msg, idx) => {
+            const toolGroupHead = toolGroupMap.get(idx) ?? -1;
             const side = getMessageSide(msg.role);
             const prevSide = idx > 0 ? getMessageSide(zenDisplayMessages[idx - 1].role) : null;
             const prevTimestamp = idx > 0 ? zenDisplayMessages[idx - 1].timestamp : null;
@@ -810,31 +829,41 @@ export function ChatViewport({
                     />
                   </div>
                 )}
-                <div
-                  style={messageRowWrapperStyle}
-                  onAnimationEnd={!isZenSiblingRow && msg.id === sentAnimId && !isSentUserAnim ? onSentAnimationEnd : undefined}
-                >
-                  <MessageRow
-                    message={msg}
-                    isStreaming={isStreaming && msg.id === effectiveStreamingId}
-                    freezeStreamingLayout={freezeStreamingLayout}
-                    subagentStore={subagentStore}
-                    pinnedToolCallId={pinnedToolCallId}
-                    onPin={onPin}
-                    onUnpin={onUnpin}
-                    zenMode={zenRenderMode}
-                    zenGroupCollapsible={false}
-                    zenGroupExpanded={zenGroupExpanded}
-                    zenCollapsedByGroup={isZenSiblingRow}
-                    zenGroupSlideOpen={effectiveRowSlideOpen}
-                    zenGroupFadeVisible={effectiveRowFadeVisible}
-                    onZenGroupToggle={undefined}
-                    isSentAnim={isSentUserAnim}
-                    onSentAnimationEnd={isSentUserAnim ? onSentAnimationEnd : undefined}
-                    onPluginAction={onPluginAction}
-                    onAddInputAttachment={onAddInputAttachment}
-                  />
-                </div>
+                {toolGroupHead >= 0 && toolGroupHead !== idx ? null : (
+                  <div
+                    style={messageRowWrapperStyle}
+                    onAnimationEnd={!isZenSiblingRow && msg.id === sentAnimId && !isSentUserAnim ? onSentAnimationEnd : undefined}
+                  >
+                    <MessageRow
+                      message={toolGroupHead === idx ? (() => {
+                        // Merge all tool-only messages in this group into one
+                        const parts: any[] = [];
+                        for (let gi = idx; toolGroupMap.get(gi) === idx; gi++) {
+                          const gMsg = zenDisplayMessages[gi];
+                          if (Array.isArray(gMsg.content)) parts.push(...gMsg.content);
+                        }
+                        return { ...msg, content: parts };
+                      })() : msg}
+                      isStreaming={isStreaming && msg.id === effectiveStreamingId}
+                      freezeStreamingLayout={freezeStreamingLayout}
+                      subagentStore={subagentStore}
+                      pinnedToolCallId={pinnedToolCallId}
+                      onPin={onPin}
+                      onUnpin={onUnpin}
+                      zenMode={zenRenderMode}
+                      zenGroupCollapsible={false}
+                      zenGroupExpanded={zenGroupExpanded}
+                      zenCollapsedByGroup={isZenSiblingRow}
+                      zenGroupSlideOpen={effectiveRowSlideOpen}
+                      zenGroupFadeVisible={effectiveRowFadeVisible}
+                      onZenGroupToggle={undefined}
+                      isSentAnim={isSentUserAnim}
+                      onSentAnimationEnd={isSentUserAnim ? onSentAnimationEnd : undefined}
+                      onPluginAction={onPluginAction}
+                      onAddInputAttachment={onAddInputAttachment}
+                    />
+                  </div>
+                )}
               </React.Fragment>
             );
           })}
@@ -842,7 +871,7 @@ export function ChatViewport({
         </div>
       </main>
 
-      {isDetached && !isNative && <div style={{ height: inputZoneHeight, flexShrink: 0 }} />}
+      {isDetached && !isNative && !useDocumentScroll && <div style={{ height: inputZoneHeight, flexShrink: 0 }} />}
 
       {!isDetached && !isNative && (
         <div

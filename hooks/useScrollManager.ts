@@ -13,14 +13,21 @@ const STREAM_REPIN_DISTANCE_PX = 32;
  * Manages scroll tracking, auto-scroll pinning, morph bar animation,
  * and ResizeObserver-based content tracking.
  */
-export function useScrollManager(
-  messages: Message[],
-  isStreamingRef: React.RefObject<boolean>,
-  isNativeRef?: React.RefObject<boolean>,
-) {
+export function useScrollManager({
+  messages,
+  isStreamingRef,
+  isNativeRef,
+  useDocumentScroll = false,
+}: {
+  messages: Message[];
+  isStreamingRef: React.RefObject<boolean>;
+  isNativeRef?: React.RefObject<boolean>;
+  useDocumentScroll?: boolean;
+}) {
   const [scrollPhase, setScrollPhase] = useState<"input" | "pill">("input");
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const footerReserveRef = useRef<HTMLDivElement>(null);
   const morphRef = useRef<HTMLDivElement>(null);
   const scrollRafId = useRef<number | null>(null);
   const scrollPhaseRef = useRef<"input" | "pill">("input");
@@ -49,6 +56,44 @@ export function useScrollManager(
   // keep auto-scroll off until they intentionally return to bottom.
   const manualStreamUnpinRef = useRef(false);
   const wheelUpIntentRef = useRef(0);
+
+  const getScrollElement = useCallback(() => {
+    if (typeof document === "undefined") return null;
+    return (useDocumentScroll ? (document.scrollingElement ?? document.documentElement) : scrollRef.current) as HTMLElement | null;
+  }, [useDocumentScroll]);
+
+  const getViewportHeight = useCallback((el: HTMLElement | null) => {
+    if (!el) return 0;
+    return el.clientHeight;
+  }, []);
+
+  const getDocumentChromeOffset = useCallback(() => {
+    if (!useDocumentScroll || typeof document === "undefined" || typeof window === "undefined") return 0;
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;left:-9999px;top:0;height:100vh;width:0;pointer-events:none;";
+    document.body.appendChild(probe);
+    const layoutViewportHeight = probe.getBoundingClientRect().height;
+    probe.remove();
+    return Math.max(0, layoutViewportHeight - window.innerHeight);
+  }, [useDocumentScroll]);
+
+  const getDocumentBottomTarget = useCallback((el: HTMLElement | null) => {
+    if (!el || !useDocumentScroll || !bottomRef.current) return null;
+    const footerReserveHeight = footerReserveRef.current?.getBoundingClientRect().height ?? 0;
+    const viewportHeight = getViewportHeight(el);
+    const bottomTop = bottomRef.current.getBoundingClientRect().top + el.scrollTop;
+    const chromeOffset = getDocumentChromeOffset();
+    return Math.max(0, bottomTop - (viewportHeight - footerReserveHeight) + chromeOffset);
+  }, [getDocumentChromeOffset, getViewportHeight, useDocumentScroll]);
+
+  const getDistanceFromBottom = useCallback((el: HTMLElement | null) => {
+    if (!el) return 0;
+    const documentTarget = getDocumentBottomTarget(el);
+    if (documentTarget != null) {
+      return Math.max(0, documentTarget - el.scrollTop);
+    }
+    return el.scrollHeight - el.scrollTop - getViewportHeight(el);
+  }, [getDocumentBottomTarget, getViewportHeight]);
 
   const clearManualStreamUnpin = useCallback(() => {
     manualStreamUnpinRef.current = false;
@@ -149,7 +194,7 @@ export function useScrollManager(
     if (scrollRafId.current != null) return;
     scrollRafId.current = requestAnimationFrame(() => {
       scrollRafId.current = null;
-      const el = scrollRef.current;
+      const el = getScrollElement();
       if (!el) return;
 
       // Detect container resize (keyboard open/close, viewport change).
@@ -159,12 +204,14 @@ export function useScrollManager(
       // the morph locked at 0 so the input bar doesn't glitch.
       // (Third-party keyboards like SwiftKey resize in multiple discrete steps,
       // so this can fire several times during a single keyboard animation.)
-      const currentHeight = el.clientHeight;
+      const currentHeight = getViewportHeight(el);
       const heightChanged = Math.abs(currentHeight - lastClientHeightRef.current) > 2;
       lastClientHeightRef.current = currentHeight;
 
       if (heightChanged && pinnedToBottomRef.current) {
-        el.scrollTop = el.scrollHeight;
+        if (!useDocumentScroll) {
+          el.scrollTop = el.scrollHeight;
+        }
         setMorphTarget(0);
         return;
       }
@@ -176,7 +223,7 @@ export function useScrollManager(
         return;
       }
 
-      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const distanceFromBottom = getDistanceFromBottom(el);
 
       // During streaming or pin-lock window, don't unpin from scroll position —
       // only the wheel/touch handlers can unpin. But DO allow re-pinning when
@@ -200,7 +247,7 @@ export function useScrollManager(
       const progress = Math.min(Math.max(distanceFromBottom / range, 0), 1);
       setMorphTarget(progress);
     });
-  }, [clearManualStreamUnpin, isStreamingRef, setMorphTarget]);
+  }, [clearManualStreamUnpin, getDistanceFromBottom, getScrollElement, getViewportHeight, isStreamingRef, setMorphTarget, useDocumentScroll]);
 
   /** Clear any stuck bounce transform on the content div. */
   const clearBounceTransform = useCallback(() => {
@@ -216,19 +263,25 @@ export function useScrollManager(
   // Flag to prevent ResizeObserver from snapping scrollTop mid-animation
   const isAnimatingScrollRef = useRef(false);
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((opts?: { instant?: boolean }) => {
     pinnedToBottomRef.current = true;
     pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
     clearManualStreamUnpin();
     clearBounceTransform();
-    const el = scrollRef.current;
+    const el = getScrollElement();
     if (!el) return;
 
-    const target = el.scrollHeight - el.clientHeight;
+    const target = getDocumentBottomTarget(el) ?? (el.scrollHeight - getViewportHeight(el));
     const start = el.scrollTop;
     const distance = target - start;
     if (distance <= 0) {
       // Already at bottom — reset morph so a stale pill clears immediately.
+      setMorphTarget(0);
+      return;
+    }
+
+    if (opts?.instant) {
+      el.scrollTop = target;
       setMorphTarget(0);
       return;
     }
@@ -266,27 +319,28 @@ export function useScrollManager(
     };
 
     requestAnimationFrame(animate);
-  }, [clearBounceTransform, clearManualStreamUnpin, isStreamingRef, setMorphTarget]);
+  }, [clearBounceTransform, clearManualStreamUnpin, getDocumentBottomTarget, getScrollElement, getViewportHeight, isStreamingRef, setMorphTarget]);
 
   // Auto-scroll: whenever messages change, snap to bottom if pinned.
   // During streaming, the rAF loop handles smooth scrolling instead.
   useLayoutEffect(() => {
     if (!pinnedToBottomRef.current || messages.length === 0) return;
     if (isStreamingRef.current) return;
-    const el = scrollRef.current;
+    const el = getScrollElement();
     if (!el) return;
     if (!hasScrolledInitialRef.current) {
       hasScrolledInitialRef.current = true;
     }
     clearBounceTransform();
-    el.scrollTop = el.scrollHeight;
-  }, [messages, clearBounceTransform]);
+    el.scrollTop = getDocumentBottomTarget(el) ?? el.scrollHeight;
+  }, [messages, clearBounceTransform, getDocumentBottomTarget, getScrollElement]);
 
   // ResizeObserver: catch content-height changes (e.g. images loading, zen collapses).
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const content = el.firstElementChild as HTMLElement | null;
+    const el = getScrollElement();
+    const surface = scrollRef.current;
+    if (!el || !surface) return;
+    const content = surface.firstElementChild as HTMLElement | null;
     if (!content) return;
 
     const ro = new ResizeObserver(() => {
@@ -311,17 +365,17 @@ export function useScrollManager(
         content.style.minHeight = "";
       }
 
-      if ((pinnedToBottomRef.current || scrollGraceRef.current) && el.scrollHeight > el.clientHeight) {
+      if ((pinnedToBottomRef.current || scrollGraceRef.current) && el.scrollHeight > getViewportHeight(el)) {
         // During grace period the rAF momentum loop is still running —
         // let it smoothly catch up instead of hard-snapping.
         if (!scrollGraceRef.current) {
-          el.scrollTop = el.scrollHeight;
+          el.scrollTop = getDocumentBottomTarget(el) ?? el.scrollHeight;
         }
         pinnedToBottomRef.current = true;
       } else if (!pinnedToBottomRef.current && !scrollGraceRef.current) {
         // Content shrank (e.g. collapsing a tool call) while unpinned.
         // If we're now back at the bottom, re-pin and clear the pill.
-        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const dist = getDistanceFromBottom(el);
         if (dist < 80) {
           pinnedToBottomRef.current = true;
           setMorphTarget(Math.min(Math.max(dist / 60, 0), 1));
@@ -330,14 +384,14 @@ export function useScrollManager(
     });
     ro.observe(content);
     return () => ro.disconnect();
-  }, [setMorphTarget]);
+  }, [getDistanceFromBottom, getDocumentBottomTarget, getScrollElement, getViewportHeight, setMorphTarget]);
 
   // rAF loop: during streaming, smoothly scroll toward bottom.
   // Uses velocity with momentum — desired speed scales with gap size,
   // actual velocity smoothly blends toward desired. No stutters on retarget.
   // All constants are normalized to 60fps so behavior is consistent at any refresh rate.
   useEffect(() => {
-    const el = scrollRef.current;
+    const el = getScrollElement();
     if (!el) return;
     let id: number;
     // velocity in px-per-60fps-frame; multiplied by frameScale before applying
@@ -377,9 +431,9 @@ export function useScrollManager(
       if (
         (pinnedToBottomRef.current || scrollGraceRef.current) &&
         (isStreamingRef.current || scrollGraceRef.current) &&
-        el.scrollHeight > el.clientHeight
+        el.scrollHeight > getViewportHeight(el)
       ) {
-        const target = el.scrollHeight - el.clientHeight;
+        const target = getDocumentBottomTarget(el) ?? (el.scrollHeight - getViewportHeight(el));
         const diff = target - el.scrollTop;
 
         if (diff > SCROLL_MIN_DIFF) {
@@ -408,19 +462,22 @@ export function useScrollManager(
     };
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
-  }, []);
+  }, [getDocumentBottomTarget, getScrollElement, getViewportHeight, isStreamingRef]);
 
   // Unpin auto-scroll when user actively scrolls up (wheel or touch).
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
+    const el = getScrollElement();
+    const eventTarget: Window | HTMLElement | null = useDocumentScroll ? window : scrollRef.current;
+    if (!el || !eventTarget) return;
 
     let touchStartY = 0;
 
-    const onTouchStart = (e: TouchEvent) => {
+    const onTouchStart = (event: Event) => {
+      const e = event as TouchEvent;
       touchStartY = e.touches[0].clientY;
     };
-    const onTouchMove = (e: TouchEvent) => {
+    const onTouchMove = (event: Event) => {
+      const e = event as TouchEvent;
       if (isStreamingRef.current && pinnedToBottomRef.current) {
         const dy = e.touches[0].clientY - touchStartY;
         if (dy > STREAM_TOUCH_UNPIN_DELTA_PX) {
@@ -430,15 +487,16 @@ export function useScrollManager(
     };
     const onTouchEnd = () => {
       if (isStreamingRef.current && !manualStreamUnpinRef.current) {
-        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const dist = getDistanceFromBottom(getScrollElement());
         if (dist < 80) pinnedToBottomRef.current = true;
       }
     };
-    const onWheel = (e: WheelEvent) => {
+    const onWheel = (event: Event) => {
+      const e = event as WheelEvent;
       if (isStreamingRef.current && pinnedToBottomRef.current) {
         if (e.deltaY < 0) {
           wheelUpIntentRef.current += Math.abs(e.deltaY);
-          const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+          const dist = getDistanceFromBottom(getScrollElement());
           if (dist > STREAM_UNPIN_DISTANCE_PX || wheelUpIntentRef.current >= STREAM_WHEEL_UNPIN_DELTA_PX) {
             disengageStreamingAutoscroll();
           }
@@ -449,17 +507,19 @@ export function useScrollManager(
     };
     let lastScrollTop = el.scrollTop;
     const onScroll = () => {
-      const currentScrollTop = el.scrollTop;
+      const metricsEl = getScrollElement();
+      if (!metricsEl) return;
+      const currentScrollTop = metricsEl.scrollTop;
       // Unpin during streaming if user scrolls up
       if (isStreamingRef.current && currentScrollTop < lastScrollTop - 3) {
-        const dist = el.scrollHeight - currentScrollTop - el.clientHeight;
+        const dist = getDistanceFromBottom(metricsEl);
         if (dist > STREAM_UNPIN_DISTANCE_PX) {
           disengageStreamingAutoscroll();
         }
       }
       // Re-pin during streaming/grace if user scrolls near bottom
       if ((isStreamingRef.current || scrollGraceRef.current) && !pinnedToBottomRef.current) {
-        const dist = el.scrollHeight - currentScrollTop - el.clientHeight;
+        const dist = getDistanceFromBottom(metricsEl);
         const scrollingDown = currentScrollTop > lastScrollTop + 1;
         const canRepin = !manualStreamUnpinRef.current
           ? dist < 80
@@ -473,25 +533,33 @@ export function useScrollManager(
       lastScrollTop = currentScrollTop;
     };
 
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: true });
-    el.addEventListener("touchend", onTouchEnd, { passive: true });
-    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
-    el.addEventListener("wheel", onWheel, { passive: true });
-    el.addEventListener("scroll", onScroll, { passive: true });
+    eventTarget.addEventListener("touchstart", onTouchStart, { passive: true });
+    eventTarget.addEventListener("touchmove", onTouchMove, { passive: true });
+    eventTarget.addEventListener("touchend", onTouchEnd, { passive: true });
+    eventTarget.addEventListener("touchcancel", onTouchEnd, { passive: true });
+    eventTarget.addEventListener("wheel", onWheel, { passive: true });
+    eventTarget.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("touchend", onTouchEnd);
-      el.removeEventListener("touchcancel", onTouchEnd);
-      el.removeEventListener("wheel", onWheel);
-      el.removeEventListener("scroll", onScroll);
+      eventTarget.removeEventListener("touchstart", onTouchStart);
+      eventTarget.removeEventListener("touchmove", onTouchMove);
+      eventTarget.removeEventListener("touchend", onTouchEnd);
+      eventTarget.removeEventListener("touchcancel", onTouchEnd);
+      eventTarget.removeEventListener("wheel", onWheel);
+      eventTarget.removeEventListener("scroll", onScroll);
     };
-  }, [clearManualStreamUnpin, disengageStreamingAutoscroll, isNativeRef, isStreamingRef]);
+  }, [clearManualStreamUnpin, disengageStreamingAutoscroll, getDistanceFromBottom, getScrollElement, isNativeRef, isStreamingRef, useDocumentScroll]);
+
+  useEffect(() => {
+    if (!useDocumentScroll) return;
+    const onWindowScroll = () => handleScroll();
+    window.addEventListener("scroll", onWindowScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onWindowScroll);
+  }, [handleScroll, useDocumentScroll]);
 
   return {
     scrollRef,
     bottomRef,
+    footerReserveRef,
     morphRef,
     scrollPhase,
     pinnedToBottomRef,

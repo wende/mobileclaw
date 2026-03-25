@@ -51,6 +51,7 @@ import { useZenMode } from "@mc/hooks/useZenMode";
 import { useSubagentStore } from "@mc/hooks/useSubagentStore";
 import { formatSessionName } from "@mc/hooks/useSessionSwitcher";
 import { useAppMode } from "@mc/hooks/useAppMode";
+import { useIsMobileViewport } from "@mc/hooks/useIsMobileViewport";
 
 import { useModeBootstrap } from "@mc/hooks/chat/useModeBootstrap";
 import { useOpenClawRuntime } from "@mc/hooks/chat/useOpenClawRuntime";
@@ -77,10 +78,31 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sentAnimId, setSentAnimId] = useState<string | null>(null);
   const { isDetached, detachedNoBorder, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
+  const isMobileViewport = useIsMobileViewport();
+  const useDocumentScroll = isDetached && !isNative && isMobileViewport;
+
+  useEffect(() => {
+    if (!useDocumentScroll) return;
+
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevBodyOverscroll = document.body.style.overscrollBehavior;
+
+    document.documentElement.style.overflow = "visible";
+    document.body.style.overflow = "visible";
+    document.body.style.overscrollBehavior = "auto";
+
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.body.style.overscrollBehavior = prevBodyOverscroll;
+    };
+  }, [useDocumentScroll]);
 
   const {
     scrollRef,
     bottomRef,
+    footerReserveRef,
     morphRef,
     scrollPhase,
     pinnedToBottomRef,
@@ -88,7 +110,12 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     handleScroll,
     scrollToBottom,
     updateGraceForStreamingChange,
-  } = useScrollManager(messages, isStreamingRef, isNativeRef);
+  } = useScrollManager({
+    messages,
+    isStreamingRef,
+    isNativeRef,
+    useDocumentScroll,
+  });
 
   const setIsStreaming = useCallback((value: boolean) => {
     const wasStreaming = isStreamingRef.current;
@@ -260,7 +287,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     setTurnstileChecked(true);
   }, []);
 
-  useKeyboardLayout(appRef, floatingBarRef, bottomRef, !isNative);
+  useKeyboardLayout(appRef, floatingBarRef, bottomRef, !isNative && !useDocumentScroll);
 
   const appendContentDelta = useCallback((runId: string, delta: string, ts: number) => {
     beginContentArrival();
@@ -361,6 +388,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   } = useOpenClawRuntime({
     backendMode,
     isNative,
+    useDocumentScroll,
     isDetachedRef,
     isNativeRef,
     scrollRef,
@@ -702,11 +730,11 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   const bottomPad = getChatBottomPad({
     isNative,
     isDetached,
+    useDocumentScroll,
     inputZoneHeight,
     hasQueued: !!queuedMessage,
     hasPinnedSubagent: !!pinnedSubagent,
   });
-
   const lastUserMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "user" && !messages[i].isContext) {
@@ -715,6 +743,9 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     }
     return "";
   }, [messages]);
+
+  const showAppBackground = useDocumentScroll || !hideChrome;
+  const shellStyle = useDocumentScroll ? undefined : { height: isDetached ? "100%" : "100dvh" };
 
   if (!turnstileChecked) return null;
   if (!turnstileVerified && TURNSTILE_SITE_KEY) {
@@ -730,7 +761,11 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   }
 
   return (
-    <div ref={appRef} className={`relative flex flex-col overflow-hidden ${hideChrome ? "" : "bg-background"}`} style={{ height: isDetached ? "100%" : "100dvh" }}>
+    <div
+      ref={appRef}
+      className={`relative flex flex-col ${useDocumentScroll ? "min-h-svh overflow-visible" : "overflow-hidden"} ${showAppBackground ? "bg-background" : ""}`}
+      style={shellStyle}
+    >
       <ChatChrome
         hideChrome={hideChrome}
         openclawUrl={openclawUrl}
@@ -770,6 +805,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
         isDetached={isDetached}
         detachedNoBorder={detachedNoBorder}
         isNative={isNative}
+        useDocumentScroll={useDocumentScroll}
         historyLoaded={historyLoaded}
         inputZoneHeight={inputZoneHeight}
         bottomPad={bottomPad}
@@ -815,7 +851,9 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
       <ChatComposerBar
         isNative={isNative}
         isDetached={isDetached}
+        useDocumentScroll={useDocumentScroll}
         floatingBarRef={floatingBarRef}
+        footerReserveRef={footerReserveRef}
         morphRef={morphRef}
         pinnedSubagent={pinnedSubagent}
         subagentStore={subagentStore}
@@ -848,6 +886,13 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
         lastUserMessage={lastUserMessage}
         uploadDisabled={uploadDisabled}
       />
+
+      {useDocumentScroll && (
+        <div
+          aria-hidden="true"
+          style={{ height: "calc(env(safe-area-inset-bottom, 0px) + 10dvh)", flexShrink: 0 }}
+        />
+      )}
     </div>
   );
 });
