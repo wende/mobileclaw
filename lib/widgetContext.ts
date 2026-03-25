@@ -5,6 +5,7 @@ export interface WidgetContextValue {
   noBorder: boolean;
   wsUrl: string | null;
   demo?: boolean;
+  transparentHostBackground?: boolean;
 }
 
 const WidgetContext = createContext<WidgetContextValue | null>(null);

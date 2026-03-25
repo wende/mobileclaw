@@ -12,7 +12,9 @@ import type { BackendMode, ImageAttachment, InputAttachment, ModelChoice } from 
 interface ChatComposerBarProps {
   isNative: boolean;
   isDetached: boolean;
+  useDocumentScroll?: boolean;
   floatingBarRef: React.RefObject<HTMLDivElement | null>;
+  footerReserveRef?: React.RefObject<HTMLDivElement | null>;
   morphRef: React.RefObject<HTMLDivElement | null>;
   pinnedSubagent: {
     toolCallId: string | null;
@@ -47,7 +49,9 @@ interface ChatComposerBarProps {
 export function ChatComposerBar({
   isNative,
   isDetached,
+  useDocumentScroll = false,
   floatingBarRef,
+  footerReserveRef,
   morphRef,
   pinnedSubagent,
   subagentStore,
@@ -75,15 +79,53 @@ export function ChatComposerBar({
 }: ChatComposerBarProps) {
   if (isNative) return null;
 
-  return (
+  const showScrollPill = useDocumentScroll && scrollPhase === "pill";
+  const documentScrollClassName = "pointer-events-none relative z-20 flex justify-center px-3 md:px-6 animate-[fadeIn_400ms_ease-out]";
+  const wrapperClassName = useDocumentScroll
+    ? documentScrollClassName
+    : `pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 ${isDetached ? "pb-[1.5dvh]" : "pb-[3dvh]"} md:px-6 ${isDetached ? "md:pb-[1.5dvh]" : "md:pb-[3dvh]"} animate-[fadeIn_400ms_ease-out]`;
+  const wrapperStyle = useDocumentScroll
+    ? { paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }
+    : undefined;
+  const scrollPillOffset = useDocumentScroll
+    ? "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)"
+    : isDetached
+      ? "calc(1.5dvh + 4.5rem)"
+      : "calc(3dvh + 4.5rem)";
+  const scrollPillContainerStyle = useDocumentScroll
+    ? { bottom: "calc(env(safe-area-inset-bottom, 0px) + 0.8rem)" }
+    : { paddingBottom: scrollPillOffset };
+  const scrollPill = showScrollPill ? (
     <div
-      ref={floatingBarRef}
-      className={`pointer-events-none fixed inset-x-0 bottom-0 z-20 flex justify-center px-3 ${isDetached ? "pb-[1.5dvh]" : "pb-[3dvh]"} md:px-6 ${isDetached ? "md:pb-[1.5dvh]" : "md:pb-[3dvh]"} animate-[fadeIn_400ms_ease-out]`}
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-3 md:px-6 animate-[fadeIn_200ms_ease-out]"
+      style={scrollPillContainerStyle}
+    >
+      <button
+        type="button"
+        onClick={onScrollToBottom}
+        className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-border bg-background/75 px-4 py-2.5 text-xs font-medium text-foreground shadow-[0_2px_4px_rgba(49,49,49,0.08)] backdrop-blur-[12px] backdrop-saturate-[1.8]"
+      >
+        <span aria-hidden="true" className="text-sm leading-none">↓</span>
+        <span>Scroll to bottom</span>
+      </button>
+    </div>
+  ) : null;
+  const composerWidthStyle = useDocumentScroll
+    ? ({ maxWidth: "42rem" } as React.CSSProperties)
+    : ({
+        maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--lp, 0))), calc(200px + (42rem - 200px) * (1 - var(--lp, 0))))",
+      } as React.CSSProperties);
+
+  const renderComposer = (ref: React.RefObject<HTMLDivElement | null>) => (
+    <div
+      ref={ref}
+      className={wrapperClassName}
+      style={wrapperStyle}
     >
       <div
         ref={morphRef}
         className="pointer-events-auto w-full"
-        style={{ maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--lp, 0))), calc(200px + (42rem - 200px) * (1 - var(--lp, 0))))" } as React.CSSProperties}
+        style={composerWidthStyle}
       >
         {pinnedSubagent && (
           <div style={{ paddingLeft: "calc(48px * (1 - var(--lp, 0)))", paddingRight: "calc(48px * (1 - var(--lp, 0)))" } as React.CSSProperties}>
@@ -109,6 +151,7 @@ export function ChatComposerBar({
           onSend={onSend}
           scrollPhase={scrollPhase}
           onScrollToBottom={onScrollToBottom}
+          disableScrollMorph={useDocumentScroll}
           availableModels={availableModels}
           modelsLoading={modelsLoading}
           onFetchModels={onFetchModels}
@@ -126,5 +169,21 @@ export function ChatComposerBar({
         />
       </div>
     </div>
+  );
+
+  if (!useDocumentScroll) {
+    return (
+      <>
+        {renderComposer(floatingBarRef)}
+        {scrollPill}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {renderComposer(footerReserveRef ?? floatingBarRef)}
+      {scrollPill}
+    </>
   );
 }
