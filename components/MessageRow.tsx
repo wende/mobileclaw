@@ -458,7 +458,7 @@ function normalizeAssistantCopyText(text: string): string {
 }
 
 /** Serialize the full assistant message — thinking, tool calls, and text — in chronological order. */
-function getFullAssistantCopyText(message: Message): string {
+export function getFullAssistantCopyText(message: Message): string {
   if (message.role !== "assistant" || !message.content) return "";
 
   const sections: string[] = [];
@@ -786,6 +786,7 @@ export function MessageRow({
   onSentAnimationEnd,
   onPluginAction,
   onAddInputAttachment,
+  runDebugCopyText,
 }: {
   message: Message;
   isStreaming: boolean;
@@ -805,6 +806,7 @@ export function MessageRow({
   onSentAnimationEnd?: () => void;
   onPluginAction?: PluginActionHandler;
   onAddInputAttachment?: (kind: string, data: unknown) => void;
+  runDebugCopyText?: string;
 }) {
   const messageRef = useRef<HTMLDivElement>(null);
   useNativeClickInterceptor(messageRef);
@@ -815,10 +817,9 @@ export function MessageRow({
   const images = getImages(message.content);
   const files = getFiles(message.content);
   const assistantCopyText = message.role === "assistant" ? normalizeAssistantCopyText(getTextFromContent(message.content)) : "";
-  const debugCopyText = message.role === "assistant" ? getFullAssistantCopyText(message) : "";
   const assistantDurationText = getAssistantDurationText(message);
   const showAssistantCopyButton = !isStreaming && !!assistantCopyText;
-  const showDebugCopyButton = !isStreaming && !!debugCopyText;
+  const showDebugCopyButton = !isStreaming && !!runDebugCopyText;
   const isErrorContextMessage = message.isContext
     || message.stopReason === STOP_REASON_INJECTED
     || text.startsWith(SYSTEM_PREFIX)
@@ -1121,7 +1122,7 @@ export function MessageRow({
                   <InlineThinkingIndicator startTime={message.timestamp} />
                 )}
                 {(showAssistantCopyButton || showDebugCopyButton) ? (
-                  <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} debugCopyText={showDebugCopyButton ? debugCopyText : undefined} />
+                  <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} debugCopyText={showDebugCopyButton ? runDebugCopyText : undefined} />
                 ) : null}
               </div>
             </SlideContent>

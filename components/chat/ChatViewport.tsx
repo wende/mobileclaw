@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 
-import { MessageRow } from "@mc/components/MessageRow";
+import { MessageRow, getFullAssistantCopyText } from "@mc/components/MessageRow";
 import { ZenToggle } from "@mc/components/ZenToggle";
 import { formatMessageTime, getMessageSide } from "@mc/lib/messageUtils";
 import { STOP_REASON_INJECTED, isToolCallPart, MESSAGE_SEND_ANIMATION } from "@mc/lib/constants";
@@ -222,6 +222,33 @@ export function ChatViewport({
     for (let i = 0; i < zenDisplayMessages.length; i++) {
       if (!isToolOnly(zenDisplayMessages[i])) continue;
       map.set(i, i > 0 && map.has(i - 1) ? map.get(i - 1)! : i);
+    }
+    return map;
+  }, [zenDisplayMessages]);
+
+  // Compute full-run debug copy text: aggregate all assistant messages between
+  // user messages. Only the last assistant message in each run gets the text.
+  const runDebugCopyMap = useMemo(() => {
+    const map = new Map<number, string>();
+    const msgs = zenDisplayMessages;
+    let runStart = 0;
+    for (let i = 0; i <= msgs.length; i++) {
+      const isEnd = i === msgs.length || msgs[i].role === "user";
+      if (!isEnd) continue;
+      // Collect all assistant messages in [runStart, i)
+      const sections: string[] = [];
+      let lastAssistantIdx = -1;
+      for (let j = runStart; j < i; j++) {
+        if (msgs[j].role === "assistant") {
+          const text = getFullAssistantCopyText(msgs[j]);
+          if (text) sections.push(text);
+          lastAssistantIdx = j;
+        }
+      }
+      if (lastAssistantIdx >= 0 && sections.length > 0) {
+        map.set(lastAssistantIdx, sections.join("\n\n"));
+      }
+      runStart = i + 1;
     }
     return map;
   }, [zenDisplayMessages]);
@@ -861,6 +888,7 @@ export function ChatViewport({
                       onSentAnimationEnd={isSentUserAnim ? onSentAnimationEnd : undefined}
                       onPluginAction={onPluginAction}
                       onAddInputAttachment={onAddInputAttachment}
+                      runDebugCopyText={runDebugCopyMap.get(idx)}
                     />
                   </div>
                 )}

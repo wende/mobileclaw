@@ -4,6 +4,7 @@ export type ChatLayoutMode = "document-scroll" | "viewport-shell" | "parent-shel
 
 interface ChatLayoutConfigOptions {
   isDetached: boolean;
+  detachedNoShell: boolean;
   isNative: boolean;
   isMobileViewport: boolean;
   detachedSurface: DetachedSurface;
@@ -18,6 +19,7 @@ interface ChatLayoutConfig {
 
 export function getChatLayoutConfig({
   isDetached,
+  detachedNoShell,
   isNative,
   isMobileViewport,
   detachedSurface,
@@ -26,7 +28,7 @@ export function getChatLayoutConfig({
 
   if (!isDetached || isNative) {
     mode = "viewport-shell";
-  } else if (isMobileViewport) {
+  } else if (isMobileViewport && (detachedSurface === "widget" || detachedNoShell)) {
     mode = "document-scroll";
   } else {
     mode = detachedSurface === "widget" ? "parent-shell" : "viewport-shell";

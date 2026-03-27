@@ -78,7 +78,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   const isStreamingRef = useRef(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sentAnimId, setSentAnimId] = useState<string | null>(null);
-  const { isDetached, detachedNoBorder, detachedSurface, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
+  const { isDetached, detachedNoBorder, detachedNoShell, detachedSurface, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
   const isMobileViewport = useIsMobileViewport();
   const {
     useDocumentScroll,
@@ -86,6 +86,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     useKeyboardLayout: shouldUseKeyboardLayout,
   } = getChatLayoutConfig({
     isDetached,
+    detachedNoShell,
     isNative,
     isMobileViewport,
     detachedSurface,
