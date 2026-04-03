@@ -18,6 +18,7 @@ export interface ModelSuggestion {
 export interface ChatInputHandle {
   setValue: (v: string) => void;
   addInputAttachment: (kind: string, data: unknown) => void;
+  sendCommand?: (text: string) => void;
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, {

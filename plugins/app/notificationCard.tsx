@@ -221,17 +221,25 @@ export function NotificationCardInner({
         </div>
 
         <div
-          className={`text-[13px] leading-relaxed text-foreground/70 mb-1 cursor-pointer ${expanded ? "" : "line-clamp-2"}`}
+          className="relative cursor-pointer"
           onClick={() => setExpanded((v) => !v)}
         >
-          {md(question)}
-        </div>
-
-        {expanded && context && (
-          <div className="text-[13px] text-muted-foreground mb-1">
-            {md(context)}
+          <div
+            className={`text-[13px] leading-relaxed text-foreground/70 break-words overflow-hidden ${expanded ? "" : "max-h-[9em]"}`}
+          >
+            {md(question)}
           </div>
-        )}
+
+          {expanded && context && (
+            <div className="text-[13px] text-muted-foreground mt-1 break-words overflow-hidden">
+              {md(context)}
+            </div>
+          )}
+
+          {!expanded && (
+            <div className="absolute bottom-0 left-0 right-0 h-5 bg-gradient-to-t from-card to-transparent pointer-events-none" />
+          )}
+        </div>
 
         {resolvedLabel && (
           <div className="mt-2 text-[11px] text-muted-foreground">
@@ -254,33 +262,42 @@ export function NotificationCardInner({
         <span className="flex-1">
           {flowName?.trim() || "Workflow"}
         </span>
-        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium capitalize bg-amber-100 text-amber-800">
-          pending
-        </span>
+        {!isNotify && (
+          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium capitalize bg-amber-100 text-amber-800">
+            pending
+          </span>
+        )}
         <span className="font-normal normal-case tracking-normal text-muted-foreground/60">
           {timeAgo}
         </span>
       </div>
 
       <div
-        className={`text-[13px] leading-relaxed text-foreground mb-1 cursor-pointer ${expanded ? "" : "line-clamp-3"}`}
+        className="relative cursor-pointer"
         onClick={() => setExpanded((v) => !v)}
       >
-        {md(question)}
-      </div>
-
-      {context && (
         <div
-          className={`text-[13px] text-muted-foreground mb-1 cursor-pointer ${expanded ? "" : "line-clamp-2"}`}
-          onClick={() => setExpanded((v) => !v)}
+          className={`text-[13px] leading-relaxed text-foreground break-words overflow-hidden ${expanded ? "" : "max-h-[9em]"}`}
         >
-          {md(context)}
+          {md(question)}
         </div>
-      )}
+
+        {context && (
+          <div
+            className={`text-[13px] text-muted-foreground break-words overflow-hidden ${expanded ? "mt-1" : "max-h-[9em] mt-0.5"}`}
+          >
+            {md(context)}
+          </div>
+        )}
+
+        {!expanded && (
+          <div className="absolute bottom-0 left-0 right-0 h-5 bg-gradient-to-t from-card to-transparent pointer-events-none" />
+        )}
+      </div>
 
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors mb-3"
+        className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors mb-3 mt-1"
       >
         {expanded ? "Show less" : "Show more"}
       </button>

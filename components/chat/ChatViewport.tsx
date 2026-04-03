@@ -735,8 +735,19 @@ export function ChatViewport({
         className={`scrollbar-hide ${useDocumentScroll ? "overflow-visible" : "flex-1 overflow-y-auto overflow-x-hidden"} ${isNative || detachedNoBorder ? "" : "bg-background"} ${detachedShell ? "rounded-2xl" : (!isDetached ? "pt-14" : "")}`}
         style={{ ...(isNative || useDocumentScroll ? {} : { overscrollBehavior: "none" as const }), ...(detachedShell ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
       >
-        <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
+        <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 pt-16 pb-6 md:px-6 md:pt-24 md:pb-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"} ${historyLoaded && zenDisplayMessages.length === 0 ? "min-h-full" : ""}`} style={{ paddingBottom: bottomPad }}>
           {isNative && <div aria-hidden="true" style={{ height: IOS_TOP_MESSAGE_SPACER_HEIGHT, flexShrink: 0 }} />}
+          {historyLoaded && zenDisplayMessages.length === 0 && (
+            <div className="flex flex-1 flex-col items-center justify-center gap-6">
+              <p className="text-center px-8 text-sm leading-relaxed max-w-sm" style={{ color: "#C8C8C8" }}>
+                Welcome to 8Claw. Send a message to start your first conversation. You can ask your agent anything from general questions to asking it to create automated tools for you.
+              </p>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#C8C8C8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14" />
+                <path d="m19 12-7 7-7-7" />
+              </svg>
+            </div>
+          )}
           {zenDisplayMessages.map((msg, idx) => {
             const toolGroupHead = toolGroupMap.get(idx) ?? -1;
             const side = getMessageSide(msg.role);

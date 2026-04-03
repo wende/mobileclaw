@@ -347,22 +347,10 @@ export function useScrollManager({
       if (isAnimatingScrollRef.current) return;
 
       if (isStreamingRef.current) {
-        // During streaming, only allow content to grow — never shrink.
-        // This prevents zen collapses from reducing scrollHeight and causing
-        // the scroll position to jump back up.
-        const currentHeight = content.offsetHeight;
-        const prevMin = parseFloat(content.style.minHeight) || 0;
-        if (currentHeight > prevMin) {
-          content.style.minHeight = `${currentHeight}px`;
-        }
+        // During streaming, let the rAF momentum loop handle scroll position.
+        // Don't lock minHeight — content must be free to shrink when the user
+        // collapses a tool call.
         return;
-      }
-
-      // During grace period, keep the streaming height lock and let the rAF
-      // momentum loop handle scroll smoothly. The rAF tick will clear minHeight
-      // once grace expires.
-      if (!scrollGraceRef.current) {
-        content.style.minHeight = "";
       }
 
       if ((pinnedToBottomRef.current || scrollGraceRef.current) && el.scrollHeight > getViewportHeight(el)) {
@@ -397,7 +385,6 @@ export function useScrollManager({
     // velocity in px-per-60fps-frame; multiplied by frameScale before applying
     let velocity = 0;
     let lastTime = 0;
-    let wasStreaming = isStreamingRef.current;
 
     // Tuning constants (normalized to 60fps baseline)
     const TARGET_FRAME_MS = 16.67;      // 60fps reference frame duration
@@ -406,21 +393,7 @@ export function useScrollManager({
     const SCROLL_MOMENTUM_FACTOR = 0.12; // per-frame blend toward desired velocity (60fps)
     const SCROLL_MIN_VELOCITY = 0.5;     // px/frame minimum while actively scrolling
 
-    let pendingMinHeightClear = false;
-
     const tick = (timestamp: number) => {
-      if (wasStreaming && !isStreamingRef.current) {
-        // Don't clear minHeight immediately — defer until after the grace period
-        // so content height stays stable during smooth scroll wind-down.
-        pendingMinHeightClear = true;
-      }
-      if (pendingMinHeightClear && !scrollGraceRef.current) {
-        const content = el.firstElementChild as HTMLElement | null;
-        if (content) content.style.minHeight = "";
-        pendingMinHeightClear = false;
-      }
-      wasStreaming = isStreamingRef.current;
-
       const rawDelta = lastTime ? timestamp - lastTime : TARGET_FRAME_MS;
       // Clamp to 50ms to prevent huge jumps after tab switch or system sleep
       const deltaTime = Math.min(rawDelta, 50);
