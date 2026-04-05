@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { z } from "zod";
 import type { MobileClawPlugin, PluginViewProps } from "@mc/lib/plugins/types";
 
@@ -28,7 +29,7 @@ type StepEntry = z.infer<typeof stepSchema>;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function stepTypeIcon(type: string): React.ReactNode {
+function stepTypeIcon(type: string): ReactNode {
   switch (type) {
     case "trigger":
       return (

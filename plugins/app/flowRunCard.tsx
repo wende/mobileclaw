@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import type { MobileClawPlugin, PluginViewProps } from "@mc/lib/plugins/types";
 
@@ -118,7 +118,7 @@ export interface FlowRunCardInnerProps {
   durationMs?: number;
   failedStep?: string;
   onClick?: () => void;
-  highlightStyle?: React.CSSProperties;
+  highlightStyle?: CSSProperties;
 }
 
 export function FlowRunCardInner({

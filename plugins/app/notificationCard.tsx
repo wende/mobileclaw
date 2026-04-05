@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { z } from "zod";
 import type { MobileClawPlugin, PluginViewProps } from "@mc/lib/plugins/types";
 import type { PluginAction, PluginActionStyle } from "@mc/types/chat";
@@ -56,7 +56,7 @@ export interface NotificationCardInnerProps {
   options: Array<{ label: string; value: string; style?: "primary" | "secondary" | "destructive" }>;
   resolving?: boolean;
   onResolve?: (label: string, value: string) => void;
-  renderMarkdown?: (text: string) => React.ReactNode;
+  renderMarkdown?: (text: string) => ReactNode;
   // For settled state
   resolved?: boolean;
   resolvedLabel?: string;

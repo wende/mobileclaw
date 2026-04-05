@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { z } from "zod";
 import type { MobileClawPlugin, PluginViewProps } from "@mc/lib/plugins/types";
 
@@ -53,7 +54,7 @@ function statusBgClass(status: string): string {
   }
 }
 
-function stepStatusIcon(status?: string): { color: string; icon: React.ReactNode } {
+function stepStatusIcon(status?: string): { color: string; icon: ReactNode } {
   switch (status) {
     case "SUCCEEDED":
       return {
