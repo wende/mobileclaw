@@ -4,6 +4,7 @@ export interface WidgetContextValue {
   isDetached: boolean;
   noBorder: boolean;
   wsUrl: string | null;
+  token?: string | null;
   demo?: boolean;
   transparentHostBackground?: boolean;
 }

@@ -10,23 +10,25 @@ export type { ChatInputHandle }
 
 export interface ChatWidgetProps {
   wsUrl?: string
+  token?: string | null
   className?: string
   demo?: boolean
   transparentHostBackground?: boolean
 }
 
 export const ChatWidget = forwardRef<ChatInputHandle, ChatWidgetProps>(
-  function ChatWidget({ wsUrl, className, demo, transparentHostBackground = true }, ref) {
+  function ChatWidget({ wsUrl, token, className, demo, transparentHostBackground = true }, ref) {
     const rootClassName = className ? `bg-background ${className}` : "bg-background"
     const modeValue = useMemo(
       () => ({
         isDetached: true,
         noBorder: true,
         wsUrl: wsUrl ?? null,
+        token: token ?? null,
         demo: demo ?? false,
         transparentHostBackground,
       }),
-      [wsUrl, demo, transparentHostBackground],
+      [wsUrl, token, demo, transparentHostBackground],
     )
 
     return (

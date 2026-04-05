@@ -130,7 +130,7 @@ export function useModeBootstrap({
     const detached = isDetachedRef.current;
     const embedUrl = widgetCtx?.wsUrl ?? (detached ? getSearchParam("url") : null);
     if (embedUrl) {
-      gatewayTokenRef.current = widgetCtx ? null : getSearchParam("token");
+      gatewayTokenRef.current = widgetCtx?.token ?? (widgetCtx ? null : getSearchParam("token"));
       setBackendMode("openclaw");
       setOpenclawUrl(embedUrl);
       setIsInitialConnecting(true);

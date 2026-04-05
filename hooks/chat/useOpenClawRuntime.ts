@@ -15,6 +15,7 @@ import { mergeModels, parseConfigProviders, type ConfigParseResult } from "@mc/l
 import { useWebSocket, type WebSocketMessage } from "@mc/lib/useWebSocket";
 import { postConnectionState, postRunState, postSessionsState } from "@mc/lib/nativeBridge";
 import { mergeAndNormalizeToolResults } from "@mc/lib/chat/messageTransforms";
+import { pluginFromToolResult, injectPluginsFromHistory } from "@mc/lib/chat/toolResultPlugins";
 import {
   buildHistoryMessages,
   extractSpawnChildSessionKeys,
@@ -368,7 +369,8 @@ export function useOpenClawRuntime({
     }
 
     const historyMessages = buildHistoryMessages(rawMessages);
-    const finalMessages = mergeAndNormalizeToolResults(historyMessages);
+    const merged = mergeAndNormalizeToolResults(historyMessages);
+    const finalMessages = injectPluginsFromHistory(merged);
 
     const inferredModel = inferCurrentModel(rawMessages);
     if (inferredModel) setCurrentModel(inferredModel);
@@ -632,6 +634,12 @@ export function useOpenClawRuntime({
           ? payload.data.result
           : JSON.stringify(payload.data.result, null, 2);
         resolveToolCall(payload.runId, toolName, toolCallId, resultText, !!payload.data.isError);
+
+        // Auto-mount plugin from known tool results (8claw MCP tools via OpenClaw)
+        const pluginPart = pluginFromToolResult(toolName, resultText, !!payload.data.isError);
+        if (pluginPart) {
+          mountPluginPart(payload.runId, pluginPart, payload.ts);
+        }
       }
     }
 

@@ -23,6 +23,7 @@ import { isPluginPart } from "@mc/lib/constants";
 import { pluginRegistry } from "@mc/lib/plugins/registry";
 import type { PluginActionHandler } from "@mc/lib/plugins/types";
 import type { PluginContentPart } from "@mc/types/chat";
+import { parsePluginTags } from "@mc/lib/chat/pluginTagParser";
 
 // ── File Thumbnails ──────────────────────────────────────────────────────────
 
@@ -1011,6 +1012,60 @@ export function MessageRow({
             pushAssistantBlock(`text-thinking-${i}`, <ThinkingPill text={extractedThinking} isStreaming={isStreaming} />);
           }
           if (cleanText.trim()) {
+            // Parse <plugin> tags from finalized text (skip during streaming)
+            if (!showCursor) {
+              const segments = parsePluginTags(cleanText);
+              const hasPlugins = segments.some((s) => s.kind === "plugin");
+              if (hasPlugins) {
+                for (const [j, seg] of segments.entries()) {
+                  if (seg.kind === "text" && seg.text.trim()) {
+                    pushAssistantBlock(
+                      `text-${i}-seg-${j}`,
+                      <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
+                        <MarkdownContent text={seg.text} />
+                      </div>,
+                    );
+                    pushAssistantBlock(`unfurl-${i}-seg-${j}`, <UnfurlCards text={seg.text} isStreaming={false} />);
+                  } else if (seg.kind === "plugin") {
+                    const plugin = pluginRegistry.get(seg.pluginType);
+                    if (plugin) {
+                      const parsed = plugin.parse(seg.data);
+                      if (parsed.ok) {
+                        const pluginPart: PluginContentPart = {
+                          type: "plugin",
+                          partId: `text-plugin-${i}-${j}`,
+                          pluginType: seg.pluginType,
+                          state: "settled",
+                          data: seg.data,
+                        };
+                        pushAssistantBlock(
+                          `text-plugin-${i}-${j}`,
+                          <PluginRenderer
+                            part={pluginPart}
+                            messageId={message.id ?? ""}
+                            isStreaming={false}
+                            onAction={onPluginAction}
+                            onAddInputAttachment={onAddInputAttachment}
+                          />,
+                          pluginRegistry.getWidth(seg.pluginType) === "chat" ? "chat" : "bubble",
+                        );
+                        continue;
+                      }
+                    }
+                    // Fallback: render inner text as markdown
+                    if (seg.fallbackText.trim()) {
+                      pushAssistantBlock(
+                        `text-${i}-seg-${j}`,
+                        <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
+                          <MarkdownContent text={seg.fallbackText} />
+                        </div>,
+                      );
+                    }
+                  }
+                }
+                return;
+              }
+            }
             pushAssistantBlock(
               `text-${i}`,
               <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
