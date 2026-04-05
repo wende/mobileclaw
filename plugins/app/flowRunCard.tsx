@@ -1,16 +1,10 @@
 "use client";
 
-import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
-
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
+import type { MobileClawPlugin, PluginViewProps } from "@mc/lib/plugins/types";
 
-import type {
-  MobileClawPlugin,
-  PluginViewProps,
-} from "@mc/lib/plugins/types";
-
-/* ── Zod schema ── */
+// ── Schema ──────────────────────────────────────────────────────────────────
 
 const flowRunCardSchema = z.object({
   runId: z.string(),
@@ -26,42 +20,18 @@ const flowRunCardSchema = z.object({
 
 type FlowRunCardData = z.infer<typeof flowRunCardSchema>;
 
-/* ── Shared helpers (exported for sidebar reuse) ── */
+// ── Helpers (exported for 8claw sidebar reuse) ──────────────────────────
 
-export function formatDuration(ms: number | null | undefined): string {
-  if (ms == null) return "\u2014";
-  if (ms < 1_000) return `${Math.round(ms)}ms`;
-  const totalSeconds = Math.round(ms / 1_000);
-  const seconds = totalSeconds % 60;
-  const minutes = Math.floor(totalSeconds / 60);
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
-}
-
-const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-
-export function relativeTimeFromISO(isoDate: string | undefined): string {
-  if (!isoDate) return "";
-  const diffMs = new Date(isoDate).getTime() - Date.now();
-  const absMs = Math.abs(diffMs);
-  if (absMs < 60_000) return rtf.format(Math.round(diffMs / 1_000), "second");
-  if (absMs < 3_600_000)
-    return rtf.format(Math.round(diffMs / 60_000), "minute");
-  if (absMs < 86_400_000)
-    return rtf.format(Math.round(diffMs / 3_600_000), "hour");
-  return rtf.format(Math.round(diffMs / 86_400_000), "day");
-}
-
-export function isRunError(status: string): boolean {
-  return (
-    status === "FAILED" ||
-    status === "INTERNAL_ERROR" ||
-    status === "TIMEOUT" ||
-    status === "QUOTA_EXCEEDED" ||
-    status === "MEMORY_LIMIT_EXCEEDED" ||
-    status === "LOG_SIZE_EXCEEDED" ||
-    status === "CANCELED"
-  );
+export function resolveDurationMs(run: {
+  startTime?: string | null;
+  finishTime?: string | null;
+  duration?: number | null;
+}): number | null {
+  const start = run.startTime ? new Date(run.startTime).getTime() : null;
+  const finish = run.finishTime ? new Date(run.finishTime).getTime() : null;
+  if (start && finish && finish >= start) return finish - start;
+  if (typeof run.duration === "number" && run.duration >= 0) return run.duration;
+  return null;
 }
 
 export function resolveFailedStep(value: unknown): string | null {
@@ -74,54 +44,70 @@ export function resolveFailedStep(value: unknown): string | null {
   return null;
 }
 
-export function resolveDurationMs(run: {
-  startTime?: string;
-  finishTime?: string;
-  duration?: number | null;
-}): number | null {
-  const startMs = run.startTime
-    ? new Date(run.startTime).getTime()
-    : null;
-  const finishMs = run.finishTime
-    ? new Date(run.finishTime).getTime()
-    : null;
-  if (startMs && finishMs && finishMs >= startMs) return finishMs - startMs;
-  if (
-    typeof run.duration === "number" &&
-    Number.isFinite(run.duration) &&
-    run.duration >= 0
-  )
-    return run.duration;
-  return null;
+function formatDuration(ms?: number | null): string | null {
+  if (!ms || ms <= 0) return null;
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
-function useElapsedSeconds(
-  startTime: string | undefined,
-  active: boolean,
-): number {
-  const [elapsed, setElapsed] = useState(() => {
-    if (!startTime) return 0;
-    return Math.max(
-      0,
-      Math.round((Date.now() - new Date(startTime).getTime()) / 1_000),
-    );
-  });
-  useEffect(() => {
-    if (!active || !startTime) return;
-    const id = window.setInterval(() => {
-      setElapsed(
-        Math.max(
-          0,
-          Math.round((Date.now() - new Date(startTime).getTime()) / 1_000),
-        ),
-      );
-    }, 1_000);
-    return () => window.clearInterval(id);
-  }, [active, startTime]);
-  return elapsed;
+function statusColor(status: string): string {
+  switch (status) {
+    case "RUNNING":
+    case "QUEUED":
+      return "text-primary";
+    case "SUCCEEDED":
+      return "text-emerald-600 dark:text-emerald-400";
+    case "FAILED":
+    case "INTERNAL_ERROR":
+    case "TIMEOUT":
+      return "text-destructive";
+    case "PAUSED":
+      return "text-amber-600 dark:text-amber-400";
+    default:
+      return "text-muted-foreground";
+  }
 }
 
-/* ── Shared inner component ── */
+function statusBgClass(status: string): string {
+  switch (status) {
+    case "RUNNING":
+    case "QUEUED":
+      return "border-primary/20 bg-primary/10 text-primary";
+    case "SUCCEEDED":
+      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+    case "FAILED":
+    case "INTERNAL_ERROR":
+    case "TIMEOUT":
+      return "border-destructive/20 bg-destructive/10 text-destructive";
+    case "PAUSED":
+      return "border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400";
+    default:
+      return "border-border bg-background/60 text-muted-foreground";
+  }
+}
+
+function statusDotClass(status: string): string {
+  switch (status) {
+    case "RUNNING":
+    case "QUEUED":
+      return "bg-primary animate-pulse";
+    case "SUCCEEDED":
+      return "bg-emerald-500";
+    case "FAILED":
+    case "INTERNAL_ERROR":
+    case "TIMEOUT":
+      return "bg-destructive";
+    case "PAUSED":
+      return "bg-amber-500";
+    default:
+      return "bg-muted-foreground";
+  }
+}
+
+// ── FlowRunCardInner (standalone export for 8claw sidebar) ──────────────
 
 export interface FlowRunCardInnerProps {
   flowName: string;
@@ -132,7 +118,7 @@ export interface FlowRunCardInnerProps {
   durationMs?: number;
   failedStep?: string;
   onClick?: () => void;
-  highlightStyle?: CSSProperties;
+  highlightStyle?: React.CSSProperties;
 }
 
 export function FlowRunCardInner({
@@ -146,210 +132,70 @@ export function FlowRunCardInner({
   onClick,
   highlightStyle,
 }: FlowRunCardInnerProps) {
+  const [now, setNow] = useState(() => Date.now());
   const isRunning = status === "RUNNING" || status === "QUEUED";
-  const isSuccess = status === "SUCCEEDED";
-  const isError = isRunError(status);
-  const elapsed = useElapsedSeconds(startTime, isRunning);
-  const timeAgo = relativeTimeFromISO(startTime ?? finishTime);
-  const duration = formatDuration(durationMs ?? null);
 
-  if (isRunning) {
-    return (
-      <div
-        className="bg-card rounded-2xl p-5 shadow-[0_4px_12px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer"
-        style={highlightStyle}
-        onClick={onClick}
-      >
-        <div className="flex items-center gap-2 mb-3">
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand-ongoing opacity-75" />
-            <span className="relative inline-flex size-2 rounded-full bg-brand-ongoing" />
-          </span>
-          <span className="flex-1 min-w-0 truncate text-[13px] font-medium text-foreground">
-            {flowName}
-          </span>
-          <span className="text-[10px] font-bold tracking-[0.1em] uppercase text-brand-ongoing">
-            Running
-          </span>
-        </div>
-        <div className="flex items-center gap-3 text-[12px] text-muted-foreground">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            className="animate-spin text-foreground shrink-0"
-          >
-            <circle
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="3"
-              fill="none"
-              strokeDasharray="31.4 31.4"
-              strokeLinecap="round"
-            />
-          </svg>
-          <span>
-            Processing{stepsCount ? ` (${stepsCount} steps)` : ""}...
-          </span>
-        </div>
-        <div className="mt-3 pt-3 border-t border-border flex justify-between items-center">
-          <span className="text-[11px] text-muted-foreground">
-            {timeAgo || "just now"}
-          </span>
-          <span className="text-[12px] font-mono text-muted-foreground">
-            {elapsed}s
-          </span>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!isRunning || !startTime) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isRunning, startTime]);
 
-  if (isSuccess) {
-    return (
-      <div
-        className="bg-card rounded-2xl p-4 shadow-[0_4px_12px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer"
-        style={highlightStyle}
-        onClick={onClick}
-      >
-        <div className="flex items-center gap-2 mb-2">
-          <span className="size-2 rounded-full bg-brand-success-bg shrink-0" />
-          <span className="flex-1 min-w-0 truncate text-[13px] font-medium text-foreground">
-            {flowName}
-          </span>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-brand-success-text shrink-0"
-          >
-            <path d="m5 13 4 4L19 7" />
-          </svg>
-        </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          {stepsCount != null && (
-            <>
-              <span>{stepsCount} steps</span>
-              <span>&middot;</span>
-            </>
-          )}
-          <span>{duration}</span>
-          {timeAgo && (
-            <>
-              <span>&middot;</span>
-              <span>{timeAgo}</span>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const durationLabel = useMemo(() => {
+    if (durationMs) return formatDuration(durationMs);
+    if (isRunning && startTime) {
+      return formatDuration(Math.max(0, now - new Date(startTime).getTime()));
+    }
+    if (startTime && finishTime) {
+      return formatDuration(new Date(finishTime).getTime() - new Date(startTime).getTime());
+    }
+    return null;
+  }, [durationMs, isRunning, startTime, finishTime, now]);
 
-  if (isError) {
-    return (
-      <div
-        className="bg-card rounded-2xl p-4 border border-brand-failure/50 shadow-[0_4px_12px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer"
-        style={highlightStyle}
-        onClick={onClick}
-      >
-        <div className="flex items-center gap-2 mb-2">
-          <span className="size-2 rounded-full bg-brand-failure shrink-0" />
-          <span className="flex-1 min-w-0 truncate text-[13px] font-medium text-foreground">
-            {flowName}
-          </span>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            className="text-brand-failure shrink-0"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="15" y1="9" x2="9" y2="15" />
-            <line x1="9" y1="9" x2="15" y2="15" />
-          </svg>
-        </div>
-        {failedStep && (
-          <p className="text-[11px] text-[#C46C78] mb-2">
-            Failed at: {failedStep}
-          </p>
-        )}
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          {stepsCount != null && (
-            <>
-              <span>{stepsCount} steps</span>
-              <span>&middot;</span>
-            </>
-          )}
-          <span>{duration}</span>
-          {timeAgo && (
-            <>
-              <span>&middot;</span>
-              <span>{timeAgo}</span>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Other statuses (PAUSED, SCHEDULED, etc.)
   return (
     <div
-      className="bg-card rounded-2xl p-4 shadow-[0_4px_12px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-300 cursor-pointer"
+      className="rounded-2xl border border-border bg-card/80 px-3.5 py-3 transition-shadow"
       style={highlightStyle}
       onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
     >
-      <div className="flex items-center gap-2 mb-2">
-        <span className="size-2 rounded-full bg-brand-paused-bg shrink-0" />
-        <span className="flex-1 min-w-0 truncate text-[13px] font-medium text-foreground">
-          {flowName}
-        </span>
-        <span className="text-[10px] font-bold tracking-[0.1em] uppercase text-brand-paused-text">
-          {status}
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <span>{duration}</span>
-        {timeAgo && (
-          <>
-            <span>&middot;</span>
-            <span>{timeAgo}</span>
-          </>
-        )}
+      <div className="flex items-start gap-3">
+        <div className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${statusDotClass(status)}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-foreground truncate">{flowName}</span>
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] border ${statusBgClass(status)}`}>
+              {status}
+            </span>
+          </div>
+
+          {failedStep && (
+            <div className="mt-1 text-xs text-destructive/80">
+              Failed at: {failedStep}
+            </div>
+          )}
+
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+            {durationLabel && (
+              <span className={`inline-flex items-center gap-1 ${isRunning ? statusColor(status) : ""}`}>
+                {isRunning && <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />}
+                {durationLabel}
+              </span>
+            )}
+            {typeof stepsCount === "number" && stepsCount > 0 && (
+              <span>{stepsCount} step{stepsCount !== 1 ? "s" : ""}</span>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ── Plugin view (wraps inner with plugin infrastructure) ── */
+// ── Plugin view ─────────────────────────────────────────────────────────
 
-function FlowRunCardView({
-  state,
-  data,
-  addInputAttachment,
-}: PluginViewProps<FlowRunCardData>) {
-  if (state === "tombstone") {
-    return (
-      <div
-        data-testid="flow-run-card"
-        className="rounded-2xl border border-dashed border-border bg-card/50 px-3.5 py-3"
-      >
-        <div className="text-sm text-muted-foreground">
-          Run no longer available.
-        </div>
-      </div>
-    );
-  }
-
+function FlowRunCardView({ state, data, addInputAttachment }: PluginViewProps<FlowRunCardData>) {
   const handleClick = () => {
     addInputAttachment?.("flow_run", {
       id: data.runId,
@@ -358,23 +204,29 @@ function FlowRunCardView({
     });
   };
 
+  if (state === "tombstone") {
+    return (
+      <div className="rounded-2xl border border-dashed border-border bg-card/50 px-3.5 py-3">
+        <div className="text-sm text-muted-foreground">Run no longer available</div>
+      </div>
+    );
+  }
+
   return (
-    <div data-testid="flow-run-card">
-      <FlowRunCardInner
-        flowName={data.flowName}
-        status={data.status}
-        stepsCount={data.stepsCount}
-        startTime={data.startTime}
-        finishTime={data.finishTime}
-        durationMs={data.durationMs}
-        failedStep={data.failedStep}
-        onClick={handleClick}
-      />
-    </div>
+    <FlowRunCardInner
+      flowName={data.flowName}
+      status={data.status}
+      stepsCount={data.stepsCount}
+      startTime={data.startTime}
+      finishTime={data.finishTime}
+      durationMs={data.durationMs}
+      failedStep={data.failedStep}
+      onClick={handleClick}
+    />
   );
 }
 
-/* ── Plugin definition ── */
+// ── Plugin definition ───────────────────────────────────────────────────
 
 export const flowRunCardPlugin: MobileClawPlugin<FlowRunCardData> = {
   type: "flow_run_card",
@@ -382,10 +234,7 @@ export const flowRunCardPlugin: MobileClawPlugin<FlowRunCardData> = {
   parse: (raw) => {
     const parsed = flowRunCardSchema.safeParse(raw);
     if (!parsed.success) {
-      return {
-        ok: false,
-        error: parsed.error.issues[0]?.message || "Invalid flow run payload",
-      };
+      return { ok: false, error: parsed.error.issues[0]?.message || "Invalid flow run card payload" };
     }
     return { ok: true, value: parsed.data };
   },

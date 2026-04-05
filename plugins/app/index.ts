@@ -1,31 +1,23 @@
 import type { AnyMobileClawPlugin } from "@mc/lib/plugins/types";
 import type { AnyInputAttachmentPlugin } from "@mc/lib/plugins/inputAttachmentTypes";
 import { contextChipPlugin, promptContextAttachmentPlugin } from "@mc/plugins/app/contextChip";
-import { flowRunAttachmentPlugin } from "@mc/plugins/app/flowRunChip";
-import { connectionAttachmentPlugin } from "@mc/plugins/app/connectionChip";
-import { flowListCardPlugin } from "@mc/plugins/app/flowListCard";
+import { notificationCardPlugin } from "@mc/plugins/app/notificationCard";
 import { flowRunCardPlugin } from "@mc/plugins/app/flowRunCard";
+import { flowListCardPlugin } from "@mc/plugins/app/flowListCard";
 import { flowRunListCardPlugin } from "@mc/plugins/app/flowRunListCard";
 import { flowRunDetailCardPlugin } from "@mc/plugins/app/flowRunDetailCard";
-import { connectionListCardPlugin } from "@mc/plugins/app/connectionListCard";
-import { notificationCardPlugin } from "@mc/plugins/app/notificationCard";
-import { pauseCardPlugin } from "@mc/plugins/app/pauseCard";
-import { tourProgressPlugin } from "./TourProgressPlugin";
+import { flowCanvasCardPlugin } from "@mc/plugins/app/flowCanvasCard";
 
 export const appPlugins: AnyMobileClawPlugin[] = [
   contextChipPlugin,
-  tourProgressPlugin,
   notificationCardPlugin,
-  pauseCardPlugin,
   flowRunCardPlugin,
+  flowListCardPlugin,
   flowRunListCardPlugin,
   flowRunDetailCardPlugin,
-  flowListCardPlugin,
-  connectionListCardPlugin,
+  flowCanvasCardPlugin,
 ];
 
 export const appInputAttachmentPlugins: AnyInputAttachmentPlugin[] = [
   promptContextAttachmentPlugin,
-  flowRunAttachmentPlugin,
-  connectionAttachmentPlugin,
 ];

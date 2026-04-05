@@ -1,20 +1,11 @@
 "use client";
 
 import { z } from "zod";
+import type { MobileClawPlugin, PluginViewProps } from "@mc/lib/plugins/types";
 
-import type {
-  MobileClawPlugin,
-  PluginViewProps,
-} from "@mc/lib/plugins/types";
-import {
-  formatDuration,
-  relativeTimeFromISO,
-  isRunError,
-} from "@mc/plugins/app/flowRunCard";
+// ── Schema ──────────────────────────────────────────────────────────────────
 
-/* ── Zod schema ── */
-
-const runItemSchema = z.object({
+const runEntrySchema = z.object({
   runId: z.string(),
   flowId: z.string().optional(),
   flowName: z.string(),
@@ -27,249 +18,133 @@ const runItemSchema = z.object({
 });
 
 const flowRunListCardSchema = z.object({
-  runs: z.array(runItemSchema),
+  runs: z.array(runEntrySchema),
   total: z.number().optional(),
 });
 
 type FlowRunListCardData = z.infer<typeof flowRunListCardSchema>;
 
-/* ── Status helpers ── */
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatDuration(ms?: number): string | null {
+  if (!ms || ms <= 0) return null;
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
 
 function statusDotClass(status: string): string {
-  if (status === "RUNNING" || status === "QUEUED") return "bg-brand-ongoing";
-  if (status === "SUCCEEDED") return "bg-brand-success-bg";
-  if (isRunError(status)) return "bg-brand-failure";
-  if (status === "PAUSED") return "bg-brand-paused-bg";
-  return "bg-muted-foreground/40";
+  switch (status) {
+    case "RUNNING":
+    case "QUEUED":
+      return "bg-primary animate-pulse";
+    case "SUCCEEDED":
+      return "bg-emerald-500";
+    case "FAILED":
+    case "INTERNAL_ERROR":
+    case "TIMEOUT":
+      return "bg-destructive";
+    case "PAUSED":
+      return "bg-amber-500";
+    default:
+      return "bg-muted-foreground/40";
+  }
 }
 
-function StatusIcon({ status }: { status: string }) {
-  if (status === "SUCCEEDED")
-    return (
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="text-brand-success-text shrink-0"
-      >
-        <path d="m5 13 4 4L19 7" />
-      </svg>
-    );
-  if (status === "RUNNING" || status === "QUEUED")
-    return (
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        className="animate-spin text-brand-ongoing shrink-0"
-      >
-        <circle
-          cx="12"
-          cy="12"
-          r="10"
-          stroke="currentColor"
-          strokeWidth="3"
-          fill="none"
-          strokeDasharray="31.4 31.4"
-          strokeLinecap="round"
-        />
-      </svg>
-    );
-  if (isRunError(status))
-    return (
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        className="text-brand-failure shrink-0"
-      >
-        <circle cx="12" cy="12" r="10" />
-        <line x1="15" y1="9" x2="9" y2="15" />
-        <line x1="9" y1="9" x2="15" y2="15" />
-      </svg>
-    );
-  if (status === "PAUSED")
-    return (
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        className="text-brand-paused-text shrink-0"
-      >
-        <rect x="6" y="4" width="4" height="16" rx="1" />
-        <rect x="14" y="4" width="4" height="16" rx="1" />
-      </svg>
-    );
-  return null;
+function statusLabel(status: string): string {
+  return status.toLowerCase().replace(/_/g, " ");
 }
 
-/* ── Shared inner component ── */
-
-export interface FlowRunListCardInnerProps {
-  runs: Array<{
-    runId: string;
-    flowId?: string;
-    flowName: string;
-    status: string;
-    stepsCount?: number;
-    startTime?: string;
-    finishTime?: string;
-    durationMs?: number;
-    failedStep?: string;
-  }>;
-  total?: number;
-  onRunClick?: (runId: string) => void;
+function timeAgo(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime();
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-export function FlowRunListCardInner({
-  runs,
-  total,
-  onRunClick,
-}: FlowRunListCardInnerProps) {
-  const count = total ?? runs.length;
+// ── View ────────────────────────────────────────────────────────────────────
+
+function FlowRunListCardView({ state, data, addInputAttachment }: PluginViewProps<FlowRunListCardData>) {
+  if (state === "tombstone") {
+    return (
+      <div className="rounded-2xl border border-dashed border-border bg-card/50 px-3.5 py-3">
+        <div className="text-sm text-muted-foreground">Runs list no longer available</div>
+      </div>
+    );
+  }
+
+  const { runs, total } = data;
+  const hasMore = total && total > runs.length;
 
   return (
-    <div className="overflow-hidden rounded-[24px] bg-card border border-border/50 shadow-[0_8px_24px_rgba(0,0,0,0.06)]">
+    <div className="rounded-2xl border border-border bg-card/80 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 pt-4 pb-2">
-        <span className="text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground">
-          Flow Runs
-        </span>
-        <span className="text-[11px] text-muted-foreground/60">
-          {count} run{count !== 1 ? "s" : ""}
-        </span>
+      <div className="px-3.5 py-2.5 border-b border-border/60">
+        <div className="flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground shrink-0">
+            <path d="M12 2v4" /><path d="m16.2 7.8 2.9-2.9" />
+            <path d="M18 12h4" /><path d="m16.2 16.2 2.9 2.9" />
+            <path d="M12 18v4" /><path d="m4.9 19.1 2.9-2.9" />
+            <path d="M2 12h4" /><path d="m4.9 4.9 2.9 2.9" />
+          </svg>
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Runs{total ? ` (${total})` : ""}
+          </span>
+        </div>
       </div>
 
-      {/* Run items */}
-      <div className="divide-y divide-border/40">
-        {runs.map((run) => {
-          const timeAgo = relativeTimeFromISO(run.startTime ?? run.finishTime);
-          const duration = formatDuration(run.durationMs ?? null);
-
-          return (
-            <div
-              key={run.runId}
-              className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-accent/30 cursor-pointer"
-              onClick={() => onRunClick?.(run.runId)}
-            >
-              {/* Status dot */}
-              <span
-                className={`size-2 rounded-full shrink-0 ${statusDotClass(run.status)}`}
-              />
-
-              {/* Name + details */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-medium text-foreground truncate">
-                    {run.flowName}
-                  </span>
-                  {run.status !== "SUCCEEDED" && (
-                    <span
-                      className={`shrink-0 text-[9px] font-bold tracking-[0.08em] uppercase ${
-                        run.status === "RUNNING" || run.status === "QUEUED"
-                          ? "text-brand-ongoing"
-                          : isRunError(run.status)
-                            ? "text-brand-failure"
-                            : run.status === "PAUSED"
-                              ? "text-brand-paused-text"
-                              : "text-muted-foreground"
-                      }`}
-                    >
-                      {run.status}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
-                  <span>{duration}</span>
-                  {run.stepsCount != null && (
-                    <>
-                      <span>&middot;</span>
-                      <span>{run.stepsCount} steps</span>
-                    </>
-                  )}
-                  {timeAgo && (
-                    <>
-                      <span>&middot;</span>
-                      <span>{timeAgo}</span>
-                    </>
-                  )}
-                </div>
+      {/* List */}
+      <div className="max-h-[320px] overflow-y-auto">
+        {runs.map((run, i) => (
+          <div
+            key={run.runId}
+            className={`px-3.5 py-2.5 flex items-start gap-3 transition-colors hover:bg-secondary/30 cursor-pointer ${
+              i < runs.length - 1 ? "border-b border-border/40" : ""
+            }`}
+            onClick={() => {
+              addInputAttachment?.("flow_run", {
+                id: run.runId,
+                displayName: run.flowName,
+                status: run.status,
+              });
+            }}
+            role="button"
+            tabIndex={0}
+          >
+            <div className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${statusDotClass(run.status)}`} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-foreground truncate">{run.flowName}</span>
+                <span className="text-[10px] text-muted-foreground">{statusLabel(run.status)}</span>
+              </div>
+              <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
+                {run.startTime && <span>{timeAgo(run.startTime)}</span>}
+                {run.durationMs && <span>{formatDuration(run.durationMs)}</span>}
                 {run.failedStep && (
-                  <p className="text-[10px] text-brand-failure mt-0.5 truncate">
-                    Failed at: {run.failedStep}
-                  </p>
+                  <span className="text-destructive/80">failed at {run.failedStep}</span>
                 )}
               </div>
-
-              {/* Status icon */}
-              <StatusIcon status={run.status} />
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
 
-      {/* Show more indicator */}
-      {total != null && total > runs.length && (
-        <div className="px-5 py-2.5 text-center text-[11px] text-muted-foreground/60 border-t border-border/40">
-          +{total - runs.length} more
+      {/* Footer */}
+      {hasMore && (
+        <div className="px-3.5 py-2 border-t border-border/60">
+          <span className="text-[10px] text-muted-foreground">
+            +{total! - runs.length} more
+          </span>
         </div>
       )}
     </div>
   );
 }
 
-/* ── Plugin view ── */
-
-function FlowRunListCardView({
-  state,
-  data,
-  addInputAttachment,
-}: PluginViewProps<FlowRunListCardData>) {
-  if (state === "tombstone") {
-    return (
-      <div
-        data-testid="flow-run-list-card"
-        className="rounded-2xl border border-dashed border-border bg-card/50 px-3.5 py-3"
-      >
-        <div className="text-sm text-muted-foreground">
-          Flow runs list no longer available.
-        </div>
-      </div>
-    );
-  }
-
-  const handleRunClick = (runId: string) => {
-    const run = data.runs.find((r) => r.runId === runId);
-    addInputAttachment?.("flow_run", {
-      id: runId,
-      displayName: run?.flowName ?? "Untitled",
-      status: run?.status ?? "UNKNOWN",
-    });
-  };
-
-  return (
-    <div data-testid="flow-run-list-card">
-      <FlowRunListCardInner
-        runs={data.runs}
-        total={data.total}
-        onRunClick={handleRunClick}
-      />
-    </div>
-  );
-}
-
-/* ── Plugin definition ── */
+// ── Plugin definition ───────────────────────────────────────────────────
 
 export const flowRunListCardPlugin: MobileClawPlugin<FlowRunListCardData> = {
   type: "flow_run_list_card",
@@ -277,11 +152,7 @@ export const flowRunListCardPlugin: MobileClawPlugin<FlowRunListCardData> = {
   parse: (raw) => {
     const parsed = flowRunListCardSchema.safeParse(raw);
     if (!parsed.success) {
-      return {
-        ok: false,
-        error:
-          parsed.error.issues[0]?.message || "Invalid flow run list payload",
-      };
+      return { ok: false, error: parsed.error.issues[0]?.message || "Invalid run list card payload" };
     }
     return { ok: true, value: parsed.data };
   },

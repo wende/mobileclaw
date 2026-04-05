@@ -1,236 +1,155 @@
 "use client";
 
 import { z } from "zod";
+import type { MobileClawPlugin, PluginViewProps } from "@mc/lib/plugins/types";
 
-import type {
-  MobileClawPlugin,
-  PluginViewProps,
-} from "@mc/lib/plugins/types";
-import {
-  formatDuration,
-  relativeTimeFromISO,
-  isRunError,
-} from "@mc/plugins/app/flowRunCard";
+// ── Schema ──────────────────────────────────────────────────────────────────
 
-/* ── Zod schema ── */
+const stepInfoSchema = z.object({
+  status: z.string().optional(),
+  errorMessage: z.string().optional(),
+});
 
 const flowRunDetailCardSchema = z.object({
   runId: z.string(),
-  flowId: z.string(),
-  flowName: z.string().optional(),
+  flowId: z.string().optional(),
+  flowName: z.string(),
   status: z.string(),
   startTime: z.string().optional(),
   finishTime: z.string().optional(),
   durationMs: z.number().optional(),
   failedStep: z.string().nullable().optional(),
-  steps: z.record(
-    z.string(),
-    z.object({
-      status: z.string(),
-      errorMessage: z.string().optional(),
-    }),
-  ),
+  steps: z.record(z.string(), stepInfoSchema).optional(),
 });
 
 type FlowRunDetailCardData = z.infer<typeof flowRunDetailCardSchema>;
 
-/* ── Status helpers ── */
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
-function stepDotClass(status: string): string {
-  if (status === "SUCCEEDED") return "bg-brand-success-bg";
-  if (status === "RUNNING") return "bg-brand-ongoing";
-  if (isRunError(status)) return "bg-brand-failure";
-  if (status === "PAUSED") return "bg-brand-paused-bg";
-  return "bg-muted-foreground/30";
+function formatDuration(ms?: number): string | null {
+  if (!ms || ms <= 0) return null;
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
-function stepLineClass(status: string): string {
-  if (status === "SUCCEEDED") return "bg-brand-success-bg/40";
-  if (isRunError(status)) return "bg-brand-failure/40";
-  return "bg-border";
+function statusBgClass(status: string): string {
+  switch (status) {
+    case "RUNNING":
+    case "QUEUED":
+      return "border-primary/20 bg-primary/10 text-primary";
+    case "SUCCEEDED":
+      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+    case "FAILED":
+    case "INTERNAL_ERROR":
+    case "TIMEOUT":
+      return "border-destructive/20 bg-destructive/10 text-destructive";
+    case "PAUSED":
+      return "border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400";
+    default:
+      return "border-border bg-background/60 text-muted-foreground";
+  }
 }
 
-function overallStatusBadge(status: string): { text: string; className: string } {
-  if (status === "SUCCEEDED")
-    return { text: "Succeeded", className: "bg-brand-success-bg/30 text-brand-success-text" };
-  if (status === "RUNNING" || status === "QUEUED")
-    return { text: "Running", className: "bg-brand-ongoing/20 text-brand-ongoing" };
-  if (isRunError(status))
-    return { text: status === "FAILED" ? "Failed" : status, className: "bg-brand-failure/20 text-brand-failure" };
-  if (status === "PAUSED")
-    return { text: "Paused", className: "bg-brand-paused-bg/30 text-brand-paused-text" };
-  return { text: status, className: "bg-secondary text-muted-foreground" };
+function stepStatusIcon(status?: string): { color: string; icon: React.ReactNode } {
+  switch (status) {
+    case "SUCCEEDED":
+      return {
+        color: "text-emerald-500",
+        icon: (
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m5 13 4 4L19 7" />
+          </svg>
+        ),
+      };
+    case "FAILED":
+      return {
+        color: "text-destructive",
+        icon: (
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 6 6 18" /><path d="M6 6l12 12" />
+          </svg>
+        ),
+      };
+    case "RUNNING":
+      return {
+        color: "text-primary",
+        icon: <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />,
+      };
+    default:
+      return {
+        color: "text-muted-foreground",
+        icon: <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />,
+      };
+  }
 }
 
-/* ── Shared inner component ── */
+// ── View ────────────────────────────────────────────────────────────────────
 
-export interface FlowRunDetailCardInnerProps {
-  runId: string;
-  flowName?: string;
-  status: string;
-  startTime?: string;
-  finishTime?: string;
-  durationMs?: number;
-  failedStep?: string | null;
-  steps: Record<string, { status: string; errorMessage?: string }>;
-  onClick?: () => void;
-}
+function FlowRunDetailCardView({ state, data }: PluginViewProps<FlowRunDetailCardData>) {
+  if (state === "tombstone") {
+    return (
+      <div className="rounded-2xl border border-dashed border-border bg-card/50 px-3.5 py-3">
+        <div className="text-sm text-muted-foreground">Run details no longer available</div>
+      </div>
+    );
+  }
 
-export function FlowRunDetailCardInner({
-  flowName,
-  status,
-  startTime,
-  finishTime,
-  durationMs,
-  failedStep,
-  steps,
-  onClick,
-}: FlowRunDetailCardInnerProps) {
-  const badge = overallStatusBadge(status);
-  const timeAgo = relativeTimeFromISO(startTime ?? finishTime);
-  const duration = formatDuration(durationMs ?? null);
-  const stepEntries = Object.entries(steps);
+  const stepEntries = data.steps ? Object.entries(data.steps) : [];
+  const durationLabel = formatDuration(data.durationMs);
 
   return (
-    <div
-      className="overflow-hidden rounded-[24px] bg-card border border-border/50 shadow-[0_8px_24px_rgba(0,0,0,0.06)] cursor-pointer hover:shadow-[0_12px_32px_rgba(0,0,0,0.1)] hover:-translate-y-0.5 transition-all duration-300"
-      onClick={onClick}
-    >
+    <div className="rounded-2xl border border-border bg-card/80 overflow-hidden">
       {/* Header */}
-      <div className="px-5 pt-4 pb-3">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="flex-1 min-w-0 truncate text-[13px] font-medium text-foreground">
-            {flowName?.trim() || "Untitled workflow"}
-          </span>
-          <span
-            className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] uppercase ${badge.className}`}
-          >
-            {badge.text}
+      <div className="px-3.5 py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-foreground truncate">{data.flowName}</span>
+          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] border ${statusBgClass(data.status)}`}>
+            {data.status}
           </span>
         </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span>{duration}</span>
-          {timeAgo && (
-            <>
-              <span>&middot;</span>
-              <span>{timeAgo}</span>
-            </>
+        <div className="mt-1.5 flex items-center gap-3 text-[11px] text-muted-foreground">
+          {durationLabel && <span>{durationLabel}</span>}
+          {stepEntries.length > 0 && <span>{stepEntries.length} steps</span>}
+          {data.failedStep && (
+            <span className="text-destructive/80">failed at {data.failedStep}</span>
           )}
-          <span>&middot;</span>
-          <span>{stepEntries.length} steps</span>
         </div>
       </div>
 
-      {/* Step timeline */}
+      {/* Steps timeline */}
       {stepEntries.length > 0 && (
-        <div className="px-5 pb-4">
-          <div className="relative">
-            {stepEntries.map(([name, step], i) => {
-              const isLast = i === stepEntries.length - 1;
-              const isFailed = name === failedStep;
-
-              return (
-                <div key={name} className="flex gap-3 relative">
-                  {/* Connector line + dot */}
-                  <div className="flex flex-col items-center shrink-0 w-3">
-                    <span
-                      className={`size-2.5 rounded-full shrink-0 mt-1 ${stepDotClass(step.status)}${
-                        step.status === "RUNNING" ? " animate-pulse" : ""
-                      }`}
-                    />
-                    {!isLast && (
-                      <span
-                        className={`w-px flex-1 min-h-3 ${stepLineClass(step.status)}`}
-                      />
-                    )}
-                  </div>
-
-                  {/* Step info */}
-                  <div className={`flex-1 min-w-0 pb-2.5 ${isLast ? "pb-0" : ""}`}>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-[12px] font-medium truncate ${
-                          isFailed ? "text-brand-failure" : "text-foreground"
-                        }`}
-                      >
-                        {name}
-                      </span>
-                      {step.status !== "SUCCEEDED" && (
-                        <span
-                          className={`text-[9px] font-bold tracking-[0.06em] uppercase ${
-                            isRunError(step.status)
-                              ? "text-brand-failure"
-                              : step.status === "RUNNING"
-                                ? "text-brand-ongoing"
-                                : "text-muted-foreground"
-                          }`}
-                        >
-                          {step.status}
-                        </span>
-                      )}
-                    </div>
-                    {isFailed && step.errorMessage && (
-                      <p className="text-[10px] text-brand-failure/80 mt-0.5 line-clamp-2">
-                        {step.errorMessage}
-                      </p>
-                    )}
-                  </div>
+        <div className="border-t border-border/60 px-3.5 py-2.5 max-h-[200px] overflow-y-auto">
+          {stepEntries.map(([name, info]) => {
+            const { color, icon } = stepStatusIcon(info.status);
+            const isFailed = name === data.failedStep;
+            return (
+              <div key={name} className="flex items-start gap-2.5 py-1">
+                <div className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center ${color}`}>
+                  {icon}
                 </div>
-              );
-            })}
-          </div>
+                <div className="min-w-0 flex-1">
+                  <span className={`text-xs ${isFailed ? "text-destructive font-medium" : "text-foreground"}`}>
+                    {name}
+                  </span>
+                  {isFailed && info.errorMessage && (
+                    <div className="mt-0.5 text-[10px] text-destructive/70 leading-4 line-clamp-2">
+                      {info.errorMessage}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-/* ── Plugin view ── */
-
-function FlowRunDetailCardView({
-  state,
-  data,
-  addInputAttachment,
-}: PluginViewProps<FlowRunDetailCardData>) {
-  if (state === "tombstone") {
-    return (
-      <div
-        data-testid="flow-run-detail-card"
-        className="rounded-2xl border border-dashed border-border bg-card/50 px-3.5 py-3"
-      >
-        <div className="text-sm text-muted-foreground">
-          Run detail no longer available.
-        </div>
-      </div>
-    );
-  }
-
-  const handleClick = () => {
-    addInputAttachment?.("flow_run", {
-      id: data.runId,
-      displayName: data.flowName?.trim() || "Untitled",
-      status: data.status,
-    });
-  };
-
-  return (
-    <div data-testid="flow-run-detail-card">
-      <FlowRunDetailCardInner
-        runId={data.runId}
-        flowName={data.flowName}
-        status={data.status}
-        startTime={data.startTime}
-        finishTime={data.finishTime}
-        durationMs={data.durationMs}
-        failedStep={data.failedStep}
-        steps={data.steps}
-        onClick={handleClick}
-      />
-    </div>
-  );
-}
-
-/* ── Plugin definition ── */
+// ── Plugin definition ───────────────────────────────────────────────────
 
 export const flowRunDetailCardPlugin: MobileClawPlugin<FlowRunDetailCardData> = {
   type: "flow_run_detail_card",
@@ -238,11 +157,7 @@ export const flowRunDetailCardPlugin: MobileClawPlugin<FlowRunDetailCardData> = 
   parse: (raw) => {
     const parsed = flowRunDetailCardSchema.safeParse(raw);
     if (!parsed.success) {
-      return {
-        ok: false,
-        error:
-          parsed.error.issues[0]?.message || "Invalid flow run detail payload",
-      };
+      return { ok: false, error: parsed.error.issues[0]?.message || "Invalid run detail card payload" };
     }
     return { ok: true, value: parsed.data };
   },
