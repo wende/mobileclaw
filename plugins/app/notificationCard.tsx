@@ -61,6 +61,7 @@ export interface NotificationCardInnerProps {
   resolved?: boolean;
   resolvedLabel?: string;
   status?: string;
+  className?: string;
 }
 
 export function NotificationCardInner({
@@ -77,6 +78,7 @@ export function NotificationCardInner({
   resolved,
   resolvedLabel,
   status,
+  className,
 }: NotificationCardInnerProps) {
   const isBlocking = mode === "blocking";
   const isHighUrgency = urgency === "high";
@@ -89,7 +91,7 @@ export function NotificationCardInner({
       : "border-border";
 
   return (
-    <div className={`rounded-2xl border ${borderClass} bg-card/80 px-3.5 py-3`}>
+    <div className={className ?? `rounded-2xl border ${borderClass} bg-card/80 px-3.5 py-3`}>
       {/* Header */}
       <div className="flex items-start gap-3">
         <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center ${

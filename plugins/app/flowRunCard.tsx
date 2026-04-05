@@ -119,6 +119,7 @@ export interface FlowRunCardInnerProps {
   failedStep?: string;
   onClick?: () => void;
   highlightStyle?: CSSProperties;
+  className?: string;
 }
 
 export function FlowRunCardInner({
@@ -131,6 +132,7 @@ export function FlowRunCardInner({
   failedStep,
   onClick,
   highlightStyle,
+  className,
 }: FlowRunCardInnerProps) {
   const [now, setNow] = useState(() => Date.now());
   const isRunning = status === "RUNNING" || status === "QUEUED";
@@ -154,7 +156,7 @@ export function FlowRunCardInner({
 
   return (
     <div
-      className="rounded-2xl border border-border bg-card/80 px-3.5 py-3 transition-shadow"
+      className={className ?? "rounded-2xl border border-border bg-card/80 px-3.5 py-3 transition-shadow"}
       style={highlightStyle}
       onClick={onClick}
       role={onClick ? "button" : undefined}
