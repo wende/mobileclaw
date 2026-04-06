@@ -259,7 +259,6 @@ interface TurnActivityBoxProps {
 }
 
 export function TurnActivityBox({ parts, isStreaming }: TurnActivityBoxProps) {
-  const [boxOpen, setBoxOpen] = useState(true);
   const [rowOpen, setRowOpen] = useState<boolean[]>(() => parts.map(() => false));
 
   // Grow rowOpen array as new parts stream in
@@ -289,56 +288,20 @@ export function TurnActivityBox({ parts, isStreaming }: TurnActivityBoxProps) {
 
   if (parts.length === 0) return null;
 
-  // Box header summary
-  const runningPart = parts.find((p) => isToolCallPart(p) && p.status === "running");
-  const activeThinking = parts.some((p) => p.type === "thinking" && !(p.thinking || p.text || "").trim());
-  const summaryLabel = isStreaming
-    ? (runningPart
-        ? (runningPart.narration || humanizeToolName(runningPart.name || "tool"))
-        : activeThinking ? "Thinking\u2026" : `${parts.length} step${parts.length === 1 ? "" : "s"}`)
-    : `${parts.length} step${parts.length === 1 ? "" : "s"}`;
-
   const toggleRow = (i: number) => setRowOpen((r) => { const n = [...r]; n[i] = !n[i]; return n; });
 
   return (
     <div className="w-full rounded-lg overflow-hidden border border-border font-mono text-[11px]">
-      {/* Box header */}
-      <button
-        type="button"
-        onClick={() => setBoxOpen((v) => !v)}
-        className="w-full px-3 py-2 flex items-center gap-2 cursor-pointer text-left"
-        style={{ color: "var(--muted-foreground)" }}
-      >
-        {/* Activity icon */}
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-40">
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-        </svg>
-        <span className="truncate flex-1 min-w-0 text-xs">{summaryLabel}</span>
-        <svg
-          width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-          className="ml-auto shrink-0 opacity-35 transition-transform duration-200"
-          style={{ transform: boxOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      </button>
-
-      {/* Rows */}
-      <SlideContent open={boxOpen}>
-        <div className="border-t border-border/40">
-          {parts.map((part, i) => (
-            <ActivityRow
-              key={i}
-              part={part}
-              open={rowOpen[i] ?? false}
-              onToggle={() => toggleRow(i)}
-              isLast={i === parts.length - 1}
-              isStreamingThisPart={isStreaming && i === parts.length - 1}
-            />
-          ))}
-        </div>
-      </SlideContent>
+      {parts.map((part, i) => (
+        <ActivityRow
+          key={i}
+          part={part}
+          open={rowOpen[i] ?? false}
+          onToggle={() => toggleRow(i)}
+          isLast={i === parts.length - 1}
+          isStreamingThisPart={isStreaming && i === parts.length - 1}
+        />
+      ))}
     </div>
   );
 }

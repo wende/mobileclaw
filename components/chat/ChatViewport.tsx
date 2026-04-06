@@ -215,7 +215,7 @@ export function ChatViewport({
 
   // Group consecutive tool-only messages so they render in a single tight container
   const toolGroupMap = useMemo(() => {
-    const isToolOnly = (m: typeof zenDisplayMessages[0]) =>
+    const isToolOnly = (m: Message) =>
       m.role === "assistant" && Array.isArray(m.content) && m.content.length > 0 &&
       m.content.every((p: any) => isToolCallPart(p) || (p.type === "text" && !p.text?.trim()) || p.type === "thinking");
     const map = new Map<number, number>(); // idx -> group head idx
@@ -224,6 +224,48 @@ export function ChatViewport({
       map.set(i, i > 0 && map.has(i - 1) ? map.get(i - 1)! : i);
     }
     return map;
+  }, [zenDisplayMessages]);
+
+  // Collect activity (thinking + tool_call) and plugin parts from preceding pass-through
+  // assistant messages in the same run, so the first text-bearing message can render one
+  // consolidated activity box followed by any plugins, then the text response.
+  // Pass-through = message whose content has no actual text body (only tools, thinking, plugins).
+  const precedingPartsMap = useMemo(() => {
+    type Preceding = { activityParts: import("@mc/types/chat").ContentPart[]; pluginParts: import("@mc/types/chat").ContentPart[] };
+    const isPassThrough = (m: Message) =>
+      m.role === "assistant" && Array.isArray(m.content) && m.content.length > 0 &&
+      m.content.every((p: any) => isToolCallPart(p) || (p.type === "text" && !p.text?.trim()) || p.type === "thinking" || p.type === "plugin");
+    const map = new Map<number, Preceding>();
+    // Indices of pass-through messages whose plugins were successfully forwarded to a text message.
+    // These messages must suppress their own plugin rendering to avoid double-rendering.
+    const suppressedPluginIndices = new Set<number>();
+    let pendingActivity: import("@mc/types/chat").ContentPart[] = [];
+    let pendingPlugins: import("@mc/types/chat").ContentPart[] = [];
+    let pendingSourceIndices: number[] = [];
+    for (let i = 0; i < zenDisplayMessages.length; i++) {
+      const msg = zenDisplayMessages[i];
+      if (msg.role === "user") { pendingActivity = []; pendingPlugins = []; pendingSourceIndices = []; continue; }
+      if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+      if (isPassThrough(msg)) {
+        pendingSourceIndices.push(i);
+        for (const p of msg.content as any[]) {
+          if (p.type === "thinking" || (isToolCallPart(p) && p.name !== "sessions_spawn")) {
+            pendingActivity = [...pendingActivity, p];
+          } else if (p.type === "plugin") {
+            pendingPlugins = [...pendingPlugins, p];
+          }
+        }
+      } else {
+        if (pendingActivity.length > 0 || pendingPlugins.length > 0) {
+          map.set(i, { activityParts: [...pendingActivity], pluginParts: [...pendingPlugins] });
+          for (const si of pendingSourceIndices) suppressedPluginIndices.add(si);
+          pendingActivity = [];
+          pendingPlugins = [];
+          pendingSourceIndices = [];
+        }
+      }
+    }
+    return { map, suppressedPluginIndices };
   }, [zenDisplayMessages]);
 
   // Compute full-run debug copy text: aggregate all assistant messages between
@@ -813,7 +855,7 @@ export function ChatViewport({
               <React.Fragment key={msg.id || idx}>
                 {isTimeGap && !isNewTurn && !collapsedZenSibling && msg.timestamp && (
                   <div className="flex items-center justify-center gap-1 py-1">
-                    <span className="text-2xs text-muted-foreground/60">{formatMessageTime(msg.timestamp)}</span>
+                    <span className="text-2xs text-muted-foreground/60 invisible">{formatMessageTime(msg.timestamp)}</span>
                     {showZenTimestampToggle && zenMeta
                       ? (
                         <ZenToggle
@@ -827,7 +869,7 @@ export function ChatViewport({
                 )}
                 {showTimestamp && isNewTurn && !collapsedZenSibling && msg.timestamp && (
                   <div className={`flex items-center gap-1 ${side === "right" ? "justify-end" : "justify-start"}`}>
-                    <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
+                    <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"} invisible`}>
                       {formatMessageTime(msg.timestamp)}
                       {msg.role === "assistant" && msg.runDuration && msg.runDuration > 0 && (
                         <span className="ml-1">&middot; Worked for {msg.runDuration}s</span>
@@ -850,7 +892,7 @@ export function ChatViewport({
                 {showZenTimestampToggle && collapsedZenSibling && zenMeta && (
                   <div className={`flex items-center gap-1 ${side === "right" ? "justify-end" : "justify-start"}`}>
                     {msg.timestamp && (
-                      <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
+                      <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"} invisible`}>
                         {formatMessageTime(msg.timestamp)}
                         {msg.role === "assistant" && msg.runDuration && msg.runDuration > 0 && (
                           <span className="ml-1">&middot; Worked for {msg.runDuration}s</span>
@@ -900,6 +942,9 @@ export function ChatViewport({
                       onPluginAction={onPluginAction}
                       onAddInputAttachment={onAddInputAttachment}
                       runDebugCopyText={runDebugCopyMap.get(idx)}
+                      precedingActivityParts={precedingPartsMap.map.get(idx)?.activityParts}
+                      precedingPluginParts={precedingPartsMap.map.get(idx)?.pluginParts}
+                      suppressPlugins={precedingPartsMap.suppressedPluginIndices.has(idx)}
                     />
                   </div>
                 )}

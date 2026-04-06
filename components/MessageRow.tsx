@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import type { ContentPart, Message } from "@mc/types/chat";
-import { getTextFromContent, getImages, getFiles } from "@mc/lib/messageUtils";
+import { getTextFromContent, getImages, getFiles, formatMessageTime } from "@mc/lib/messageUtils";
 import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, MESSAGE_SEND_ANIMATION } from "@mc/lib/constants";
 import { useExpandablePanel } from "@mc/hooks/useExpandablePanel";
 import { useElapsedSeconds } from "@mc/hooks/useElapsedSeconds";
@@ -24,6 +24,8 @@ import { pluginRegistry } from "@mc/lib/plugins/registry";
 import type { PluginActionHandler } from "@mc/lib/plugins/types";
 import type { PluginContentPart } from "@mc/types/chat";
 import { parsePluginTags } from "@mc/lib/chat/pluginTagParser";
+import { splitIntoSentences, unwrapLineUnderscoreEmphasis, THINKING_COLLAPSE_THRESHOLD, STREAMING_VISIBLE_SENTENCES } from "@mc/lib/chat/thinkingUtils";
+import { TurnActivityBox } from "@mc/components/TurnActivityBox";
 
 // ── File Thumbnails ──────────────────────────────────────────────────────────
 
@@ -228,66 +230,6 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
 }
 
 // ── ThinkingPill ─────────────────────────────────────────────────────────────
-
-const THINKING_COLLAPSE_THRESHOLD = 5;
-
-function unwrapLineUnderscoreEmphasis(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => {
-      const leading = line.match(/^\s*/)?.[0] ?? "";
-      const trailing = line.match(/\s*$/)?.[0] ?? "";
-      const core = line.slice(leading.length, line.length - trailing.length);
-      if (core.length < 2) return line;
-
-      const hasSingleUnderscoreWrap = core.startsWith("_") && core.endsWith("_")
-        && !core.startsWith("__") && !core.endsWith("__");
-      if (!hasSingleUnderscoreWrap) return line;
-
-      const inner = core.slice(1, -1);
-      if (!inner.trim()) return line;
-      return `${leading}${inner}${trailing}`;
-    })
-    .join("\n");
-}
-
-const STREAMING_VISIBLE_SENTENCES = 3;
-const MIN_SENTENCE_SPLIT_CHARS = 10;
-
-function splitIntoSentences(text: string): string[] {
-  const sentences: string[] = [];
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    // Split on sentence-ending punctuation followed by space
-    const parts = trimmed.split(/(?<=[.!?])\s+/).map((part) => part.trim()).filter(Boolean);
-    const lineSentences: string[] = [];
-    let carry = "";
-
-    for (let i = 0; i < parts.length; i++) {
-      const candidate = [carry, parts[i]].filter(Boolean).join(" ").trim();
-      const hasNext = i < parts.length - 1;
-
-      if (candidate.length < MIN_SENTENCE_SPLIT_CHARS && hasNext) {
-        carry = candidate;
-        continue;
-      }
-
-      if (candidate.length < MIN_SENTENCE_SPLIT_CHARS && lineSentences.length > 0) {
-        lineSentences[lineSentences.length - 1] = `${lineSentences[lineSentences.length - 1]} ${candidate}`.trim();
-        carry = "";
-        continue;
-      }
-
-      lineSentences.push(candidate);
-      carry = "";
-    }
-
-    if (carry) lineSentences.push(carry);
-    sentences.push(...lineSentences);
-  }
-  return sentences;
-}
 
 function ThinkingPill({ text, isStreaming }: { text: string; isStreaming?: boolean }) {
   const displayText = unwrapLineUnderscoreEmphasis(text);
@@ -519,15 +461,9 @@ function InlineThinkingIndicator({ startTime }: { startTime?: number }) {
   );
 }
 
-function AssistantCopyButton({ text, durationText, debugCopyText }: { text: string; durationText?: string | null; debugCopyText?: string }) {
+function AssistantCopyButton({ text, durationText, debugCopyText, timestamp }: { text: string; durationText?: string | null; debugCopyText?: string; timestamp?: number }) {
   const [copied, setCopied] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => setMounted(true));
-    return () => cancelAnimationFrame(raf);
-  }, []);
 
   useEffect(() => () => {
     if (resetTimerRef.current !== null) {
@@ -550,33 +486,35 @@ function AssistantCopyButton({ text, durationText, debugCopyText }: { text: stri
     }
   };
 
+  const timeText = timestamp ? formatMessageTime(timestamp) : null;
+
   return (
-    <SlideContent open={mounted}>
-      <div className="flex items-center justify-start gap-1.5 pt-0.5 animate-[thinkingSentence_0.5s_ease-out_both]">
-        {text ? (
-          <button
-            type="button"
-            onClick={() => { void copy(); }}
-            aria-label={copied ? "Copied" : "Copy contents"}
-            title={copied ? "Copied" : "Copy contents"}
-            className="inline-flex h-8 w-4 items-center justify-start rounded-full p-0 text-muted-foreground/35 transition-colors hover:text-muted-foreground/70"
-          >
-            {copied ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="m5 12 5 5L20 7" />
-              </svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="9" y="9" width="10" height="10" rx="2" />
-                <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
-              </svg>
-            )}
-          </button>
-        ) : null}
-        {debugCopyText ? <DebugCopyButton text={debugCopyText} /> : null}
-        {durationText ? <span className="text-2xs text-muted-foreground/50">{durationText}</span> : null}
-      </div>
-    </SlideContent>
+    <div className="flex items-center justify-start gap-1.5 pt-0.5 opacity-0 transition-opacity duration-200 group-hover/message:opacity-100">
+      {timeText ? <span className="text-2xs text-muted-foreground/50">{timeText}</span> : null}
+      {durationText ? <span className="text-2xs text-muted-foreground/50">{durationText}</span> : null}
+      {(timeText || durationText) && (text || debugCopyText) ? <span className="text-2xs text-muted-foreground/50">&middot;</span> : null}
+      {text ? (
+        <button
+          type="button"
+          onClick={() => { void copy(); }}
+          aria-label={copied ? "Copied" : "Copy contents"}
+          title={copied ? "Copied" : "Copy contents"}
+          className="inline-flex h-8 w-4 items-center justify-start rounded-full p-0 text-muted-foreground/35 transition-colors hover:text-muted-foreground/70"
+        >
+          {copied ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m5 12 5 5L20 7" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="10" height="10" rx="2" />
+              <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+            </svg>
+          )}
+        </button>
+      ) : null}
+      {debugCopyText ? <DebugCopyButton text={debugCopyText} /> : null}
+    </div>
   );
 }
 
@@ -634,7 +572,7 @@ function CommandResponsePill({ text, isStreaming, copyText, durationText }: { te
 
   return (
     <div className="flex -mt-1.5">
-      <div className="max-w-[85%] w-fit rounded-lg bg-card border border-border overflow-hidden">
+      <div className="group/message max-w-[85%] w-fit rounded-lg bg-card border border-border overflow-hidden">
         <button
           type="button"
           onClick={() => setUserToggled((v) => v === null ? false : !v)}
@@ -788,6 +726,9 @@ export function MessageRow({
   onPluginAction,
   onAddInputAttachment,
   runDebugCopyText,
+  precedingActivityParts,
+  precedingPluginParts,
+  suppressPlugins = false,
 }: {
   message: Message;
   isStreaming: boolean;
@@ -808,6 +749,12 @@ export function MessageRow({
   onPluginAction?: PluginActionHandler;
   onAddInputAttachment?: (kind: string, data: unknown) => void;
   runDebugCopyText?: string;
+  /** Activity parts (thinking + tool_call) from preceding tool-only messages in the same run. */
+  precedingActivityParts?: ContentPart[];
+  /** Plugin parts from preceding pass-through messages; rendered after the activity box, before text. */
+  precedingPluginParts?: ContentPart[];
+  /** When true, skip rendering own plugin parts (they are forwarded to the next text message). */
+  suppressPlugins?: boolean;
 }) {
   const messageRef = useRef<HTMLDivElement>(null);
   useNativeClickInterceptor(messageRef);
@@ -896,9 +843,9 @@ export function MessageRow({
     const showAssistantErrorCopyButton = message.role === "assistant" && !isStreaming && !isErrorContextMessage;
     return (
       <div className="flex justify-center py-2">
-        <div className="max-w-[85%] rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs leading-[1.75rem] text-destructive-foreground whitespace-pre-wrap break-words">
+        <div className="group/message max-w-[85%] rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs leading-[1.75rem] text-destructive-foreground whitespace-pre-wrap break-words">
           <div>{errorText}</div>
-          {showAssistantErrorCopyButton ? <AssistantCopyButton text={assistantCopyText || errorText} durationText={assistantDurationText} /> : null}
+          {showAssistantErrorCopyButton ? <AssistantCopyButton text={assistantCopyText || errorText} durationText={assistantDurationText} timestamp={message.timestamp} /> : null}
         </div>
       </div>
     );
@@ -949,19 +896,69 @@ export function MessageRow({
   };
 
   if (!isUser) {
-    if (message.reasoning && !hasThinkingParts) {
-      pushAssistantBlock("reasoning", <ThinkingPill text={message.reasoning} isStreaming={isStreaming} />);
+    if (Array.isArray(message.content)) {
+      // Collect thinking + non-spawn tool_call parts for TurnActivityBox
+      const ownActivityParts = message.content.filter(
+        (p) => p.type === "thinking" || (isToolCallPart(p) && p.name !== SPAWN_TOOL_NAME),
+      );
+      // Include legacy message.reasoning as a synthetic thinking part
+      const reasoningPart = message.reasoning && !hasThinkingParts
+        ? [{ type: "thinking" as const, thinking: message.reasoning }]
+        : [];
+      const allActivityParts = [...(precedingActivityParts ?? []), ...reasoningPart, ...ownActivityParts];
+
+      // Only show the box when this message has visible text/image/file body content,
+      // or when actively streaming (text may be arriving soon). Tool-only and plugin-only
+      // messages suppress the box so the next text-bearing message claims all preceding activity.
+      // Plugins are intentionally excluded: they render at the bottom below text, not as triggers.
+      const hasBodyContent = message.content.some(
+        (p) => (p.type === "text" && p.text?.trim()) || p.type === "image" || p.type === "image_url" || p.type === "file",
+      );
+
+      if (allActivityParts.length > 0 && (hasBodyContent || isStreaming)) {
+        pushAssistantBlock(
+          "activity-box",
+          <TurnActivityBox parts={allActivityParts} isStreaming={isStreaming} />,
+          "message",
+        );
+      }
+      // Render any plugins forwarded from preceding pass-through messages (after box, before text)
+      if (precedingPluginParts) {
+        for (const part of precedingPluginParts) {
+          if (isPluginPart(part) && part.partId && part.pluginType && part.state) {
+            pushAssistantBlock(
+              `preceding-plugin-${part.partId}`,
+              <PluginRenderer
+                part={part as PluginContentPart}
+                messageId={message.id ?? ""}
+                isStreaming={isStreaming}
+                onAction={onPluginAction}
+                onAddInputAttachment={onAddInputAttachment}
+              />,
+              pluginRegistry.getWidth(part.pluginType) === "chat" ? "chat" : "bubble",
+            );
+          }
+        }
+      }
+    } else if (message.reasoning && !hasThinkingParts) {
+      // Non-array content with only legacy reasoning
+      const allActivityParts = [...(precedingActivityParts ?? []), { type: "thinking" as const, thinking: message.reasoning }];
+      pushAssistantBlock(
+        "activity-box",
+        <TurnActivityBox parts={allActivityParts} isStreaming={isStreaming} />,
+        "message",
+      );
     }
 
     if (Array.isArray(message.content)) {
       const contentParts = message.content;
+
       contentParts.forEach((part, i) => {
-        if (part.type === "thinking") {
-          pushAssistantBlock(`thinking-${i}`, <ThinkingPill text={part.thinking || part.text || ""} isStreaming={isStreaming} />);
-          return;
-        }
+        if (part.type === "thinking") return; // handled by TurnActivityBox
+
         if (isToolCallPart(part)) {
           const isSpawn = part.name === SPAWN_TOOL_NAME;
+          if (!isSpawn) return; // non-spawn tool calls handled by TurnActivityBox
           pushAssistantBlock(
             `tool-${i}`,
             (
@@ -973,30 +970,32 @@ export function MessageRow({
                 resultError={part.resultError}
                 narration={part.narration}
                 toolCallId={part.toolCallId}
-                subagentStore={isSpawn ? subagentStore : undefined}
-                isPinned={isSpawn && !!part.toolCallId && part.toolCallId === pinnedToolCallId}
-                onPin={isSpawn ? onPin : undefined}
-                onUnpin={isSpawn ? onUnpin : undefined}
+                subagentStore={subagentStore}
+                isPinned={!!part.toolCallId && part.toolCallId === pinnedToolCallId}
+                onPin={onPin}
+                onUnpin={onUnpin}
               />
             ),
-            isSpawn ? "message" : "bubble",
+            "message",
           );
           return;
         }
         if (isPluginPart(part) && part.partId && part.pluginType && part.state) {
-          pushAssistantBlock(
-            `plugin-${part.partId}`,
-            (
-              <PluginRenderer
-                part={part as PluginContentPart}
-                messageId={message.id ?? ""}
-                isStreaming={isStreaming}
-                onAction={onPluginAction}
-                onAddInputAttachment={onAddInputAttachment}
-              />
-            ),
-            pluginRegistry.getWidth(part.pluginType) === "chat" ? "chat" : "bubble",
-          );
+          if (!suppressPlugins) {
+            pushAssistantBlock(
+              `plugin-${part.partId}`,
+              (
+                <PluginRenderer
+                  part={part as PluginContentPart}
+                  messageId={message.id ?? ""}
+                  isStreaming={isStreaming}
+                  onAction={onPluginAction}
+                  onAddInputAttachment={onAddInputAttachment}
+                />
+              ),
+              pluginRegistry.getWidth(part.pluginType) === "chat" ? "chat" : "bubble",
+            );
+          }
           return;
         }
         if (part.type === "text" && part.text) {
@@ -1004,8 +1003,8 @@ export function MessageRow({
           const cleanText = stripFinalTags(rawCleanText);
           const remainingParts = contentParts.slice(i + 1);
           const isLastText = !remainingParts.some((p) => p.type === "text" && p.text);
-          // Hide cursor if tool call or thinking appears after this text
-          const hasLaterNonText = remainingParts.some((p) => isToolCallPart(p) || p.type === "thinking" || isPluginPart(p));
+          // Hide cursor if tool call or thinking appears after this text (plugins are deferred so excluded)
+          const hasLaterNonText = remainingParts.some((p) => isToolCallPart(p) || p.type === "thinking");
           const showCursor = isStreaming && isLastText && !hasLaterNonText;
 
           if (extractedThinking && !hasThinkingParts && !message.reasoning) {
@@ -1135,7 +1134,7 @@ export function MessageRow({
       style={collapsedZenSibling ? { marginBottom: "-0.75rem", transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` } : { transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` }}
     >
       <div
-        className={`${isUser ? "max-w-[85%] md:max-w-[75%]" : "w-full"} min-w-0 ${isUser ? "px-4 py-2.5 text-primary-foreground" : ""}`}
+        className={`group/message ${isUser ? "max-w-[85%] md:max-w-[75%]" : "w-full"} min-w-0 ${isUser ? "px-4 py-2.5 text-primary-foreground" : ""}`}
         style={isUser ? {
           borderRadius: SQUIRCLE_RADIUS,
           background: "var(--primary)",
@@ -1178,7 +1177,7 @@ export function MessageRow({
                   <InlineThinkingIndicator startTime={message.timestamp} />
                 )}
                 {(showAssistantCopyButton || showDebugCopyButton) ? (
-                  <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} debugCopyText={showDebugCopyButton ? runDebugCopyText : undefined} />
+                  <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} debugCopyText={showDebugCopyButton ? runDebugCopyText : undefined} timestamp={message.timestamp} />
                 ) : null}
               </div>
             </SlideContent>
