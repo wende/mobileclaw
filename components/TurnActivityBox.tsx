@@ -76,8 +76,8 @@ function ToolIconEl({ icon }: { icon: string }) {
 function RowChevron({ open }: { open: boolean }) {
   return (
     <svg
-      width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"
       className="ml-auto shrink-0 opacity-35 transition-transform duration-200"
       style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}
     >
@@ -91,7 +91,7 @@ function RowChevron({ open }: { open: boolean }) {
 function ThinkingExpandedContent({ text }: { text: string }) {
   const displayText = unwrapLineUnderscoreEmphasis(text);
   return (
-    <div className="w-full overflow-hidden border-t border-border/50 px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words text-muted-foreground/70 select-text">
+    <div className="w-full overflow-hidden px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[#8D8D8D] select-text">
       {displayText || <span className="opacity-50 italic">empty</span>}
     </div>
   );
@@ -114,22 +114,22 @@ function ToolExpandedContent({ name, args, result, resultError, narration }: {
   if (!hasArgs && !hasResult && !narration) return null;
 
   return (
-    <div className="w-full overflow-hidden border-t border-border/50 text-xs leading-relaxed select-text">
+    <div className="w-full overflow-hidden text-[13px] leading-relaxed select-text">
       {narration && (
-        <div className="px-3 py-2 text-muted-foreground/60">
+        <div className="px-3 py-2 text-[#8D8D8D]">
           <span className="opacity-50 text-[10px] uppercase tracking-wide">Tool</span>
           <div className="mt-0.5 font-mono">{display.label}</div>
         </div>
       )}
       {hasArgs && (
-        <div className="px-3 py-2 text-muted-foreground/70">
+        <div className="px-3 py-2 text-[#8D8D8D]">
           {isEdit ? (() => {
             try {
               const parsed = JSON.parse(args!);
               const oldStr = String(parsed.old_string ?? parsed.oldString ?? parsed.old_str ?? parsed.oldText ?? "");
               const newStr = String(parsed.new_string ?? parsed.newString ?? parsed.new_str ?? parsed.newText ?? "");
               return (
-                <pre className="whitespace-pre-wrap break-words overflow-hidden font-mono text-xs leading-[1.5]">
+                <pre className="whitespace-pre-wrap break-words overflow-hidden font-mono text-[13px] leading-[1.5]">
                   {oldStr.split("\n").map((line, i) => (
                     <div key={`old-${i}`} className="bg-red-500/10 text-red-800 dark:text-red-400">
                       <span className="select-none opacity-60">- </span>{line}
@@ -164,9 +164,9 @@ function ToolExpandedContent({ name, args, result, resultError, narration }: {
         </div>
       )}
       {hasResult && (
-        <div className={`px-3 py-2 font-mono ${resultError ? "text-destructive/80" : "text-muted-foreground/70"}`}>
+        <div className={`px-3 py-2 font-mono ${resultError ? "text-destructive/80" : "text-[#8D8D8D]"}`}>
           <span className="opacity-50 text-[10px] uppercase tracking-wide">{resultError ? "Error" : "Result"}</span>
-          <pre className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-[1.5] max-h-40 overflow-y-auto overflow-x-hidden">{result}</pre>
+          <pre className="mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-[1.5] max-h-40 overflow-y-auto overflow-x-hidden">{result}</pre>
         </div>
       )}
     </div>
@@ -211,22 +211,27 @@ function ActivityRow({
     : !!(part.narration || (part.arguments && !isReadTool(part.name || "") && !isGatewayTool(part.name || "")) || (part.result && !isEditTool(part.name || "")));
 
   return (
-    <div className={isLast ? "" : "border-b border-border/40"}>
+    <div>
       <button
         type="button"
         onClick={hasExpandedContent ? onToggle : undefined}
-        className={`w-full px-3 py-2 text-xs flex items-center gap-2 text-left ${hasExpandedContent ? "cursor-pointer" : "cursor-default"}`}
-        style={{ color: "var(--muted-foreground)" }}
+        className={`w-full px-3 py-2 text-[13px] flex items-center gap-2 text-left ${hasExpandedContent ? "cursor-pointer" : "cursor-default"}`}
+        style={{ color: "#8D8D8D" }}
       >
-        {/* Icon */}
-        {isThinking
-          ? (isStreamingThisPart && !(part.thinking || part.text) ? <SpinnerIcon /> : <BrainIcon />)
-          : isRunning ? <SpinnerIcon />
-          : isError ? <ErrorIcon />
-          : <ToolIconEl icon={getToolDisplay(part.name || "tool", part.arguments).icon} />
-        }
+        <span className="relative flex w-4 shrink-0 items-center justify-center self-stretch" aria-hidden="true">
+          {!isLast && (
+            <span className="pointer-events-none absolute left-1/2 top-[calc(50%+12px)] h-[10px] w-[0.5px] -translate-x-1/2 rounded-full bg-foreground/28" />
+          )}
+          {/* Icon */}
+          {isThinking
+            ? (isStreamingThisPart && !(part.thinking || part.text) ? <SpinnerIcon /> : <BrainIcon />)
+            : isRunning ? <SpinnerIcon />
+            : isError ? <ErrorIcon />
+            : <ToolIconEl icon={getToolDisplay(part.name || "tool", part.arguments).icon} />
+          }
+        </span>
         {/* Label */}
-        <span className="truncate flex-1 min-w-0 font-mono text-[11px]">
+        <span className="truncate flex-1 min-w-0 font-mono text-[13px]">
           {label}
           {isRunning && <span className="ml-1.5 opacity-45">{"running\u2026"}</span>}
         </span>
@@ -291,7 +296,7 @@ export function TurnActivityBox({ parts, isStreaming }: TurnActivityBoxProps) {
   const toggleRow = (i: number) => setRowOpen((r) => { const n = [...r]; n[i] = !n[i]; return n; });
 
   return (
-    <div className="w-full rounded-lg overflow-hidden border border-border font-mono text-[11px]">
+    <div className="w-full rounded-lg overflow-hidden border border-border font-mono text-[13px]">
       {parts.map((part, i) => (
         <ActivityRow
           key={i}

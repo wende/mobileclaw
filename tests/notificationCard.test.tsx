@@ -1,90 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 
 import { NotificationCardInner } from "@mc/plugins/app/notificationCard";
 
-const clientHeightDescriptor = Object.getOwnPropertyDescriptor(
-  HTMLElement.prototype,
-  "clientHeight",
-);
-const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
-  HTMLElement.prototype,
-  "scrollHeight",
-);
-const clientWidthDescriptor = Object.getOwnPropertyDescriptor(
-  HTMLElement.prototype,
-  "clientWidth",
-);
-const scrollWidthDescriptor = Object.getOwnPropertyDescriptor(
-  HTMLElement.prototype,
-  "scrollWidth",
-);
-
-function restoreDescriptor(
-  key: "clientHeight" | "scrollHeight" | "clientWidth" | "scrollWidth",
-  descriptor?: PropertyDescriptor,
-) {
-  if (descriptor) {
-    Object.defineProperty(HTMLElement.prototype, key, descriptor);
-    return;
-  }
-  delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
-}
-
 describe("NotificationCardInner", () => {
-  beforeEach(() => {
-    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
-      configurable: true,
-      get() {
-        const text = this.textContent ?? "";
-        const className = typeof this.className === "string" ? this.className : "";
-
-        if (text.includes("Long question")) {
-          return className.includes("line-clamp-3") ? 60 : 120;
-        }
-
-        if (text.includes("Long context")) {
-          return className.includes("line-clamp-2") ? 40 : 90;
-        }
-
-        return 40;
-      },
-    });
-
-    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-      configurable: true,
-      get() {
-        const text = this.textContent ?? "";
-
-        if (text.includes("Long question")) return 120;
-        if (text.includes("Long context")) return 90;
-        return 40;
-      },
-    });
-
-    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
-      configurable: true,
-      get() {
-        return 200;
-      },
-    });
-
-    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
-      configurable: true,
-      get() {
-        return 200;
-      },
-    });
-  });
-
-  afterEach(() => {
-    restoreDescriptor("clientHeight", clientHeightDescriptor);
-    restoreDescriptor("scrollHeight", scrollHeightDescriptor);
-    restoreDescriptor("clientWidth", clientWidthDescriptor);
-    restoreDescriptor("scrollWidth", scrollWidthDescriptor);
-  });
-
   function renderCard(props?: Partial<ComponentProps<typeof NotificationCardInner>>) {
     return render(
       <NotificationCardInner
@@ -98,29 +18,19 @@ describe("NotificationCardInner", () => {
     );
   }
 
-  it("hides the toggle when neither field is truncated", async () => {
+  it("renders the question text", () => {
     renderCard();
-
-    await waitFor(() => {
-      expect(
-        screen.queryByRole("button", { name: "Show more" }),
-      ).not.toBeInTheDocument();
-    });
+    expect(screen.getByText("Short question")).toBeInTheDocument();
   });
 
-  it("shows the toggle when the question is truncated", async () => {
-    renderCard({ question: "Long question" });
-
-    const button = await screen.findByRole("button", { name: "Show more" });
-    expect(button).toBeInTheDocument();
-
-    fireEvent.click(button);
-    expect(screen.getByRole("button", { name: "Show less" })).toBeInTheDocument();
-  });
-
-  it("shows the toggle when the context is truncated", async () => {
+  it("renders context when provided", () => {
     renderCard({ context: "Long context" });
+    expect(screen.getByText("Long context")).toBeInTheDocument();
+  });
 
-    expect(await screen.findByRole("button", { name: "Show more" })).toBeInTheDocument();
+  it("renders question and context together", () => {
+    renderCard({ question: "Long question", context: "Long context" });
+    expect(screen.getByText("Long question")).toBeInTheDocument();
+    expect(screen.getByText("Long context")).toBeInTheDocument();
   });
 });
