@@ -1114,9 +1114,10 @@ export function MessageRow({
       widthClass = "w-full min-w-0";
     }
     const isTool = block.key.startsWith("tool-");
+    const isPlugin = block.key.startsWith("plugin-") || block.key.startsWith("text-plugin-");
 
     return (
-      <div key={block.key} className={`${widthClass} empty:hidden ${isTool ? "" : "mt-1.5 first:mt-0"}`} data-block={isTool ? "tool" : "content"}>
+      <div key={block.key} className={`${widthClass} empty:hidden ${isTool ? "" : "mt-1.5 first:mt-0"} ${isPlugin ? "mb-4" : ""}`} data-block={isTool ? "tool" : "content"}>
         {block.node}
       </div>
     );

@@ -41,7 +41,7 @@ function statusDotClass(status: string): string {
     case "QUEUED":
       return "bg-primary animate-pulse";
     case "SUCCEEDED":
-      return "bg-emerald-500";
+      return "bg-success";
     case "FAILED":
     case "INTERNAL_ERROR":
     case "TIMEOUT":
@@ -84,11 +84,8 @@ function FlowRunListCardView({ state, data, addInputAttachment }: PluginViewProp
       {/* Header */}
       <div className="px-3.5 py-2.5 border-b border-border/60">
         <div className="flex items-center gap-2">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground shrink-0">
-            <path d="M12 2v4" /><path d="m16.2 7.8 2.9-2.9" />
-            <path d="M18 12h4" /><path d="m16.2 16.2 2.9 2.9" />
-            <path d="M12 18v4" /><path d="m4.9 19.1 2.9-2.9" />
-            <path d="M2 12h4" /><path d="m4.9 4.9 2.9 2.9" />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground shrink-0">
+            <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" />
           </svg>
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
             Runs{total ? ` (${total})` : ""}
@@ -97,7 +94,7 @@ function FlowRunListCardView({ state, data, addInputAttachment }: PluginViewProp
       </div>
 
       {/* List */}
-      <div className="max-h-[320px] overflow-y-auto">
+      <div>
         {runs.map((run, i) => (
           <div
             key={run.runId}

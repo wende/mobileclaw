@@ -29,7 +29,7 @@ type FlowListCardData = z.infer<typeof flowListCardSchema>;
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function statusDotClass(status?: string): string {
-  if (status === "ENABLED") return "bg-emerald-500";
+  if (status === "ENABLED") return "bg-success";
   if (status === "DISABLED") return "bg-muted-foreground/40";
   return "bg-muted-foreground/40";
 }
@@ -49,7 +49,7 @@ function friendlyTrigger(triggerType?: string | null, triggerPiece?: string | nu
 function lastRunBadgeClass(status?: string): string {
   switch (status) {
     case "SUCCEEDED":
-      return "text-emerald-600 dark:text-emerald-400";
+      return "text-success";
     case "FAILED":
     case "INTERNAL_ERROR":
     case "TIMEOUT":
@@ -100,7 +100,7 @@ function FlowListCardView({ state, data }: PluginViewProps<FlowListCardData>) {
       </div>
 
       {/* List */}
-      <div className="max-h-[280px] overflow-y-auto">
+      <div>
         {flows.map((flow, i) => {
           const trigger = friendlyTrigger(flow.triggerType, flow.triggerPiece);
           return (

@@ -59,7 +59,7 @@ function statusColor(status: string): string {
     case "QUEUED":
       return "text-primary";
     case "SUCCEEDED":
-      return "text-emerald-600 dark:text-emerald-400";
+      return "text-success";
     case "FAILED":
     case "INTERNAL_ERROR":
     case "TIMEOUT":
@@ -77,7 +77,7 @@ function statusBgClass(status: string): string {
     case "QUEUED":
       return "border-primary/20 bg-primary/10 text-primary";
     case "SUCCEEDED":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+      return "border-brand-success-bg bg-brand-success-bg/30 text-brand-success-text";
     case "FAILED":
     case "INTERNAL_ERROR":
     case "TIMEOUT":
@@ -95,7 +95,7 @@ function statusDotClass(status: string): string {
     case "QUEUED":
       return "bg-primary animate-pulse";
     case "SUCCEEDED":
-      return "bg-emerald-500";
+      return "bg-success";
     case "FAILED":
     case "INTERNAL_ERROR":
     case "TIMEOUT":
@@ -156,7 +156,7 @@ export function FlowRunCardInner({
 
   return (
     <div
-      className={className ?? "rounded-2xl border border-border bg-card/80 px-3.5 py-3 transition-shadow"}
+      className={className ?? "rounded-2xl border border-border bg-card/80 p-3 transition-shadow"}
       style={highlightStyle}
       onClick={onClick}
       role={onClick ? "button" : undefined}
@@ -208,7 +208,7 @@ function FlowRunCardView({ state, data, addInputAttachment }: PluginViewProps<Fl
 
   if (state === "tombstone") {
     return (
-      <div className="rounded-2xl border border-dashed border-border bg-card/50 px-3.5 py-3">
+      <div className="rounded-2xl border border-dashed border-border bg-card/50 p-3">
         <div className="text-sm text-muted-foreground">Run no longer available</div>
       </div>
     );

@@ -42,7 +42,7 @@ function statusBgClass(status: string): string {
     case "QUEUED":
       return "border-primary/20 bg-primary/10 text-primary";
     case "SUCCEEDED":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+      return "border-brand-success-bg bg-brand-success-bg/30 text-brand-success-text";
     case "FAILED":
     case "INTERNAL_ERROR":
     case "TIMEOUT":
@@ -58,7 +58,7 @@ function stepStatusIcon(status?: string): { color: string; icon: ReactNode } {
   switch (status) {
     case "SUCCEEDED":
       return {
-        color: "text-emerald-500",
+        color: "text-success",
         icon: (
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="m5 13 4 4L19 7" />
@@ -122,7 +122,7 @@ function FlowRunDetailCardView({ state, data }: PluginViewProps<FlowRunDetailCar
 
       {/* Steps timeline */}
       {stepEntries.length > 0 && (
-        <div className="border-t border-border/60 px-3.5 py-2.5 max-h-[200px] overflow-y-auto">
+        <div className="border-t border-border/60 px-3.5 py-2.5">
           {stepEntries.map(([name, info]) => {
             const { color, icon } = stepStatusIcon(info.status);
             const isFailed = name === data.failedStep;
