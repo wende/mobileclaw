@@ -117,7 +117,7 @@ function ToolExpandedContent({ name, args, result, resultError, narration }: {
     <div className="w-full overflow-hidden text-[13px] leading-relaxed select-text">
       {narration && (
         <div className="px-3 py-2 text-[#8D8D8D]">
-          <span className="opacity-50 text-[10px] uppercase tracking-wide">Tool</span>
+          <span className="opacity-50 text-[13px] uppercase tracking-wide">Tool</span>
           <div className="mt-0.5 font-mono">{display.label}</div>
         </div>
       )}
@@ -165,7 +165,7 @@ function ToolExpandedContent({ name, args, result, resultError, narration }: {
       )}
       {hasResult && (
         <div className={`px-3 py-2 font-mono ${resultError ? "text-destructive/80" : "text-[#8D8D8D]"}`}>
-          <span className="opacity-50 text-[10px] uppercase tracking-wide">{resultError ? "Error" : "Result"}</span>
+          <span className="opacity-50 text-[13px] uppercase tracking-wide">{resultError ? "Error" : "Result"}</span>
           <pre className="mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-[1.5] max-h-40 overflow-y-auto overflow-x-hidden">{result}</pre>
         </div>
       )}
@@ -179,12 +179,14 @@ function ActivityRow({
   part,
   open,
   onToggle,
+  isFirst,
   isLast,
   isStreamingThisPart,
 }: {
   part: ContentPart;
   open: boolean;
   onToggle: () => void;
+  isFirst: boolean;
   isLast: boolean;
   isStreamingThisPart: boolean;
 }) {
@@ -219,8 +221,11 @@ function ActivityRow({
         style={{ color: "#8D8D8D" }}
       >
         <span className="relative flex w-4 shrink-0 items-center justify-center self-stretch" aria-hidden="true">
+          {!isFirst && (
+            <span className="pointer-events-none absolute left-1/2 top-[-8px] h-[5px] w-[0.5px] -translate-x-1/2 rounded-full bg-foreground/28" />
+          )}
           {!isLast && (
-            <span className="pointer-events-none absolute left-1/2 top-[calc(50%+12px)] h-[10px] w-[0.5px] -translate-x-1/2 rounded-full bg-foreground/28" />
+            <span className="pointer-events-none absolute left-1/2 bottom-[-8px] h-[5px] w-[0.5px] -translate-x-1/2 rounded-full bg-foreground/28" />
           )}
           {/* Icon */}
           {isThinking
@@ -303,6 +308,7 @@ export function TurnActivityBox({ parts, isStreaming }: TurnActivityBoxProps) {
           part={part}
           open={rowOpen[i] ?? false}
           onToggle={() => toggleRow(i)}
+          isFirst={i === 0}
           isLast={i === parts.length - 1}
           isStreamingThisPart={isStreaming && i === parts.length - 1}
         />
