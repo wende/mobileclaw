@@ -117,7 +117,7 @@ function ToolExpandedContent({ name, args, result, resultError, narration }: {
     <div className="w-full overflow-hidden text-[13px] leading-relaxed select-text">
       {narration && (
         <div className="px-3 py-2 text-[#8D8D8D]">
-          <span className="opacity-50 text-[13px] uppercase tracking-wide">Tool</span>
+          <span className="opacity-50 text-[10px] uppercase tracking-wide" style={{ fontFamily: "system-ui" }}>Tool</span>
           <div className="mt-0.5 font-mono">{display.label}</div>
         </div>
       )}
@@ -165,7 +165,7 @@ function ToolExpandedContent({ name, args, result, resultError, narration }: {
       )}
       {hasResult && (
         <div className={`px-3 py-2 font-mono ${resultError ? "text-destructive/80" : "text-[#8D8D8D]"}`}>
-          <span className="opacity-50 text-[13px] uppercase tracking-wide">{resultError ? "Error" : "Result"}</span>
+          <span className="opacity-50 text-[10px] uppercase tracking-wide" style={{ fontFamily: "system-ui" }}>{resultError ? "Error" : "Result"}</span>
           <pre className="mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-[1.5] max-h-40 overflow-y-auto overflow-x-hidden">{result}</pre>
         </div>
       )}
@@ -218,7 +218,7 @@ function ActivityRow({
         type="button"
         onClick={hasExpandedContent ? onToggle : undefined}
         className={`w-full px-3 py-2 text-[13px] flex items-center gap-2 text-left ${hasExpandedContent ? "cursor-pointer" : "cursor-default"}`}
-        style={{ color: "#8D8D8D" }}
+        style={{ color: "rgba(0,0,0,0.6)" }}
       >
         <span className="relative flex w-4 shrink-0 items-center justify-center self-stretch" aria-hidden="true">
           {!isFirst && (
@@ -236,7 +236,7 @@ function ActivityRow({
           }
         </span>
         {/* Label */}
-        <span className="truncate flex-1 min-w-0 font-mono text-[13px]">
+        <span className="truncate flex-1 min-w-0 text-[13px]" style={{ fontFamily: "system-ui" }}>
           {label}
           {isRunning && <span className="ml-1.5 opacity-45">{"running\u2026"}</span>}
         </span>
