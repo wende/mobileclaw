@@ -111,9 +111,9 @@ export function ChatComposerBar({
     </div>
   ) : null;
   const composerWidthStyle = useDocumentScroll
-    ? ({ maxWidth: "42rem" } as React.CSSProperties)
+    ? ({ maxWidth: "calc(42rem + 48px)" } as React.CSSProperties)
     : ({
-        maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--lp, 0))), calc(200px + (42rem - 200px) * (1 - var(--lp, 0))))",
+        maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--lp, 0))), calc(200px + (42rem + 48px - 200px) * (1 - var(--lp, 0))))",
       } as React.CSSProperties);
 
   const renderComposer = (ref: React.RefObject<HTMLDivElement | null>) => (
@@ -128,7 +128,7 @@ export function ChatComposerBar({
         style={composerWidthStyle}
       >
         {pinnedSubagent && (
-          <div style={{ paddingLeft: "calc(48px * (1 - var(--lp, 0)))", paddingRight: "calc(48px * (1 - var(--lp, 0)))" } as React.CSSProperties}>
+          <div>
             <FloatingSubagentPanel
               toolCallId={pinnedSubagent.toolCallId}
               childSessionKey={pinnedSubagent.childSessionKey}
@@ -141,7 +141,7 @@ export function ChatComposerBar({
         )}
 
         {queuedMessage && (
-          <div style={{ paddingLeft: "calc(48px * (1 - var(--lp, 0)))", paddingRight: "calc(48px * (1 - var(--lp, 0)))" } as React.CSSProperties}>
+          <div>
             <QueuePill text={queuedMessage.text} onDismiss={onDismissQueuedMessage} />
           </div>
         )}

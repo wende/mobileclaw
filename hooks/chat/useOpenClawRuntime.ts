@@ -29,6 +29,7 @@ import { useWebSocket, type WebSocketMessage } from "@mc/lib/useWebSocket";
 import { postConnectionState, postRunState, postSessionsState } from "@mc/lib/nativeBridge";
 import { mergeAndNormalizeToolResults } from "@mc/lib/chat/messageTransforms";
 import { pluginFromToolResult, injectPluginsFromHistory } from "@mc/lib/chat/toolResultPlugins";
+import { extractToolNarration, serializeToolArgs } from "@mc/lib/chat/toolEventUtils";
 import {
   buildHistoryMessages,
   extractSpawnChildSessionKeys,
@@ -239,6 +240,7 @@ export function useOpenClawRuntime({
   const didRetryWithDeviceTokenRef = useRef(false);
   const didRetryWithFreshTokenRef = useRef(false);
   const pendingTokenRefreshRef = useRef(false);
+  const transientRetryCountRef = useRef(0);
   const onTokenRefreshRef = useRef(onTokenRefresh);
   onTokenRefreshRef.current = onTokenRefresh;
   const reconnectMessageRef = useRef<string | null>(null);
@@ -261,16 +263,6 @@ export function useOpenClawRuntime({
   const modelsRequestedRef = useRef(false);
   const commandsFetchActiveRef = useRef(false);
   const commandsFetchBufferRef = useRef("");
-
-  // When the OpenClaw gateway sends both `event:agent` (fine-grained deltas) and
-  // `event:chat` (accumulated snapshots) for the same run, the chat-event delta
-  // handler must NOT update message content — the agent stream already provides
-  // correctly structured, interleaved content/tool/thinking parts.  Applying the
-  // chat snapshot on top corrupts the part ordering (text duplication, collapsed
-  // tool interleaving).  This ref is set to true once any agent-stream event
-  // (content / tool / reasoning / thinking) arrives for the current run, and
-  // reset when the streaming runtime state is cleared.
-  const agentStreamActiveRef = useRef(false);
 
   const thinkTagStateRef = useRef<{
     insideThinkTag: boolean;
@@ -431,7 +423,6 @@ export function useOpenClawRuntime({
     setAwaitingResponse(false);
     setIsStreaming(false);
     setStreamingId(null);
-    agentStreamActiveRef.current = false;
     if (opts?.clearRunId) {
       clearThinkingSource();
       activeRunIdRef.current = null;
@@ -555,6 +546,7 @@ export function useOpenClawRuntime({
     reconnectMessageRef.current = null;
     forcedDeviceTokenRef.current = null;
     didRetryWithDeviceTokenRef.current = false;
+    transientRetryCountRef.current = 0;
     modelsRequestedRef.current = false;
     configResultRef.current = null;
     modelsCatalogRef.current = null;
@@ -733,13 +725,7 @@ export function useOpenClawRuntime({
             setStreamingId(payload.runId);
           }
 
-          // When agent-stream events are active for this run, skip the chat-event
-          // content upsert — the agent stream provides correctly interleaved
-          // content/tool/thinking parts.  Applying the accumulated chat snapshot
-          // on top would duplicate text and collapse tool interleaving.
-          if (!agentStreamActiveRef.current) {
-            setMessages((prev: Message[]) => upsertChatEventMessage(prev, payload));
-          }
+          setMessages((prev: Message[]) => upsertChatEventMessage(prev, payload));
         }
         break;
 
@@ -858,7 +844,6 @@ export function useOpenClawRuntime({
     if (payload.stream === "lifecycle") {
       const phase = payload.data.phase as string;
       if (phase === "start") {
-        agentStreamActiveRef.current = true;
         clearThinkingSource(payload.runId);
         const isExternalRun = !activeRunIdRef.current;
         markRunStart();
@@ -881,10 +866,6 @@ export function useOpenClawRuntime({
       return;
     }
 
-    // Mark agent stream as active so handleChatEvent skips its delta content
-    // upsert — agent events provide fine-grained, correctly interleaved parts.
-    agentStreamActiveRef.current = true;
-
     if (payload.stream === "tool") {
       const phase = payload.data.phase as string;
       const toolName = payload.data.name as string;
@@ -895,8 +876,15 @@ export function useOpenClawRuntime({
         if (toolName === SPAWN_TOOL_NAME && toolCallId) {
           subagentStore.registerSpawn(toolCallId);
         }
-        const narration = typeof payload.data.narration === "string" ? payload.data.narration : undefined;
-        addToolCall(payload.runId, toolName, payload.ts, toolCallId, payload.data.args ? JSON.stringify(payload.data.args) : undefined, narration);
+        const narration = extractToolNarration(payload.data);
+        addToolCall(
+          payload.runId,
+          toolName,
+          payload.ts,
+          toolCallId,
+          serializeToolArgs(payload.data.args),
+          narration,
+        );
       } else if (phase === "result" && toolName) {
         const resultText = typeof payload.data.result === "string"
           ? payload.data.result
@@ -1229,6 +1217,26 @@ export function useOpenClawRuntime({
     },
     onInitialConnectFail: (info) => {
       if (pendingTokenRefreshRef.current) return; // token refresh will reconnect
+
+      // Transient gateway rejections (e.g., React double-mount race sending a
+      // non-connect frame before the handshake) — retry up to 3 times.
+      const MAX_TRANSIENT_RETRIES = 3;
+      const reason = info?.reason ?? "";
+      const isDeviceAuthError = reason.includes("signature") || reason.includes("device");
+      if (
+        info?.code === 1008
+        && !isDeviceAuthError
+        && transientRetryCountRef.current < MAX_TRANSIENT_RETRIES
+      ) {
+        const url = gatewayUrlRef.current;
+        if (url) {
+          transientRetryCountRef.current += 1;
+          console.log(`[WS] Transient 1008 ("${reason}") — retry ${transientRetryCountRef.current}/${MAX_TRANSIENT_RETRIES}`);
+          connectFnRef.current?.(url);
+          return;
+        }
+      }
+
       setIsInitialConnecting(false);
       setConnectionError(info?.reason || "Could not reach server");
       if (!isDetachedRef.current && !isNativeRef.current) setShowSetup(true);
@@ -1355,6 +1363,7 @@ export function useOpenClawRuntime({
     didRetryWithDeviceTokenRef.current = false;
     didRetryWithFreshTokenRef.current = false;
     pendingTokenRefreshRef.current = false;
+    transientRetryCountRef.current = 0;
     reconnectMessageRef.current = null;
     pendingHistorySyncAfterRunRef.current = false;
     sessionsSubscribedRef.current = false;

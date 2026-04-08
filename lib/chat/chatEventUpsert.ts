@@ -31,7 +31,21 @@ export function upsertChatEventMessage(prev: Message[], payload: ChatEventPayloa
           const lastNonTextPartIdx = parts.findLastIndex((p: ContentPart) => p.type !== "text");
           const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
           if (lastTextIdx > lastNonTextPartIdx) {
-            parts[lastTextIdx] = { ...parts[lastTextIdx], text: nextText };
+            // Chat-event deltas carry accumulated (snapshot) text.  When tool_call
+            // or plugin parts split the content into multiple text segments, earlier
+            // text parts already display a prefix of the snapshot.  Subtract that
+            // prefix so only the new portion appears in the trailing text part,
+            // avoiding visual duplication.
+            let precedingText = "";
+            for (let i = 0; i < lastTextIdx; i++) {
+              if (parts[i].type === "text") {
+                precedingText += parts[i].text || "";
+              }
+            }
+            const deduplicated = precedingText && nextText.startsWith(precedingText)
+              ? nextText.slice(precedingText.length)
+              : nextText;
+            parts[lastTextIdx] = { ...parts[lastTextIdx], text: deduplicated };
           } else {
             parts.push({ type: "text" as const, text: nextText });
           }

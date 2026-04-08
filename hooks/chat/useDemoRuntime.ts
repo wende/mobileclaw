@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { createDemoHandler } from "@mc/lib/demoMode";
+import { extractToolNarration, serializeToolArgs } from "@mc/lib/chat/toolEventUtils";
 import type { AgentEventPayload, PluginContentPart } from "@mc/types/chat";
 import type { useSubagentStore } from "@mc/hooks/useSubagentStore";
 import { SPAWN_TOOL_NAME } from "@mc/lib/constants";
@@ -93,8 +94,15 @@ export function useDemoRuntime({
           if (toolName === SPAWN_TOOL_NAME && toolCallId) {
             subagentStore.registerSpawn(toolCallId);
           }
-          const narration = typeof payload.data.narration === "string" ? payload.data.narration : undefined;
-          addToolCall(payload.runId, toolName, payload.ts, toolCallId, payload.data.args ? JSON.stringify(payload.data.args) : undefined, narration);
+          const narration = extractToolNarration(payload.data);
+          addToolCall(
+            payload.runId,
+            toolName,
+            payload.ts,
+            toolCallId,
+            serializeToolArgs(payload.data.args),
+            narration,
+          );
         } else if (phase === "result" && toolName) {
           const resultText = typeof payload.data.result === "string"
             ? payload.data.result

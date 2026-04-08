@@ -1,6 +1,7 @@
 import type { AnyMobileClawPlugin } from "@mc/lib/plugins/types";
 import type { AnyInputAttachmentPlugin } from "@mc/lib/plugins/inputAttachmentTypes";
 import { contextChipPlugin, promptContextAttachmentPlugin } from "@mc/plugins/app/contextChip";
+import { flowRunAttachmentPlugin } from "@mc/plugins/app/flowRunChip";
 import { notificationCardPlugin } from "@mc/plugins/app/notificationCard";
 import { flowRunCardPlugin } from "@mc/plugins/app/flowRunCard";
 import { flowListCardPlugin } from "@mc/plugins/app/flowListCard";
@@ -20,4 +21,5 @@ export const appPlugins: AnyMobileClawPlugin[] = [
 
 export const appInputAttachmentPlugins: AnyInputAttachmentPlugin[] = [
   promptContextAttachmentPlugin,
+  flowRunAttachmentPlugin,
 ];

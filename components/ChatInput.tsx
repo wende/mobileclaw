@@ -6,7 +6,10 @@ import maps from "@mc/maps.json";
 import { ImageLightbox } from "@mc/components/ImageLightbox";
 import type { ModelChoice, ImageAttachment, InputAttachment } from "@mc/types/chat";
 import { inputAttachmentRegistry } from "@mc/lib/plugins/inputAttachmentRegistry";
-import { SQUIRCLE_RADIUS, PILL_BASE_HEIGHT, RADIUS_TRANSITION } from "@mc/lib/constants";
+import { PILL_BASE_HEIGHT, RADIUS_TRANSITION } from "@mc/lib/constants";
+
+/** Match 8claw panel squircles (rounded-2xl = 1rem = 16px) */
+const COMPOSER_RADIUS = 16;
 
 export interface ModelSuggestion {
   id: string;
@@ -110,7 +113,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   // Generate displacement + specular maps at exact element dimensions.
   // Static maps.json maps are 200×46 — stretching them to actual width distorts the corner radius.
   // Corner radius: full pill when at base height, squircle when expanded
-  const cornerRadius = filterDims.h > PILL_BASE_HEIGHT ? SQUIRCLE_RADIUS : Math.floor(filterDims.h / 2);
+  const cornerRadius = filterDims.h > PILL_BASE_HEIGHT ? COMPOSER_RADIUS : Math.floor(filterDims.h / 2);
 
   const [displacementSrc, setDisplacementSrc] = useState<string>(maps.displacement);
   const [specularSrc, setSpecularSrc] = useState<string>(maps.specular);
@@ -486,41 +489,17 @@ export const ChatInput = forwardRef<ChatInputHandle, {
         </div>
       )}
 
-      <div
-        className="flex items-end justify-center"
-        style={{ gap: staticComposer ? 8 : "calc(8px * (1 - var(--lp, 0)))" } as React.CSSProperties}
-      >
-      {/* Image picker button — fades & collapses */}
-      <button
-        type="button"
-        onClick={uploadDisabled ? undefined : () => fileInputRef.current?.click()}
-        className={`mb-1 flex shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-[opacity] duration-200 overflow-hidden${uploadDisabled ? " opacity-30 cursor-not-allowed" : " hover:bg-accent hover:text-foreground"}`}
-        style={{
-          opacity: uploadDisabled ? 0.3 : (staticComposer ? 1 : "max(0, 1 - var(--sp, 0) * 2.5)"),
-          width: staticComposer ? 40 : "calc(40px * (1 - var(--lp, 0)))",
-          height: staticComposer ? 40 : "calc(40px * (1 - var(--lp, 0)))",
-          minWidth: 0,
-          pointerEvents: isPill ? "none" : "auto",
-        } as React.CSSProperties}
-        aria-label="Attach file"
-        disabled={uploadDisabled}
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-        </svg>
-      </button>
-
-      {/* Morphing center: textarea ↔ scroll-to-bottom pill */}
+      {/* Main squircle — textarea + toolbar */}
       <div
         ref={glassPillRef}
-        className={`relative flex-1 overflow-hidden outline-none`}
+        className="relative overflow-hidden outline-none"
         onClick={isPill ? onScrollToBottom : undefined}
         role={isPill ? "button" : undefined}
         tabIndex={isPill ? 0 : undefined}
         onKeyDown={isPill ? (e: React.KeyboardEvent) => { if (e.key === "Enter") onScrollToBottom?.(); } : undefined}
         style={{
           minHeight: staticComposer ? PILL_BASE_HEIGHT + 2 : `calc(${PILL_BASE_HEIGHT}px + 2px * var(--lp, 0))`,
-          maxHeight: staticComposer ? 200 : `calc(200px - ${200 - (PILL_BASE_HEIGHT + 2)}px * var(--lp, 0))`,
+          maxHeight: staticComposer ? 240 : `calc(240px - ${240 - (PILL_BASE_HEIGHT + 2)}px * var(--lp, 0))`,
           borderRadius: `${cornerRadius}px`,
           transition: staticComposer ? "none" : RADIUS_TRANSITION,
           cursor: isPill ? "pointer" : "text",
@@ -580,7 +559,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
 
         {/* Textarea */}
         <div
-          className="px-4 py-2.5 flex items-center"
+          className="px-4 pt-2.5 pb-1"
           style={{
             opacity: staticComposer ? 1 : "calc(1 - var(--sp, 0))",
             pointerEvents: isPill ? "none" : "auto",
@@ -603,62 +582,79 @@ export const ChatInput = forwardRef<ChatInputHandle, {
             }}
             placeholder={isRunActive ? (hasQueued ? "Replace queued message..." : "Queue a message...") : "Send a message..."}
             rows={1}
-            className="block w-full resize-none overflow-hidden bg-transparent text-sm leading-[1.75rem] text-foreground placeholder:text-muted-foreground focus:outline-none"
+            className="block w-full resize-none overflow-hidden bg-transparent text-sm leading-[1.75rem] text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
           />
         </div>
-      </div>
 
-      {/* Send / Stop / Queue button — crossfade between three states */}
-      {(() => {
-        const showStop = isRunActive && !hasContent;
-        const showQueue = isRunActive && hasContent && !hasQueued;
-        const queueFull = isRunActive && hasContent && hasQueued;
-        const showSend = !isRunActive && hasContent;
-        const isActive = showStop || showQueue || showSend;
-        return (
+        {/* Bottom toolbar — attach + send */}
+        <div
+          className="flex items-center justify-between px-2.5 pb-2"
+          style={{
+            opacity: staticComposer ? 1 : "calc(1 - var(--sp, 0))",
+            pointerEvents: isPill ? "none" : "auto",
+          } as React.CSSProperties}
+        >
+          {/* Attach button */}
           <button
             type="button"
-            onClick={isPill ? onScrollToBottom : showStop ? onAbort : submit}
-            disabled={(!isActive || queueFull) && !isPill}
-            className="mb-1 relative shrink-0 rounded-full overflow-hidden active:scale-85"
-            style={{
-              opacity: staticComposer
-                ? ((isActive && !queueFull) ? 1 : 0.3)
-                : ((isActive && !queueFull)
-                  ? "max(0, 1 - var(--sp, 0) * 2.5)"
-                  : "max(0, (1 - var(--sp, 0) * 2.5) * 0.3)"),
-              width: staticComposer ? 40 : "calc(40px * (1 - var(--sp, 0)))",
-              height: staticComposer ? 40 : "calc(40px * (1 - var(--sp, 0)))",
-              minWidth: 0,
-              pointerEvents: isPill ? "none" : "auto",
-              transition: staticComposer ? "transform 200ms" : ((isActive && !queueFull) ? "opacity 200ms, transform 200ms" : "transform 200ms"),
-            } as React.CSSProperties}
-            aria-label={showStop ? "Stop" : showQueue ? "Queue" : "Send"}
+            onClick={uploadDisabled ? undefined : () => fileInputRef.current?.click()}
+            className={`flex items-center justify-center rounded-full border-0 shadow-none outline-none transition-colors${uploadDisabled ? " opacity-30 cursor-not-allowed" : " text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+            style={{ width: 36, height: 36 }}
+            aria-label="Attach file"
+            disabled={uploadDisabled}
           >
-            {/* Stop face */}
-            <span
-              className="absolute inset-0 flex items-center justify-center border border-destructive/30 bg-destructive/5 text-destructive/60 rounded-full transition-opacity duration-200"
-              style={{ opacity: showStop ? 1 : 0, pointerEvents: showStop ? "auto" : "none" }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2.5" /></svg>
-            </span>
-            {/* Queue face — append icon */}
-            <span
-              className="absolute inset-0 flex items-center justify-center border border-border bg-secondary text-muted-foreground rounded-full transition-opacity duration-200"
-              style={{ opacity: showQueue ? 1 : 0, pointerEvents: showQueue ? "auto" : "none" }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 4v12a2 2 0 0 0 2 2h8" /><path d="m16 14 4 4-4 4" /></svg>
-            </span>
-            {/* Send face — catch-all default; transition suppressed when disabled so it doesn't flash */}
-            <span
-              className="absolute inset-0 flex items-center justify-center bg-primary text-primary-foreground rounded-full"
-              style={{ opacity: (!showStop && !showQueue) ? 1 : 0, transition: isActive ? "opacity 200ms" : "none" }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg>
-            </span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14" />
+              <path d="M5 12h14" />
+            </svg>
           </button>
-        );
-      })()}
+
+          {/* Send / Stop / Queue button */}
+          {(() => {
+            const showStop = isRunActive && !hasContent;
+            const showQueue = isRunActive && hasContent && !hasQueued;
+            const queueFull = isRunActive && hasContent && hasQueued;
+            const showSend = !isRunActive && hasContent;
+            const isActive = showStop || showQueue || showSend;
+            return (
+              <button
+                type="button"
+                onClick={showStop ? onAbort : submit}
+                disabled={!isActive || queueFull}
+                className="relative shrink-0 rounded-full overflow-hidden active:scale-85"
+                style={{
+                  opacity: (isActive && !queueFull) ? 1 : 0.3,
+                  width: 36,
+                  height: 36,
+                  transition: "opacity 200ms, transform 200ms",
+                } as React.CSSProperties}
+                aria-label={showStop ? "Stop" : showQueue ? "Queue" : "Send"}
+              >
+                {/* Stop face */}
+                <span
+                  className="absolute inset-0 flex items-center justify-center border border-destructive/30 bg-destructive/5 text-destructive/60 rounded-full transition-opacity duration-200"
+                  style={{ opacity: showStop ? 1 : 0, pointerEvents: showStop ? "auto" : "none" }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2.5" /></svg>
+                </span>
+                {/* Queue face */}
+                <span
+                  className="absolute inset-0 flex items-center justify-center border border-border bg-secondary text-muted-foreground rounded-full transition-opacity duration-200"
+                  style={{ opacity: showQueue ? 1 : 0, pointerEvents: showQueue ? "auto" : "none" }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 4v12a2 2 0 0 0 2 2h8" /><path d="m16 14 4 4-4 4" /></svg>
+                </span>
+                {/* Send face */}
+                <span
+                  className="absolute inset-0 flex items-center justify-center bg-primary text-primary-foreground rounded-full"
+                  style={{ opacity: (!showStop && !showQueue) ? 1 : 0, transition: isActive ? "opacity 200ms" : "none" }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></svg>
+                </span>
+              </button>
+            );
+          })()}
+        </div>
       </div>
       {lightboxSrc && (
         <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />

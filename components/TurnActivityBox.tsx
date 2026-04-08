@@ -173,6 +173,34 @@ function ToolExpandedContent({ name, args, result, resultError, narration }: {
   );
 }
 
+function getEffectiveToolNarration(part: ContentPart): string | undefined {
+  if (part.type === "thinking") return undefined;
+
+  const topLevelNarration = typeof part.narration === "string" ? part.narration.trim() : "";
+  if (topLevelNarration) return topLevelNarration;
+
+  const rawArgs = part.arguments;
+  if (rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)) {
+    const fromObject = (rawArgs as Record<string, unknown>).narration;
+    if (typeof fromObject === "string") {
+      const trimmed = fromObject.trim();
+      if (trimmed) return trimmed;
+    }
+    return undefined;
+  }
+
+  if (typeof rawArgs === "string") {
+    const parsed = parseArgs(rawArgs);
+    const fromParsed = parsed?.narration;
+    if (typeof fromParsed === "string") {
+      const trimmed = fromParsed.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+
+  return undefined;
+}
+
 // ── Row ───────────────────────────────────────────────────────────────────────
 
 function ActivityRow({
@@ -191,6 +219,7 @@ function ActivityRow({
   isStreamingThisPart: boolean;
 }) {
   const isThinking = part.type === "thinking";
+  const toolNarration = isThinking ? undefined : getEffectiveToolNarration(part);
 
   // Compute row label
   let label: string;
@@ -203,14 +232,15 @@ function ActivityRow({
       label = sentences[0] ?? text.slice(0, 100);
     }
   } else {
-    label = part.narration || humanizeToolName(part.name || "tool");
+    const toolLabel = humanizeToolName(part.name || "tool");
+    label = toolNarration ? `${toolLabel} | ${toolNarration}` : toolLabel;
   }
 
   const isRunning = !isThinking && part.status === "running";
   const isError = !isThinking && part.resultError;
   const hasExpandedContent = isThinking
     ? !!(part.thinking || part.text)
-    : !!(part.narration || (part.arguments && !isReadTool(part.name || "") && !isGatewayTool(part.name || "")) || (part.result && !isEditTool(part.name || "")));
+    : !!(toolNarration || (part.arguments && !isReadTool(part.name || "") && !isGatewayTool(part.name || "")) || (part.result && !isEditTool(part.name || "")));
 
   return (
     <div>
@@ -252,7 +282,7 @@ function ActivityRow({
                 args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined}
                 result={part.result}
                 resultError={part.resultError}
-                narration={part.narration}
+                narration={toolNarration}
               />
           }
         </SlideContent>
