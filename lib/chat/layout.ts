@@ -1,10 +1,10 @@
 const BOTTOM_PAD_SVH = 4.5;
-const BOTTOM_PAD_BASE_REM = 9;
-const BOTTOM_PAD_QUEUED_REM = 12;
-const BOTTOM_PAD_PINNED_REM = 15;
-const BOTTOM_PAD_DETACHED_BASE = "5.5rem";
-const BOTTOM_PAD_DETACHED_QUEUED = "8.5rem";
-const BOTTOM_PAD_DETACHED_PINNED = "11.5rem";
+const BOTTOM_PAD_BASE_REM = 12.5;
+const BOTTOM_PAD_QUEUED_REM = 15.5;
+const BOTTOM_PAD_PINNED_REM = 18.5;
+const BOTTOM_PAD_DETACHED_BASE = "9rem";
+const BOTTOM_PAD_DETACHED_QUEUED = "12rem";
+const BOTTOM_PAD_DETACHED_PINNED = "15rem";
 const BOTTOM_PAD_NATIVE = "8rem";
 const BOTTOM_PAD_DOCUMENT_SCROLL = "calc(env(safe-area-inset-bottom, 0px) + 1.5rem)";
 const FOOTER_RESERVE_DOCUMENT_SCROLL_BASE = "calc(env(safe-area-inset-bottom, 0px) + 4rem)";
