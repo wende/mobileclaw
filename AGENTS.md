@@ -125,8 +125,17 @@ MobileClaw supports three backend modes, selectable in the setup dialog:
 MobileClaw connects to OpenClaw's gateway WebSocket. Protocol frames:
 
 1. **Server sends** `event:connect.challenge` with nonce
-2. **Client responds** with `req:connect` including auth token, capabilities
-3. **Server responds** with `res:hello-ok` including server info, session snapshot
-4. **Client requests** `req:chat.history` to load message history
-5. **Messages flow** via `event:chat` (delta/final/aborted/error) and `event:agent` (content/tool/reasoning/lifecycle streams)
-6. **Client sends** `req:chat.send` with user messages
+2. **Client responds** with `req:connect` using protocol `3`, a v3 device-auth signature, and either a shared auth token or a cached `auth.deviceToken`
+3. **Server responds** with `res:hello-ok` including server info, session snapshot, `features`, `policy`, and optional auth state
+4. **Client persists** `hello-ok.auth.deviceToken` per normalized gateway URL and reuses it on later connects when the shared token hash still matches
+5. **Client requests** `req:chat.history` to load message history
+6. **Messages flow** via `event:chat` (delta/final/aborted/error) and `event:agent` (content/tool/reasoning/lifecycle streams)
+7. **Client optionally subscribes** to `sessions.subscribe` and `sessions.messages.subscribe` when advertised, but still reconciles transcript state from `chat.history`
+8. **Client sends** `req:chat.send` with user messages
+
+### Protocol Notes
+
+- Keep `lib/deviceIdentity.ts` and `ios/MobileClaw/Networking/DeviceIdentity.swift` aligned. They must sign the same v3 auth payload and normalize `platform` / `deviceFamily` the same way.
+- Device-token cache is implemented in `lib/gatewayAuth.ts` under `mc-openclaw-device-auth-v1`. Native storage goes through `lib/nativeBridge.ts` and `ios/MobileClaw/Bridge/WebViewBridge.swift`.
+- `session.message`, `session.tool`, and `sessions.changed` are used as invalidation signals. They should not directly mutate the rendered transcript.
+- `AUTH_TOKEN_MISMATCH` may trigger one reconnect with cached device approval. `DEVICE_AUTH_*` errors should surface immediately.

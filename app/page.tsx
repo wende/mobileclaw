@@ -53,6 +53,7 @@ import { useSubagentStore } from "@mc/hooks/useSubagentStore";
 import { formatSessionName } from "@mc/hooks/useSessionSwitcher";
 import { useAppMode } from "@mc/hooks/useAppMode";
 import { useIsMobileViewport } from "@mc/hooks/useIsMobileViewport";
+import { useWidgetContext } from "@mc/lib/widgetContext";
 
 import { useModeBootstrap } from "@mc/hooks/chat/useModeBootstrap";
 import { useOpenClawRuntime } from "@mc/hooks/chat/useOpenClawRuntime";
@@ -553,7 +554,27 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     setValue: (v: string) => chatInputRef.current?.setValue(v),
     addInputAttachment: (kind: string, data: unknown) => add(kind, data),
     sendCommand: (text: string) => void sendMessage(text),
-  }), [add, sendMessage]);
+    switchSession: (key: string) => handleSessionSelect(key),
+  }), [add, sendMessage, handleSessionSelect]);
+
+  // ── Bridge session state to host via widget context callback ──────────────
+  const widgetCtx = useWidgetContext();
+  const onSessionsChangeRef = useRef(widgetCtx?.onSessionsChange);
+  onSessionsChangeRef.current = widgetCtx?.onSessionsChange;
+
+  // Fire callback whenever session state changes
+  useEffect(() => {
+    onSessionsChangeRef.current?.(sessions, currentSessionKey, sessionsLoading);
+  }, [sessions, currentSessionKey, sessionsLoading]);
+
+  // Eagerly fetch session list when host provides callback (so sidebar has data immediately)
+  const didEagerFetchRef = useRef(false);
+  useEffect(() => {
+    if (onSessionsChangeRef.current && !didEagerFetchRef.current && backendMode === "openclaw" && isConnected) {
+      didEagerFetchRef.current = true;
+      requestSessionsList();
+    }
+  }, [backendMode, isConnected, requestSessionsList]);
 
   const {
     queuedMessage,

@@ -24,6 +24,7 @@
 - **Hook**: `hooks/useAppMode.ts` — provides `isNative`, `isNativeRef`
 - **Activation**: URL param `?native=true` or `window.__nativeMode === true`
 - **Effect**: Adds `"native"` class to body, hides chrome, transparent background, uses `lib/nativeBridge.ts` for Swift ↔ WebView communication
+- **Auth/storage bridge**: Native handles device signing and gateway-auth cache persistence through `identity:sign`, `gatewayAuth:get`, `gatewayAuth:set`, and `gatewayAuth:delete`
 - **Bootstrap**: Native bridge handler registered in `hooks/chat/useModeBootstrap.ts`
 
 ---
@@ -142,7 +143,9 @@ All blocks are rendered inside `MessageRow.tsx`. Block data is represented as `C
 ### OpenClaw (Default)
 - **Runtime**: `hooks/chat/useOpenClawRuntime.ts`
 - **Protocol**: WebSocket (`lib/useWebSocket.ts`)
-- **Flow**: Challenge → connect → hello-ok → history → event streams (`event:chat`, `event:agent`)
+- **Flow**: Challenge → signed protocol-3 connect → hello-ok → history → event streams (`event:chat`, `event:agent`)
+- **Auth**: `lib/deviceIdentity.ts` signs v3 connect challenges; `lib/gatewayAuth.ts` persists per-gateway device tokens and handles one-shot retry on `AUTH_TOKEN_MISMATCH`
+- **Session freshness**: Uses `sessions.subscribe` / `sessions.messages.subscribe` when the gateway advertises them, but only as invalidation signals for `sessions.list` and `chat.history`
 - **Features**: Session switching, model selection, slash commands, full agent protocol
 
 ### LM Studio

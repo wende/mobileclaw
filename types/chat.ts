@@ -102,11 +102,88 @@ export interface Message {
 // OpenClaw WebSocket protocol types
 // Based on GatewayBrowserClient protocol
 
+export type KnownGatewayMethod =
+  | "connect"
+  | "chat.send"
+  | "chat.abort"
+  | "chat.history"
+  | "chat.subscribe"
+  | "hello"
+  | "models.list"
+  | "config.get"
+  | "sessions.list"
+  | "sessions.subscribe"
+  | "sessions.unsubscribe"
+  | "sessions.messages.subscribe"
+  | "sessions.messages.unsubscribe";
+
+export type GatewayMethod = KnownGatewayMethod | (string & {});
+
+export type KnownGatewayEvent =
+  | "connect.challenge"
+  | "chat"
+  | "agent"
+  | "presence"
+  | "health"
+  | "canvas_update"
+  | "session.message"
+  | "session.tool"
+  | "sessions.changed"
+  | "tick"
+  | "heartbeat"
+  | "shutdown";
+
+export type GatewayEventName = KnownGatewayEvent | (string & {});
+
+export interface GatewayFeatures {
+  methods: string[];
+  events: string[];
+}
+
+export interface GatewayPolicy {
+  maxPayload: number;
+  maxBufferedBytes: number;
+  tickIntervalMs: number;
+}
+
+export interface HelloOkAuthToken {
+  deviceToken: string;
+  role: string;
+  scopes: string[];
+  issuedAtMs?: number;
+}
+
+export interface HelloOkAuth extends HelloOkAuthToken {
+  deviceTokens?: HelloOkAuthToken[];
+}
+
+export interface HelloOkPayload {
+  type: "hello-ok";
+  protocol: number;
+  server: {
+    version: string;
+    connId: string;
+  };
+  features: GatewayFeatures;
+  snapshot: Record<string, unknown>;
+  canvasHostUrl?: string;
+  auth?: HelloOkAuth;
+  policy: GatewayPolicy;
+}
+
+export interface GatewayError {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+  retryable?: boolean;
+  retryAfterMs?: number;
+}
+
 // Request (client → server)
 export interface WSRequest {
   type: "req";
   id: string;
-  method: "connect" | "chat.send" | "chat.abort" | "chat.history" | "chat.subscribe" | "hello" | "models.list" | "sessions.list";
+  method: GatewayMethod;
   params?: Record<string, unknown>;
 }
 
@@ -128,14 +205,24 @@ export interface WSResponse {
   id: string;
   ok: boolean;
   payload?: unknown;
-  error?: string | { code: string; message: string };
+  error?: string | GatewayError;
 }
 
 // Event (server → client)
 export interface WSEvent {
   type: "event";
-  event: "connect.challenge" | "chat" | "agent" | "presence" | "health" | "canvas_update";
-  payload: ConnectChallengePayload | ChatEventPayload | AgentEventPayload | CanvasUpdateEventPayload;
+  event: GatewayEventName;
+  payload:
+    | ConnectChallengePayload
+    | ChatEventPayload
+    | AgentEventPayload
+    | CanvasUpdateEventPayload
+    | SessionMessageEventPayload
+    | SessionToolEventPayload
+    | SessionsChangedEventPayload
+    | TickEventPayload
+    | HeartbeatEventPayload
+    | ShutdownEventPayload;
   seq: number;
   stateVersion?: {
     presence: number;
@@ -180,6 +267,50 @@ export interface AgentEventPayload {
 export interface CanvasUpdateEventPayload {
   messageId: string;
   canvas: CanvasPayload;
+}
+
+export interface SessionMessageEventPayload {
+  key?: string;
+  sessionKey?: string;
+  sessionId?: string;
+  messageId?: string;
+  runId?: string;
+  ts?: number;
+  updatedAt?: number;
+  message?: Record<string, unknown>;
+}
+
+export interface SessionToolEventPayload {
+  key?: string;
+  sessionKey?: string;
+  sessionId?: string;
+  messageId?: string;
+  runId?: string;
+  toolCallId?: string;
+  ts?: number;
+  updatedAt?: number;
+  tool?: Record<string, unknown>;
+}
+
+export interface SessionsChangedEventPayload {
+  key?: string;
+  sessionKey?: string;
+  sessionId?: string;
+  reason?: string;
+  ts?: number;
+}
+
+export interface TickEventPayload {
+  ts?: number;
+}
+
+export interface HeartbeatEventPayload {
+  ts?: number;
+}
+
+export interface ShutdownEventPayload {
+  reason?: string;
+  restartExpectedMs?: number;
 }
 
 // Hello message (server → client on connect)

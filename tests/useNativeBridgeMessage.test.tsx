@@ -7,12 +7,13 @@ vi.mock("@mc/lib/nativeBridge", async (importOriginal) => {
   return {
     ...actual,
     resolveIdentitySign: vi.fn(),
+    resolveNativeGatewayAuthGet: vi.fn(),
   };
 });
 
 import { PIN_LOCK_MS } from "@mc/hooks/useScrollManager";
 import { useNativeBridgeMessage } from "@mc/hooks/chat/useNativeBridgeMessage";
-import { resolveIdentitySign } from "@mc/lib/nativeBridge";
+import { resolveIdentitySign, resolveNativeGatewayAuthGet } from "@mc/lib/nativeBridge";
 import type { ConnectionConfig, Message } from "@mc/types/chat";
 
 function createOptions(overrides: Partial<Parameters<typeof useNativeBridgeMessage>[0]> = {}) {
@@ -96,6 +97,21 @@ describe("useNativeBridgeMessage", () => {
 
     expect(resolveIdentitySign).toHaveBeenCalledTimes(1);
     expect(resolveIdentitySign).toHaveBeenCalledWith(payload);
+  });
+
+  it("handles gatewayAuth:getResponse by calling resolveNativeGatewayAuthGet", () => {
+    const payload = {
+      callbackId: "gacb-1",
+      raw: "{\"ws://localhost:18789\":{\"deviceToken\":\"devtok\"}}",
+    };
+    const { result } = renderHook(() => useNativeBridgeMessage(createOptions()));
+
+    act(() => {
+      result.current({ type: "gatewayAuth:getResponse", payload });
+    });
+
+    expect(resolveNativeGatewayAuthGet).toHaveBeenCalledTimes(1);
+    expect(resolveNativeGatewayAuthGet).toHaveBeenCalledWith(payload);
   });
 
   it("handles action:send by calling onNativeSend", () => {
