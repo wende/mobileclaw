@@ -27,6 +27,8 @@ import { parsePluginTags } from "@mc/lib/chat/pluginTagParser";
 import { splitIntoSentences, unwrapLineUnderscoreEmphasis, THINKING_COLLAPSE_THRESHOLD, STREAMING_VISIBLE_SENTENCES } from "@mc/lib/chat/thinkingUtils";
 import { TurnActivityBox } from "@mc/components/TurnActivityBox";
 
+const COPY_BUTTON_POST_STREAM_LOCK_MS = 5000;
+
 // ── File Thumbnails ──────────────────────────────────────────────────────────
 
 function fileExt(name?: string): string {
@@ -461,7 +463,19 @@ function InlineThinkingIndicator({ startTime }: { startTime?: number }) {
   );
 }
 
-function AssistantCopyButton({ text, durationText, debugCopyText, timestamp }: { text: string; durationText?: string | null; debugCopyText?: string; timestamp?: number }) {
+function AssistantCopyButton({
+  text,
+  durationText,
+  debugCopyText,
+  timestamp,
+  disabled = false,
+}: {
+  text: string;
+  durationText?: string | null;
+  debugCopyText?: string;
+  timestamp?: number;
+  disabled?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
 
@@ -472,7 +486,7 @@ function AssistantCopyButton({ text, durationText, debugCopyText, timestamp }: {
   }, []);
 
   const copy = async () => {
-    if (!text || !navigator.clipboard?.writeText) return;
+    if (disabled || !text || !navigator.clipboard?.writeText) return;
 
     try {
       await navigator.clipboard.writeText(text);
@@ -497,9 +511,14 @@ function AssistantCopyButton({ text, durationText, debugCopyText, timestamp }: {
         <button
           type="button"
           onClick={() => { void copy(); }}
+          disabled={disabled}
           aria-label={copied ? "Copied" : "Copy contents"}
-          title={copied ? "Copied" : "Copy contents"}
-          className="inline-flex h-8 w-4 items-center justify-start rounded-full p-0 text-muted-foreground/35 transition-colors hover:text-muted-foreground/70"
+          title={disabled ? "Copy temporarily disabled" : (copied ? "Copied" : "Copy contents")}
+          className={`inline-flex h-8 w-4 items-center justify-start rounded-full p-0 transition-colors ${
+            disabled
+              ? "cursor-not-allowed text-muted-foreground/20"
+              : "text-muted-foreground/35 hover:text-muted-foreground/70"
+          }`}
         >
           {copied ? (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -513,12 +532,12 @@ function AssistantCopyButton({ text, durationText, debugCopyText, timestamp }: {
           )}
         </button>
       ) : null}
-      {debugCopyText ? <DebugCopyButton text={debugCopyText} /> : null}
+      {debugCopyText ? <DebugCopyButton text={debugCopyText} disabled={disabled} /> : null}
     </div>
   );
 }
 
-function DebugCopyButton({ text }: { text: string }) {
+function DebugCopyButton({ text, disabled = false }: { text: string; disabled?: boolean }) {
   const [copied, setCopied] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
 
@@ -529,7 +548,7 @@ function DebugCopyButton({ text }: { text: string }) {
   }, []);
 
   const copy = async () => {
-    if (!text || !navigator.clipboard?.writeText) return;
+    if (disabled || !text || !navigator.clipboard?.writeText) return;
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -542,9 +561,14 @@ function DebugCopyButton({ text }: { text: string }) {
     <button
       type="button"
       onClick={() => { void copy(); }}
+      disabled={disabled}
       aria-label={copied ? "Copied debug" : "Copy full message (thinking + tools + text)"}
-      title={copied ? "Copied debug" : "Copy full message"}
-      className="inline-flex h-8 w-4 items-center justify-start rounded-full p-0 text-muted-foreground/35 transition-colors hover:text-muted-foreground/70"
+      title={disabled ? "Copy temporarily disabled" : (copied ? "Copied debug" : "Copy full message")}
+      className={`inline-flex h-8 w-4 items-center justify-start rounded-full p-0 transition-colors ${
+        disabled
+          ? "cursor-not-allowed text-muted-foreground/20"
+          : "text-muted-foreground/35 hover:text-muted-foreground/70"
+      }`}
     >
       {copied ? (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -561,7 +585,19 @@ function DebugCopyButton({ text }: { text: string }) {
 
 // ── CommandResponsePill — expandable pill for slash command responses ────────
 
-function CommandResponsePill({ text, isStreaming, copyText, durationText }: { text: string; isStreaming?: boolean; copyText?: string; durationText?: string | null }) {
+function CommandResponsePill({
+  text,
+  isStreaming,
+  copyText,
+  durationText,
+  copyDisabled = false,
+}: {
+  text: string;
+  isStreaming?: boolean;
+  copyText?: string;
+  durationText?: string | null;
+  copyDisabled?: boolean;
+}) {
   const [userToggled, setUserToggled] = useState<boolean | null>(null);
   
   // Robust summary extraction
@@ -604,7 +640,7 @@ function CommandResponsePill({ text, isStreaming, copyText, durationText }: { te
           <div className="min-h-0">
             <div className="border-t border-border px-3 py-2 text-xs leading-[1.75rem] whitespace-pre-wrap break-words text-foreground/80">
               <div>{text}</div>
-              {copyText ? <AssistantCopyButton text={copyText} durationText={durationText} /> : null}
+              {copyText ? <AssistantCopyButton text={copyText} durationText={durationText} disabled={copyDisabled} /> : null}
             </div>
           </div>
         </div>
@@ -709,6 +745,7 @@ function UnfurlCards({ text, isStreaming }: { text: string; isStreaming: boolean
 export function MessageRow({
   message,
   isStreaming,
+  isGlobalStreaming,
   freezeStreamingLayout = false,
   subagentStore,
   pinnedToolCallId,
@@ -732,6 +769,7 @@ export function MessageRow({
 }: {
   message: Message;
   isStreaming: boolean;
+  isGlobalStreaming?: boolean;
   freezeStreamingLayout?: boolean;
   subagentStore?: SubagentStore;
   pinnedToolCallId?: string | null;
@@ -760,14 +798,51 @@ export function MessageRow({
   useNativeClickInterceptor(messageRef);
 
   const isUser = message.role === "user";
+  const streamingForCopyControls = isGlobalStreaming ?? isStreaming;
 
   const text = getTextFromContent(message.content);
   const images = getImages(message.content);
   const files = getFiles(message.content);
+  const [copyButtonDisabled, setCopyButtonDisabled] = useState(streamingForCopyControls);
+  const copyButtonUnlockTimerRef = useRef<number | null>(null);
+  const wasStreamingRef = useRef(streamingForCopyControls);
+
+  useEffect(() => {
+    if (copyButtonUnlockTimerRef.current !== null) {
+      window.clearTimeout(copyButtonUnlockTimerRef.current);
+      copyButtonUnlockTimerRef.current = null;
+    }
+
+    if (streamingForCopyControls) {
+      setCopyButtonDisabled(true);
+      wasStreamingRef.current = true;
+      return;
+    }
+
+    const justFinishedStreaming = wasStreamingRef.current;
+    wasStreamingRef.current = false;
+    if (justFinishedStreaming) {
+      setCopyButtonDisabled(true);
+      copyButtonUnlockTimerRef.current = window.setTimeout(() => {
+        setCopyButtonDisabled(false);
+        copyButtonUnlockTimerRef.current = null;
+      }, COPY_BUTTON_POST_STREAM_LOCK_MS);
+      return;
+    }
+
+    setCopyButtonDisabled(false);
+  }, [streamingForCopyControls]);
+
+  useEffect(() => () => {
+    if (copyButtonUnlockTimerRef.current !== null) {
+      window.clearTimeout(copyButtonUnlockTimerRef.current);
+    }
+  }, []);
+
   const assistantCopyText = message.role === "assistant" ? normalizeAssistantCopyText(getTextFromContent(message.content)) : "";
   const assistantDurationText = getAssistantDurationText(message);
-  const showAssistantCopyButton = !isStreaming && !!assistantCopyText;
-  const showDebugCopyButton = !isStreaming && !!runDebugCopyText;
+  const showAssistantCopyButton = !!assistantCopyText;
+  const showDebugCopyButton = !!runDebugCopyText;
   const isErrorContextMessage = message.isContext
     || message.stopReason === STOP_REASON_INJECTED
     || text.startsWith(SYSTEM_PREFIX)
@@ -797,7 +872,16 @@ export function MessageRow({
         </div>
       );
     }
-    return <CommandResponsePill key={message.id} text={text} isStreaming={isStreaming} copyText={!isStreaming ? (assistantCopyText || text) : undefined} durationText={assistantDurationText} />;
+    return (
+      <CommandResponsePill
+        key={message.id}
+        text={text}
+        isStreaming={isStreaming}
+        copyText={assistantCopyText || text}
+        durationText={assistantDurationText}
+        copyDisabled={copyButtonDisabled}
+      />
+    );
   }
 
   // Context pill — expandable pill for system-injected user messages
@@ -840,12 +924,12 @@ export function MessageRow({
 
   if (message.isError && (message.role === "system" || message.role === "assistant")) {
     const errorText = text || "Unknown error";
-    const showAssistantErrorCopyButton = message.role === "assistant" && !isStreaming && !isErrorContextMessage;
+    const showAssistantErrorCopyButton = message.role === "assistant" && !isErrorContextMessage;
     return (
       <div className="flex justify-center py-2">
         <div className="group/message max-w-[85%] rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs leading-[1.75rem] text-destructive-foreground whitespace-pre-wrap break-words">
           <div>{errorText}</div>
-          {showAssistantErrorCopyButton ? <AssistantCopyButton text={assistantCopyText || errorText} durationText={assistantDurationText} timestamp={message.timestamp} /> : null}
+          {showAssistantErrorCopyButton ? <AssistantCopyButton text={assistantCopyText || errorText} durationText={assistantDurationText} timestamp={message.timestamp} disabled={copyButtonDisabled} /> : null}
         </div>
       </div>
     );
@@ -1177,7 +1261,7 @@ export function MessageRow({
                   <InlineThinkingIndicator startTime={message.timestamp} />
                 )}
                 {(showAssistantCopyButton || showDebugCopyButton) ? (
-                  <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} debugCopyText={showDebugCopyButton ? runDebugCopyText : undefined} timestamp={message.timestamp} />
+                  <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} debugCopyText={showDebugCopyButton ? runDebugCopyText : undefined} timestamp={message.timestamp} disabled={copyButtonDisabled} />
                 ) : null}
               </div>
             </SlideContent>

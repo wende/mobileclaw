@@ -100,8 +100,10 @@ export function ChatViewport({
   const modeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const prevZenModeRef = useRef(zenMode);
   const prevStreamingRef = useRef(isStreaming);
+  const prevGlobalStreamingRef = useRef(isStreaming);
   const prevZenMetaByMessageIdRef = useRef<Record<string, { groupId: string; isTail: boolean; hasMultiple: boolean }>>({});
   const prevZenTailIdsRef = useRef<Set<string>>(new Set());
+  const [streamingFallbackStartTs, setStreamingFallbackStartTs] = useState<number | null>(null);
 
   // Split single assistant messages that contain multiple completed tool-call cycles
   // into separate display messages. This lets the existing multi-message zen machinery
@@ -402,6 +404,27 @@ export function ChatViewport({
     zenMode,
     zenRenderMode,
   ]);
+
+  useEffect(() => {
+    const wasStreaming = prevGlobalStreamingRef.current;
+    if (isStreaming && !wasStreaming) {
+      setStreamingFallbackStartTs(Date.now());
+    } else if (!isStreaming && wasStreaming) {
+      setStreamingFallbackStartTs(null);
+    }
+    prevGlobalStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  const hasActiveStreamingRow = useMemo(() => {
+    if (!isStreaming || !effectiveStreamingId) return false;
+
+    for (let idx = 0; idx < zenDisplayMessages.length; idx++) {
+      const toolGroupHead = toolGroupMap.get(idx) ?? -1;
+      if (toolGroupHead >= 0 && toolGroupHead !== idx) continue;
+      if (zenDisplayMessages[idx].id === effectiveStreamingId) return true;
+    }
+    return false;
+  }, [effectiveStreamingId, isStreaming, toolGroupMap, zenDisplayMessages]);
 
   useEffect(() => {
     setExpandedZenGroups((prev) => {
@@ -925,6 +948,7 @@ export function ChatViewport({
                         return { ...msg, content: parts };
                       })() : msg}
                       isStreaming={isStreaming && msg.id === effectiveStreamingId}
+                      isGlobalStreaming={isStreaming}
                       freezeStreamingLayout={freezeStreamingLayout}
                       subagentStore={subagentStore}
                       pinnedToolCallId={pinnedToolCallId}
@@ -951,6 +975,25 @@ export function ChatViewport({
               </React.Fragment>
             );
           })}
+          {isStreaming && !hasActiveStreamingRow && (
+            <MessageRow
+              message={{
+                id: "__global-streaming-indicator__",
+                role: "assistant",
+                content: [],
+                timestamp: streamingFallbackStartTs ?? Date.now(),
+              }}
+              isStreaming
+              isGlobalStreaming={isStreaming}
+              subagentStore={subagentStore}
+              pinnedToolCallId={pinnedToolCallId}
+              onPin={onPin}
+              onUnpin={onUnpin}
+              zenMode={zenRenderMode}
+              onPluginAction={onPluginAction}
+              onAddInputAttachment={onAddInputAttachment}
+            />
+          )}
           <div ref={bottomRef} />
         </div>
       </main>

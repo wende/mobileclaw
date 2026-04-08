@@ -276,12 +276,11 @@ describe("useOpenClawRuntime", () => {
       method: "connect",
       params: expect.objectContaining({
         auth: { deviceToken: "cached-device-token" },
-        scopes: undefined,
       }),
     }));
     expect(runtimeMocks.signConnectChallenge).toHaveBeenCalledWith(expect.objectContaining({
       nonce: "nonce-1",
-      token: null,
+      token: "cached-device-token",
       platform: "ios",
       deviceFamily: "mobile",
     }));
@@ -437,6 +436,133 @@ describe("useOpenClawRuntime", () => {
     expect(options.setConnectionError).toHaveBeenCalledWith(
       "Device authentication failed: device signature invalid",
     );
+  });
+
+  it("suppresses chat event delta upsert when agent stream events are active", async () => {
+    const options = createOptions();
+    renderHook(() => useOpenClawRuntime(options));
+
+    // 1. Agent lifecycle start — marks agent stream as active
+    await emitWebSocketMessage({
+      type: "event",
+      event: "agent",
+      payload: {
+        sessionKey: "main",
+        runId: "run-1",
+        stream: "lifecycle",
+        data: { phase: "start" },
+        ts: 1000,
+      },
+    });
+
+    // 2. Agent content delta — calls appendContentDelta
+    await emitWebSocketMessage({
+      type: "event",
+      event: "agent",
+      payload: {
+        sessionKey: "main",
+        runId: "run-1",
+        stream: "content",
+        data: { delta: "Hello world" },
+        ts: 1001,
+      },
+    });
+    expect(options.appendContentDelta).toHaveBeenCalledWith("run-1", "Hello world", 1001);
+
+    // 3. Chat event delta with accumulated text — should be SKIPPED
+    //    because agent stream is active (prevents text duplication)
+    options.setMessages.mockClear();
+    await emitWebSocketMessage({
+      type: "event",
+      event: "chat",
+      payload: {
+        sessionKey: "main",
+        runId: "run-1",
+        state: "delta",
+        message: {
+          role: "assistant",
+          content: "Hello world",
+          timestamp: 1001,
+        },
+      },
+    });
+
+    // setMessages should NOT have been called — the chat delta is suppressed
+    expect(options.setMessages).not.toHaveBeenCalled();
+
+    // 4. Agent tool event — still processed normally
+    await emitWebSocketMessage({
+      type: "event",
+      event: "agent",
+      payload: {
+        sessionKey: "main",
+        runId: "run-1",
+        stream: "tool",
+        data: { phase: "start", name: "list_flows", toolCallId: "tc-1" },
+        ts: 1002,
+      },
+    });
+    expect(options.addToolCall).toHaveBeenCalledWith(
+      "run-1", "list_flows", 1002, "tc-1", undefined, undefined,
+    );
+
+    // 5. Another chat event delta with more accumulated text — still skipped
+    options.setMessages.mockClear();
+    await emitWebSocketMessage({
+      type: "event",
+      event: "chat",
+      payload: {
+        sessionKey: "main",
+        runId: "run-1",
+        state: "delta",
+        message: {
+          role: "assistant",
+          content: "Hello world. Here is the result:",
+          timestamp: 1003,
+        },
+      },
+    });
+    expect(options.setMessages).not.toHaveBeenCalled();
+
+    // 6. Chat event final — still processed (applies final message state)
+    await emitWebSocketMessage({
+      type: "event",
+      event: "chat",
+      payload: {
+        sessionKey: "main",
+        runId: "run-1",
+        state: "final",
+        message: {
+          role: "assistant",
+          content: "Hello world. Here is the result: done.",
+          timestamp: 1004,
+        },
+      },
+    });
+    expect(options.setMessages).toHaveBeenCalled();
+  });
+
+  it("processes chat event deltas normally when no agent events are present", async () => {
+    const options = createOptions();
+    renderHook(() => useOpenClawRuntime(options));
+
+    // Chat-only runtime: no agent events → chat delta should upsert
+    options.setMessages.mockClear();
+    await emitWebSocketMessage({
+      type: "event",
+      event: "chat",
+      payload: {
+        sessionKey: "main",
+        runId: "run-2",
+        state: "delta",
+        message: {
+          role: "assistant",
+          content: "Hello from chat-only",
+          timestamp: 2000,
+        },
+      },
+    });
+    expect(options.setMessages).toHaveBeenCalled();
   });
 
   it("debounces session invalidation events into history and session refresh requests", () => {

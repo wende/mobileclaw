@@ -240,6 +240,7 @@ export function useOpenClawRuntime({
   const didRetryWithFreshTokenRef = useRef(false);
   const pendingTokenRefreshRef = useRef(false);
   const onTokenRefreshRef = useRef(onTokenRefresh);
+  onTokenRefreshRef.current = onTokenRefresh;
   const reconnectMessageRef = useRef<string | null>(null);
   const sessionsSubscribedRef = useRef(false);
   const sessionMessagesSubscriptionKeyRef = useRef<string | null>(null);
@@ -260,6 +261,16 @@ export function useOpenClawRuntime({
   const modelsRequestedRef = useRef(false);
   const commandsFetchActiveRef = useRef(false);
   const commandsFetchBufferRef = useRef("");
+
+  // When the OpenClaw gateway sends both `event:agent` (fine-grained deltas) and
+  // `event:chat` (accumulated snapshots) for the same run, the chat-event delta
+  // handler must NOT update message content — the agent stream already provides
+  // correctly structured, interleaved content/tool/thinking parts.  Applying the
+  // chat snapshot on top corrupts the part ordering (text duplication, collapsed
+  // tool interleaving).  This ref is set to true once any agent-stream event
+  // (content / tool / reasoning / thinking) arrives for the current run, and
+  // reset when the streaming runtime state is cleared.
+  const agentStreamActiveRef = useRef(false);
 
   const thinkTagStateRef = useRef<{
     insideThinkTag: boolean;
@@ -420,6 +431,7 @@ export function useOpenClawRuntime({
     setAwaitingResponse(false);
     setIsStreaming(false);
     setStreamingId(null);
+    agentStreamActiveRef.current = false;
     if (opts?.clearRunId) {
       clearThinkingSource();
       activeRunIdRef.current = null;
@@ -492,12 +504,12 @@ export function useOpenClawRuntime({
           ? cachedAuthEntry.deviceToken
           : null
       );
-    const scopes = explicitDeviceToken ? undefined : [...DEFAULT_GATEWAY_SCOPES];
+    const scopes = [...DEFAULT_GATEWAY_SCOPES];
     const auth = explicitDeviceToken
       ? { deviceToken: explicitDeviceToken }
       : (authToken ? { token: authToken } : undefined);
 
-    const signatureToken = explicitDeviceToken ? null : authToken;
+    const signatureToken = explicitDeviceToken ?? authToken ?? null;
     let device: { id: string; publicKey: string; signature: string; signedAt: number; nonce?: string };
     try {
       device = await signConnectChallenge({
@@ -721,7 +733,13 @@ export function useOpenClawRuntime({
             setStreamingId(payload.runId);
           }
 
-          setMessages((prev: Message[]) => upsertChatEventMessage(prev, payload));
+          // When agent-stream events are active for this run, skip the chat-event
+          // content upsert — the agent stream provides correctly interleaved
+          // content/tool/thinking parts.  Applying the accumulated chat snapshot
+          // on top would duplicate text and collapse tool interleaving.
+          if (!agentStreamActiveRef.current) {
+            setMessages((prev: Message[]) => upsertChatEventMessage(prev, payload));
+          }
         }
         break;
 
@@ -840,6 +858,7 @@ export function useOpenClawRuntime({
     if (payload.stream === "lifecycle") {
       const phase = payload.data.phase as string;
       if (phase === "start") {
+        agentStreamActiveRef.current = true;
         clearThinkingSource(payload.runId);
         const isExternalRun = !activeRunIdRef.current;
         markRunStart();
@@ -861,6 +880,10 @@ export function useOpenClawRuntime({
       }
       return;
     }
+
+    // Mark agent stream as active so handleChatEvent skips its delta content
+    // upsert — agent events provide fine-grained, correctly interleaved parts.
+    agentStreamActiveRef.current = true;
 
     if (payload.stream === "tool") {
       const phase = payload.data.phase as string;
@@ -986,6 +1009,33 @@ export function useOpenClawRuntime({
     ) {
       forcedDeviceTokenRef.current = null;
       void deleteGatewayAuthCacheEntry(gatewayUrl);
+    }
+
+    // Stale token: the signed payload included the wrong token. Re-fetch and retry once.
+    if (
+      errorCode === "DEVICE_AUTH_SIGNATURE_INVALID"
+      && !didRetryWithFreshTokenRef.current
+      && onTokenRefreshRef.current
+    ) {
+      didRetryWithFreshTokenRef.current = true;
+      pendingTokenRefreshRef.current = true;
+      const savedUrl = gatewayUrlRef.current;
+      reconnectMessageRef.current = "Token may be stale. Refreshing\u2026";
+      setConnectionError(reconnectMessageRef.current);
+      if (gatewayUrl) void deleteGatewayAuthCacheEntry(gatewayUrl);
+      void onTokenRefreshRef.current().then((newToken) => {
+        pendingTokenRefreshRef.current = false;
+        if (newToken != null && savedUrl) {
+          gatewayTokenRef.current = newToken;
+          connectFnRef.current?.(savedUrl);
+        } else {
+          setConnectionError(formatGatewayError(normalized));
+        }
+      }).catch(() => {
+        pendingTokenRefreshRef.current = false;
+        setConnectionError(formatGatewayError(normalized));
+      });
+      return true;
     }
 
     setConnectionError(formatGatewayError(normalized));
@@ -1178,6 +1228,7 @@ export function useOpenClawRuntime({
       setConnectionError("Connection error");
     },
     onInitialConnectFail: (info) => {
+      if (pendingTokenRefreshRef.current) return; // token refresh will reconnect
       setIsInitialConnecting(false);
       setConnectionError(info?.reason || "Could not reach server");
       if (!isDetachedRef.current && !isNativeRef.current) setShowSetup(true);
@@ -1302,6 +1353,8 @@ export function useOpenClawRuntime({
     activeAuthTokenSha256Ref.current = "";
     forcedDeviceTokenRef.current = null;
     didRetryWithDeviceTokenRef.current = false;
+    didRetryWithFreshTokenRef.current = false;
+    pendingTokenRefreshRef.current = false;
     reconnectMessageRef.current = null;
     pendingHistorySyncAfterRunRef.current = false;
     sessionsSubscribedRef.current = false;
@@ -1310,6 +1363,10 @@ export function useOpenClawRuntime({
     gatewayPolicyRef.current = null;
     connect(url);
   }, [connect]);
+
+  useEffect(() => {
+    connectFnRef.current = connectTracked;
+  }, [connectTracked]);
 
   const disconnectTracked = useCallback(() => {
     updateSessionMessagesSubscription(null);

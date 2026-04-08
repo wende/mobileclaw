@@ -80,6 +80,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sentAnimId, setSentAnimId] = useState<string | null>(null);
   const { isDetached, detachedNoBorder, detachedNoShell, detachedSurface, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
+  const widgetCtx = useWidgetContext();
   const isMobileViewport = useIsMobileViewport();
   const {
     useDocumentScroll,
@@ -435,6 +436,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     replacePluginPart,
     removePluginPart,
     upsertCanvasPluginByMessageId,
+    onTokenRefresh: widgetCtx?.onTokenRefresh,
   });
 
   const { setQuoteText, quotePopup, quotePopupRef, handleAcceptQuote: rawAcceptQuote } = useQuoteSelection({ scrollRef });
@@ -558,7 +560,6 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   }), [add, sendMessage, handleSessionSelect]);
 
   // ── Bridge session state to host via widget context callback ──────────────
-  const widgetCtx = useWidgetContext();
   const onSessionsChangeRef = useRef(widgetCtx?.onSessionsChange);
   onSessionsChangeRef.current = widgetCtx?.onSessionsChange;
 
