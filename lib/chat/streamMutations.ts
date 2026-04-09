@@ -23,7 +23,7 @@ function summarizeParts(parts: ContentPart[]): string {
 }
 
 function summarizeMsg(m: Message): string {
-  const parts = Array.isArray(m.content) ? m.content as ContentPart[] : [];
+  const parts = Array.isArray(m.content) ? m.content : [];
   return `{id=${m.id} role=${m.role} parts=[${summarizeParts(parts)}]}`;
 }
 
@@ -467,7 +467,7 @@ export function upsertFinalRunMessage(
       };
       console.log(
         `[STREAM-MUT] upsertFinalRunMessage: UPDATED ` +
-        `contentReplaced=${shouldApplyContent} resultParts=[${summarizeParts(Array.isArray(result.content) ? result.content as ContentPart[] : [])}]`
+        `contentReplaced=${shouldApplyContent} resultParts=[${summarizeParts(Array.isArray(result.content) ? result.content : [])}]`
       );
       return result;
     });

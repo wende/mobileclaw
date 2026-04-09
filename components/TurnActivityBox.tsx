@@ -125,7 +125,7 @@ function ToolExpandedContent({ name, args, result, resultError, narration }: {
         <div className="px-3 py-2 text-[#8D8D8D]">
           {isEdit ? (() => {
             try {
-              const parsed = JSON.parse(args!);
+              const parsed = JSON.parse(args);
               const oldStr = String(parsed.old_string ?? parsed.oldString ?? parsed.old_str ?? parsed.oldText ?? "");
               const newStr = String(parsed.new_string ?? parsed.newString ?? parsed.new_str ?? parsed.newText ?? "");
               return (

@@ -35,7 +35,7 @@ export function parsePluginTags(text: string): ParsedSegment[] {
 
   for (const match of text.matchAll(PLUGIN_TAG_RE)) {
     const [fullMatch, type, dataAttr, innerText] = match;
-    const matchStart = match.index!;
+    const matchStart = match.index;
 
     // Add preceding text
     if (matchStart > lastIndex) {

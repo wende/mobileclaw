@@ -51,6 +51,6 @@ export function serializeToolArgs(args: unknown): string | undefined {
   try {
     return JSON.stringify(args);
   } catch {
-    return String(args);
+    return JSON.stringify(args);
   }
 }

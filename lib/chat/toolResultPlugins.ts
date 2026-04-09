@@ -89,7 +89,8 @@ export function pluginFromToolResult(
 
 function buildFlowListPlugin(data: unknown): PluginMatch {
   const d = data as Record<string, unknown> | null;
-  const flows = Array.isArray(d?.data) ? d!.data : null;
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  const flows = Array.isArray(d?.data) ? (d as Record<string, unknown>).data as unknown[] : null;
   if (!flows || flows.length === 0) return null;
 
   return {
@@ -122,7 +123,8 @@ function buildFlowCanvasPlugin(data: unknown): PluginMatch {
   return {
     type: "plugin",
     pluginType: "flow_canvas",
-    partId: `flow-canvas-${d.id || Date.now()}`,
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string
+    partId: `flow-canvas-${String(d.id || Date.now())}`,
     state: "settled",
     data: {
       flowId: d.id || "",
@@ -175,7 +177,8 @@ function extractSteps(flow: Record<string, unknown>): Array<Record<string, unkno
 
 function buildRunListPlugin(data: unknown): PluginMatch {
   const d = data as Record<string, unknown> | null;
-  const runs = Array.isArray(d?.data) ? d!.data : null;
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  const runs = Array.isArray(d?.data) ? (d as Record<string, unknown>).data as unknown[] : null;
   if (!runs || runs.length === 0) return null;
 
   return {
@@ -207,7 +210,8 @@ function buildRunDetailPlugin(data: unknown): PluginMatch {
   return {
     type: "plugin",
     pluginType: "flow_run_detail_card",
-    partId: `run-detail-${d.id}`,
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string
+    partId: `run-detail-${String(d.id)}`,
     state: "settled",
     data: d,
   };

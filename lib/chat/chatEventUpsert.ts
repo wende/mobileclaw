@@ -58,7 +58,7 @@ export function upsertChatEventMessage(
     console.log(
       `[CHAT-UPSERT] assistant existingIdx=${existingIdx}` +
       (existingIdx >= 0
-        ? ` existingParts=[${summarizeParts(Array.isArray(prev[existingIdx].content) ? prev[existingIdx].content as ContentPart[] : [])}]`
+        ? ` existingParts=[${summarizeParts(Array.isArray(prev[existingIdx].content) ? prev[existingIdx].content : [])}]`
         : " (will create new)")
     );
     if (existingIdx >= 0) {
