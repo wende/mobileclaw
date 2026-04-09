@@ -99,7 +99,7 @@ function buildFlowListPlugin(data: unknown): PluginMatch {
     partId: `flow-list-${Date.now()}`,
     state: "settled",
     data: {
-      flows: flows.map((f: Record<string, unknown>) => ({
+      flows: flows.map((f) => f as Record<string, unknown>).map((f) => ({
         id: f.id,
         displayName: f.displayName || "Untitled",
         status: f.status || "DISABLED",
@@ -187,7 +187,7 @@ function buildRunListPlugin(data: unknown): PluginMatch {
     partId: `run-list-${Date.now()}`,
     state: "settled",
     data: {
-      runs: runs.map((r: Record<string, unknown>) => ({
+      runs: runs.map((r) => r as Record<string, unknown>).map((r) => ({
         runId: (r.id || r.runId || "") as string,
         flowId: (r.flowId || "") as string,
         flowName: (r.flowDisplayName || r.flowName || "Flow") as string,
