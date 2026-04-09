@@ -6,7 +6,7 @@ export function SlideContent({ open, children }: { open: boolean; children: Reac
   return (
     <div
       className="grid transition-[grid-template-rows] duration-200 ease-out"
-      style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+      style={{ gridTemplateRows: open ? "1fr" : "0fr", gridTemplateColumns: "minmax(0, 1fr)" }}
     >
       <div className="overflow-hidden min-h-0">
         {children}

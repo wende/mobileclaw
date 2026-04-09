@@ -10,6 +10,8 @@ import { appendCanvasPart } from "@mc/lib/plugins/compat";
 import { getTextFromContent } from "@mc/lib/messageUtils";
 import type { CanvasPayload, ContentPart, Message } from "@mc/types/chat";
 
+const OPTIMISTIC_DEDUP_WINDOW_MS = 10_000;
+
 type RawHistoryMessage = Record<string, unknown>;
 
 function readPrimaryText(content: unknown): string {
@@ -55,6 +57,12 @@ function readHistoryMessageId(raw: RawHistoryMessage): string | undefined {
   return undefined;
 }
 
+function readOpenClawId(raw: RawHistoryMessage): string | undefined {
+  const oc = raw.__openclaw as Record<string, unknown> | undefined;
+  if (oc && typeof oc.id === "string" && oc.id) return oc.id;
+  return undefined;
+}
+
 function buildStableHistoryId(raw: RawHistoryMessage, idx: number): string {
   const messageId = readHistoryMessageId(raw);
   if (messageId) return messageId;
@@ -64,6 +72,12 @@ function buildStableHistoryId(raw: RawHistoryMessage, idx: number): string {
     if (raw.role === "assistant") return runId;
     return `${runId}:${raw.role}`;
   }
+
+  // OpenClaw gateway history messages carry a stable server-assigned ID in
+  // __openclaw.id (8-char hex). Use it so that IDs survive across history
+  // re-fetches instead of shifting with index-based hist-N.
+  const openclawId = readOpenClawId(raw);
+  if (openclawId) return `oc-${openclawId}`;
 
   if (typeof raw.id === "string" && raw.id.length > 0) return `${raw.id}:${raw.role}`;
   return `hist-${idx}`;
@@ -225,6 +239,100 @@ function normalizeTextForMatch(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Merge thinking blocks from history into the streaming message's content.
+ * Returns a merged content array, or null if no merge was needed/possible.
+ *
+ * History content typically has: [thinking, tool_call, thinking, text]
+ * Streaming content typically has: [tool_call, text]
+ *
+ * The result inserts thinking blocks from history at the correct positions
+ * while keeping the streaming version's tool_call/text parts (which may
+ * have richer runtime data like tool results).
+ */
+function mergeHistoryIntoStreaming(
+  streamingParts: ContentPart[],
+  historyParts: ContentPart[],
+): ContentPart[] | null {
+  const historyHasThinking = historyParts.some((p) => p.type === "thinking");
+  const streamingHasThinking = streamingParts.some((p) => p.type === "thinking");
+  // Only merge if history adds thinking blocks the streaming version lacks.
+  if (!historyHasThinking || streamingHasThinking) return null;
+
+  // Build a merged array using history's structure as the template.
+  // For each part in history:
+  //   - thinking → take from history (streaming doesn't have it)
+  //   - tool_call → take from streaming (has result/status data)
+  //   - text → take from streaming (may be more up-to-date)
+  //   - other → take from history
+  const result: ContentPart[] = [];
+  // Track which streaming parts have been consumed to append any leftovers.
+  const consumedStreamIdx = new Set<number>();
+
+  // Index streaming tool_calls by toolCallId for fast lookup.
+  const streamToolCalls = new Map<string, { part: ContentPart; idx: number }>();
+  // Also index by name for fallback matching.
+  const streamToolCallsByName = new Map<string, { part: ContentPart; idx: number }[]>();
+  for (let i = 0; i < streamingParts.length; i++) {
+    const p = streamingParts[i];
+    if (isToolCallPart(p)) {
+      if (p.toolCallId) streamToolCalls.set(p.toolCallId, { part: p, idx: i });
+      const list = streamToolCallsByName.get(p.name ?? "") ?? [];
+      list.push({ part: p, idx: i });
+      streamToolCallsByName.set(p.name ?? "", list);
+    }
+  }
+
+  for (const hp of historyParts) {
+    if (hp.type === "thinking") {
+      result.push(hp);
+      continue;
+    }
+
+    if (isToolCallPart(hp)) {
+      // Prefer the streaming version of this tool_call (has result data).
+      let match: { part: ContentPart; idx: number } | undefined;
+      if (hp.toolCallId) match = streamToolCalls.get(hp.toolCallId);
+      if (!match) {
+        const byName = streamToolCallsByName.get(hp.name ?? "");
+        match = byName?.find((e) => !consumedStreamIdx.has(e.idx));
+      }
+      if (match) {
+        result.push(match.part);
+        consumedStreamIdx.add(match.idx);
+      } else {
+        result.push(hp);
+      }
+      continue;
+    }
+
+    if (hp.type === "text") {
+      // Find the corresponding text in streaming (last unconsumed text).
+      const streamTextIdx = streamingParts.findIndex(
+        (p, i) => p.type === "text" && !consumedStreamIdx.has(i),
+      );
+      if (streamTextIdx >= 0) {
+        result.push(streamingParts[streamTextIdx]);
+        consumedStreamIdx.add(streamTextIdx);
+      } else {
+        result.push(hp);
+      }
+      continue;
+    }
+
+    // Plugin or other part types — take from history.
+    result.push(hp);
+  }
+
+  // Append any unconsumed streaming parts (e.g. extra tool_calls or text
+  // that arrived after the history snapshot was taken).
+  for (let i = 0; i < streamingParts.length; i++) {
+    if (!consumedStreamIdx.has(i)) result.push(streamingParts[i]);
+  }
+
+  return result;
+}
+
 export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMessages: Message[]): Message[] {
   const optimisticByNorm = new Map<string, Message>();
   for (const message of previousMessages) {
@@ -232,12 +340,6 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
       optimisticByNorm.set(normalizeTextForMatch(getTextFromContent(message.content)), message);
     }
   }
-
-  const historyUserNorms = new Set(
-    finalMessages
-      .filter((message) => message.role === "user")
-      .map((message) => normalizeTextForMatch(getTextFromContent(message.content))),
-  );
 
   const prevAssistantLocals: {
     id?: string;
@@ -260,18 +362,43 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
     }
   }
 
+  // Track consumed prevAssistantLocals indices so the same entry can't
+  // be matched by multiple server messages (which would create duplicate IDs).
+  const consumedPrevIndices = new Set<number>();
+
+  function findPrevAssistant(
+    predicate: (p: typeof prevAssistantLocals[number]) => boolean,
+  ): typeof prevAssistantLocals[number] | undefined {
+    const idx = prevAssistantLocals.findIndex(
+      (p, i) => !consumedPrevIndices.has(i) && predicate(p),
+    );
+    if (idx < 0) return undefined;
+    consumedPrevIndices.add(idx);
+    return prevAssistantLocals[idx];
+  }
+
   const enriched = finalMessages.map((message) => {
     if (message.role === "assistant" && prevAssistantLocals.length > 0) {
       const msgText = normalizeTextForMatch(getTextFromContent(message.content));
-      const prev = prevAssistantLocals.find((p) =>
-        (p.ts && message.timestamp && p.ts === message.timestamp) || (msgText && p.text === msgText),
-      );
+      // Server-assigned IDs (hist-*, oc-*) don't match streaming IDs (runId),
+      // so fall back to text/timestamp matching. Only true streaming IDs that
+      // were already matched by a previous history fetch should use strict ID
+      // matching — those won't start with hist- or oc-.
+      const isServerAssignedId = !message.id
+        || message.id.startsWith("hist-")
+        || message.id.startsWith("oc-");
+      const textOrTsMatch = (p: typeof prevAssistantLocals[number]) =>
+        !!(p.ts && message.timestamp && p.ts === message.timestamp) || !!(msgText && p.text === msgText);
+      const prev = isServerAssignedId
+        ? findPrevAssistant(textOrTsMatch)
+        : findPrevAssistant((p) => p.id === message.id)
+          // If strict ID match fails, try text/timestamp as fallback
+          ?? findPrevAssistant(textOrTsMatch);
       if (prev) {
         const carry: Partial<Message> = {};
-        // Only carry over streaming/run IDs (e.g. "run-abc"), never hist-* IDs.
-        // History re-fetches can shift indices, so carrying hist-40 onto what is
-        // now hist-41 would create duplicate React keys.
-        if (prev.id && prev.id !== message.id && !prev.id.startsWith("hist-")) carry.id = prev.id;
+        // Only carry over streaming/run IDs (e.g. "run-abc"), never
+        // server-assigned IDs (hist-*, oc-*) which would create duplicate keys.
+        if (prev.id && prev.id !== message.id && !prev.id.startsWith("hist-") && !prev.id.startsWith("oc-")) carry.id = prev.id;
         if (prev.runDuration && !message.runDuration) carry.runDuration = prev.runDuration;
         if (prev.thinkingDuration && !message.thinkingDuration) carry.thinkingDuration = prev.thinkingDuration;
         if (prev.isCommandResponse && !message.isCommandResponse) carry.isCommandResponse = true;
@@ -280,8 +407,17 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
       return message;
     }
     if (message.role !== "user") return message;
-    const optimistic = optimisticByNorm.get(normalizeTextForMatch(getTextFromContent(message.content)));
+    const normKey = normalizeTextForMatch(getTextFromContent(message.content));
+    const optimistic = optimisticByNorm.get(normKey);
     if (!optimistic || !Array.isArray(optimistic.content)) return message;
+    // Only match if timestamps are close — prevents an old message with
+    // identical text from stealing the optimistic ID when the server
+    // hasn't yet processed the current message.
+    const optTs = optimistic.timestamp ?? 0;
+    const msgTs = message.timestamp ?? 0;
+    if (optTs && msgTs && Math.abs(optTs - msgTs) > OPTIMISTIC_DEDUP_WINDOW_MS) return message;
+    // Consume so a second server message with identical text keeps its oc-* ID.
+    optimisticByNorm.delete(normKey);
 
     const optimisticText = optimistic.content.filter((part) => part.type === "text");
     const optimisticImages = optimistic.content.filter((part) => part.type === "image_url" || part.type === "image");
@@ -301,17 +437,97 @@ export function mergeHistoryWithOptimistic(finalMessages: Message[], previousMes
 
   const previousServerCount = previousMessages.filter((message) => !(message.role === "user" && message.id?.startsWith("u-"))).length;
   // If history briefly lags behind already-rendered realtime events, do not roll UI back.
-  if (finalMessages.length < previousServerCount) return previousMessages;
+  if (finalMessages.length < previousServerCount) {
+    console.log(
+      `[STREAM] mergeHistoryWithOptimistic: SKIPPING history (${finalMessages.length} < ${previousServerCount} prev server msgs)`
+    );
+    return previousMessages;
+  }
 
-  const optimisticPending = previousMessages.filter(
-    (message) =>
-      message.role === "user" &&
-      message.id?.startsWith("u-") &&
-      !historyUserNorms.has(normalizeTextForMatch(getTextFromContent(message.content))),
+  // After enrichment, remaining entries in optimisticByNorm are optimistic
+  // messages that were NOT matched to any server message (server hasn't
+  // processed them yet). These must be carried over.
+  // Using consumption tracking instead of historyUserNorms avoids the bug
+  // where an old server message with identical text tricks us into thinking
+  // the current optimistic is already covered.
+  const optimisticPending = [...optimisticByNorm.values()];
+
+  // Preserve streaming assistant messages that aren't in history yet
+  // (e.g. mid-run messages with plugin cards like pause_card).
+  // Also detect when the streaming version has richer content (thinking/tool
+  // parts from agent events) than the history version — the server doesn't
+  // include thinking blocks during streaming, so the streaming version must
+  // win until the run completes and history catches up.
+  const enrichedIds = new Set(enriched.map((m) => m.id).filter(Boolean));
+  const enrichedById = new Map(enriched.filter((m) => m.id).map((m) => [m.id, m]));
+  const streamingAssistant: Message[] = [];
+  const enrichedIdsToReplace = new Set<string>();
+
+  for (const message of previousMessages) {
+    if (message.role !== "assistant" || !message.id || message.id.startsWith("hist-") || message.id.startsWith("oc-")) continue;
+
+    if (!enrichedIds.has(message.id)) {
+      streamingAssistant.push(message);
+      continue;
+    }
+
+    // ID is in enriched — check if streaming version has richer content.
+    const prevParts = Array.isArray(message.content) ? message.content : [];
+    const enrichedMsg = enrichedById.get(message.id);
+    const enrichedParts = enrichedMsg && Array.isArray(enrichedMsg.content) ? enrichedMsg.content : [];
+
+    const prevHasStreamParts = prevParts.some((p) => p.type === "thinking" || isToolCallPart(p));
+    const enrichedHasStreamParts = enrichedParts.some((p) => p.type === "thinking" || isToolCallPart(p));
+
+    if (prevHasStreamParts && !enrichedHasStreamParts) {
+      console.log(`[STREAM] mergeHistoryWithOptimistic: PREFER streaming over history for id=${message.id} (has thinking/tool parts)`);
+      streamingAssistant.push(message);
+      enrichedIdsToReplace.add(message.id);
+    } else if (enrichedMsg) {
+      // History has richer content (e.g. thinking blocks the streaming version
+      // lacks). Instead of a wholesale replacement that causes a layout jump,
+      // merge thinking blocks from history into the streaming content so that
+      // tool_call and text parts stay in place for smooth React reconciliation.
+      const merged = mergeHistoryIntoStreaming(prevParts, enrichedParts);
+      if (merged) {
+        streamingAssistant.push({
+          ...message,
+          content: merged,
+          reasoning: enrichedMsg.reasoning ?? message.reasoning,
+        });
+        enrichedIdsToReplace.add(message.id);
+      }
+    }
+  }
+
+  const filteredEnriched = enrichedIdsToReplace.size > 0
+    ? enriched.filter((m) => !m.id || !enrichedIdsToReplace.has(m.id))
+    : enriched;
+
+  console.log(
+    `[STREAM] mergeHistoryWithOptimistic: enriched=${enriched.length} filtered=${filteredEnriched.length} optimisticPending=${optimisticPending.length} ` +
+    `streamingAssistant=${streamingAssistant.length} streamingAssistantIds=[${streamingAssistant.map(m => m.id).join(",")}] ` +
+    `replaced=[${[...enrichedIdsToReplace].join(",")}]`
   );
-  if (optimisticPending.length === 0) return enriched;
 
-  return [...enriched, ...optimisticPending].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+  const carry = [...optimisticPending, ...streamingAssistant];
+  const merged = carry.length === 0 ? filteredEnriched : [...filteredEnriched, ...carry].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+
+  // Deduplicate by ID — if a previous merge cycle already created a dup
+  // (e.g. enrichment + streaming carry-over both had the same run ID),
+  // keep the first occurrence to prevent perpetuating duplicate React keys.
+  const seenIds = new Set<string>();
+  const deduped = merged.filter((m) => {
+    if (!m.id) return true;
+    if (seenIds.has(m.id)) {
+      console.log(`[STREAM] mergeHistoryWithOptimistic: DEDUP removing duplicate id=${m.id}`);
+      return false;
+    }
+    seenIds.add(m.id);
+    return true;
+  });
+
+  return deduped;
 }
 
 export function isRunInProgressFromHistory(rawMessages: RawHistoryMessage[]): boolean {

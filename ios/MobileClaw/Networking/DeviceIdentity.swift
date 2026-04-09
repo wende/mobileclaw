@@ -65,26 +65,40 @@ enum DeviceIdentityManager {
         scopes: [String],
         signedAtMs: Int,
         token: String?,
-        nonce: String?
+        nonce: String,
+        platform: String,
+        deviceFamily: String
     ) -> String {
-        let version = nonce != nil ? "v2" : "v1"
-        var parts = [
-            version,
+        [
+            "v3",
             deviceId,
             clientId,
             clientMode,
             role,
             scopes.joined(separator: ","),
             String(signedAtMs),
-            token ?? ""
+            token ?? "",
+            nonce,
+            normalizeDeviceMetadataForAuth(platform),
+            normalizeDeviceMetadataForAuth(deviceFamily)
         ]
-        if version == "v2" {
-            parts.append(nonce ?? "")
-        }
-        return parts.joined(separator: "|")
+        .joined(separator: "|")
     }
 
     // MARK: - Helpers
+
+    private static func normalizeDeviceMetadataForAuth(_ value: String?) -> String {
+        guard let value else { return "" }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return String(trimmed.unicodeScalars.map { scalar in
+            if scalar.value >= 65 && scalar.value <= 90,
+               let lowered = UnicodeScalar(scalar.value + 32) {
+                return Character(lowered)
+            }
+            return Character(scalar)
+        })
+    }
 
     private static func sha256Hex(_ data: Data) -> String {
         let hash = SHA256.hash(data: data)

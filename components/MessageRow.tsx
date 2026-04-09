@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import type { ContentPart, Message } from "@mc/types/chat";
-import { getTextFromContent, getImages, getFiles } from "@mc/lib/messageUtils";
-import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, MESSAGE_SEND_ANIMATION } from "@mc/lib/constants";
+import { getTextFromContent, getImages, getFiles, formatMessageTime } from "@mc/lib/messageUtils";
+import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, MESSAGE_SEND_ANIMATION, OPENCLAW_CONTEXT_BEGIN, stripOpenClawInternalContext, summarizeOpenClawContext } from "@mc/lib/constants";
 import { useExpandablePanel } from "@mc/hooks/useExpandablePanel";
 import { useElapsedSeconds } from "@mc/hooks/useElapsedSeconds";
 import { SlideContent } from "@mc/components/SlideContent";
@@ -23,6 +23,11 @@ import { isPluginPart } from "@mc/lib/constants";
 import { pluginRegistry } from "@mc/lib/plugins/registry";
 import type { PluginActionHandler } from "@mc/lib/plugins/types";
 import type { PluginContentPart } from "@mc/types/chat";
+import { parsePluginTags } from "@mc/lib/chat/pluginTagParser";
+import { splitIntoSentences, unwrapLineUnderscoreEmphasis, THINKING_COLLAPSE_THRESHOLD, STREAMING_VISIBLE_SENTENCES } from "@mc/lib/chat/thinkingUtils";
+import { TurnActivityBox } from "@mc/components/TurnActivityBox";
+
+const COPY_BUTTON_POST_STREAM_LOCK_MS = 5000;
 
 // ── File Thumbnails ──────────────────────────────────────────────────────────
 
@@ -200,7 +205,7 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
                         return <ThinkingPill key={`thinking-${i}`} text={part.thinking || part.text || ""} />;
                       }
                       if (isToolCallPart(part)) {
-                        return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status} result={part.result} resultError={part.resultError} toolCallId={part.toolCallId} subagentStore={part.name === SPAWN_TOOL_NAME ? subagentStore : undefined} />;
+                        return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status} result={part.result} resultError={part.resultError} narration={part.narration} toolCallId={part.toolCallId} subagentStore={part.name === SPAWN_TOOL_NAME ? subagentStore : undefined} />;
                       }
                       if (part.type === "text" && part.text) {
                         return (
@@ -227,66 +232,6 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
 }
 
 // ── ThinkingPill ─────────────────────────────────────────────────────────────
-
-const THINKING_COLLAPSE_THRESHOLD = 5;
-
-function unwrapLineUnderscoreEmphasis(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => {
-      const leading = line.match(/^\s*/)?.[0] ?? "";
-      const trailing = line.match(/\s*$/)?.[0] ?? "";
-      const core = line.slice(leading.length, line.length - trailing.length);
-      if (core.length < 2) return line;
-
-      const hasSingleUnderscoreWrap = core.startsWith("_") && core.endsWith("_")
-        && !core.startsWith("__") && !core.endsWith("__");
-      if (!hasSingleUnderscoreWrap) return line;
-
-      const inner = core.slice(1, -1);
-      if (!inner.trim()) return line;
-      return `${leading}${inner}${trailing}`;
-    })
-    .join("\n");
-}
-
-const STREAMING_VISIBLE_SENTENCES = 3;
-const MIN_SENTENCE_SPLIT_CHARS = 10;
-
-function splitIntoSentences(text: string): string[] {
-  const sentences: string[] = [];
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    // Split on sentence-ending punctuation followed by space
-    const parts = trimmed.split(/(?<=[.!?])\s+/).map((part) => part.trim()).filter(Boolean);
-    const lineSentences: string[] = [];
-    let carry = "";
-
-    for (let i = 0; i < parts.length; i++) {
-      const candidate = [carry, parts[i]].filter(Boolean).join(" ").trim();
-      const hasNext = i < parts.length - 1;
-
-      if (candidate.length < MIN_SENTENCE_SPLIT_CHARS && hasNext) {
-        carry = candidate;
-        continue;
-      }
-
-      if (candidate.length < MIN_SENTENCE_SPLIT_CHARS && lineSentences.length > 0) {
-        lineSentences[lineSentences.length - 1] = `${lineSentences[lineSentences.length - 1]} ${candidate}`.trim();
-        carry = "";
-        continue;
-      }
-
-      lineSentences.push(candidate);
-      carry = "";
-    }
-
-    if (carry) lineSentences.push(carry);
-    sentences.push(...lineSentences);
-  }
-  return sentences;
-}
 
 function ThinkingPill({ text, isStreaming }: { text: string; isStreaming?: boolean }) {
   const displayText = unwrapLineUnderscoreEmphasis(text);
@@ -454,20 +399,45 @@ function UserTextWithQuotes({ text }: { text: string }) {
 
 function normalizeAssistantCopyText(text: string): string {
   const { text: rawCleanText } = stripThinkTags(text);
-  return stripFinalTags(rawCleanText).trim();
+  return stripOpenClawInternalContext(stripFinalTags(rawCleanText)).trim();
 }
 
-function getCopyableAssistantText(message: Message): string {
+/** Serialize the full assistant message — thinking, tool calls, and text — in chronological order. */
+export function getFullAssistantCopyText(message: Message): string {
   if (message.role !== "assistant" || !message.content) return "";
-  if (typeof message.content === "string") return normalizeAssistantCopyText(message.content);
 
-  return message.content
-    .flatMap((part) => {
-      if (part.type !== "text" || !part.text) return [];
-      const cleanText = normalizeAssistantCopyText(part.text);
-      return cleanText ? [cleanText] : [];
-    })
-    .join("\n\n");
+  const sections: string[] = [];
+
+  const hasThinkingParts = Array.isArray(message.content)
+    && message.content.some((p) => p.type === "thinking");
+
+  // Top-level reasoning (only if no structured thinking parts)
+  if (message.reasoning && !hasThinkingParts) {
+    sections.push(`<thinking>\n${message.reasoning}\n</thinking>`);
+  }
+
+  if (typeof message.content === "string") {
+    const cleaned = normalizeAssistantCopyText(message.content);
+    if (cleaned) sections.push(cleaned);
+    return sections.join("\n\n");
+  }
+
+  for (const part of message.content) {
+    if (part.type === "thinking") {
+      const t = (part.thinking || part.text || "").trim();
+      if (t) sections.push(`<thinking>\n${t}\n</thinking>`);
+    } else if (isToolCallPart(part)) {
+      let block = `Tool: ${part.name || "tool"}`;
+      if (part.arguments) block += `\nArguments: ${part.arguments}`;
+      if (part.result) block += `\nResult: ${part.result}`;
+      sections.push(block);
+    } else if (part.type === "text" && part.text) {
+      const cleaned = normalizeAssistantCopyText(part.text);
+      if (cleaned) sections.push(cleaned);
+    }
+  }
+
+  return sections.join("\n\n");
 }
 
 function getAssistantDurationText(message: Message): string | null {
@@ -493,15 +463,21 @@ function InlineThinkingIndicator({ startTime }: { startTime?: number }) {
   );
 }
 
-function AssistantCopyButton({ text, durationText }: { text: string; durationText?: string | null }) {
+function AssistantCopyButton({
+  text,
+  durationText,
+  debugCopyText,
+  timestamp,
+  disabled = false,
+}: {
+  text: string;
+  durationText?: string | null;
+  debugCopyText?: string;
+  timestamp?: number;
+  disabled?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => setMounted(true));
-    return () => cancelAnimationFrame(raf);
-  }, []);
 
   useEffect(() => () => {
     if (resetTimerRef.current !== null) {
@@ -510,7 +486,7 @@ function AssistantCopyButton({ text, durationText }: { text: string; durationTex
   }, []);
 
   const copy = async () => {
-    if (!text || !navigator.clipboard?.writeText) return;
+    if (disabled || !text || !navigator.clipboard?.writeText) return;
 
     try {
       await navigator.clipboard.writeText(text);
@@ -524,15 +500,25 @@ function AssistantCopyButton({ text, durationText }: { text: string; durationTex
     }
   };
 
+  const timeText = timestamp ? formatMessageTime(timestamp) : null;
+
   return (
-    <SlideContent open={mounted}>
-      <div className="flex items-center justify-start gap-1.5 pt-0.5 animate-[thinkingSentence_0.5s_ease-out_both]">
+    <div className="flex items-center justify-start gap-1.5 pt-0.5 opacity-0 transition-opacity duration-200 group-hover/message:opacity-100">
+      {timeText ? <span className="text-2xs text-muted-foreground/50">{timeText}</span> : null}
+      {durationText ? <span className="text-2xs text-muted-foreground/50">{durationText}</span> : null}
+      {(timeText || durationText) && (text || debugCopyText) ? <span className="text-2xs text-muted-foreground/50">&middot;</span> : null}
+      {text ? (
         <button
           type="button"
           onClick={() => { void copy(); }}
+          disabled={disabled}
           aria-label={copied ? "Copied" : "Copy contents"}
-          title={copied ? "Copied" : "Copy contents"}
-          className="inline-flex h-8 w-4 items-center justify-start rounded-full p-0 text-muted-foreground/35 transition-colors hover:text-muted-foreground/70"
+          title={disabled ? "Copy temporarily disabled" : (copied ? "Copied" : "Copy contents")}
+          className={`inline-flex h-8 w-4 items-center justify-start rounded-full p-0 transition-colors ${
+            disabled
+              ? "cursor-not-allowed text-muted-foreground/20"
+              : "text-muted-foreground/35 hover:text-muted-foreground/70"
+          }`}
         >
           {copied ? (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -545,15 +531,73 @@ function AssistantCopyButton({ text, durationText }: { text: string; durationTex
             </svg>
           )}
         </button>
-        {durationText ? <span className="text-2xs text-muted-foreground/50">{durationText}</span> : null}
-      </div>
-    </SlideContent>
+      ) : null}
+      {debugCopyText ? <DebugCopyButton text={debugCopyText} disabled={disabled} /> : null}
+    </div>
+  );
+}
+
+function DebugCopyButton({ text, disabled = false }: { text: string; disabled?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (resetTimerRef.current !== null) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+  }, []);
+
+  const copy = async () => {
+    if (disabled || !text || !navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => { void copy(); }}
+      disabled={disabled}
+      aria-label={copied ? "Copied debug" : "Copy full message (thinking + tools + text)"}
+      title={disabled ? "Copy temporarily disabled" : (copied ? "Copied debug" : "Copy full message")}
+      className={`inline-flex h-8 w-4 items-center justify-start rounded-full p-0 transition-colors ${
+        disabled
+          ? "cursor-not-allowed text-muted-foreground/20"
+          : "text-muted-foreground/35 hover:text-muted-foreground/70"
+      }`}
+    >
+      {copied ? (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m5 12 5 5L20 7" />
+        </svg>
+      ) : (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+        </svg>
+      )}
+    </button>
   );
 }
 
 // ── CommandResponsePill — expandable pill for slash command responses ────────
 
-function CommandResponsePill({ text, isStreaming, copyText, durationText }: { text: string; isStreaming?: boolean; copyText?: string; durationText?: string | null }) {
+function CommandResponsePill({
+  text,
+  isStreaming,
+  copyText,
+  durationText,
+  copyDisabled = false,
+}: {
+  text: string;
+  isStreaming?: boolean;
+  copyText?: string;
+  durationText?: string | null;
+  copyDisabled?: boolean;
+}) {
   const [userToggled, setUserToggled] = useState<boolean | null>(null);
   
   // Robust summary extraction
@@ -564,7 +608,7 @@ function CommandResponsePill({ text, isStreaming, copyText, durationText }: { te
 
   return (
     <div className="flex -mt-1.5">
-      <div className="max-w-[85%] w-fit rounded-lg bg-card border border-border overflow-hidden">
+      <div className="group/message max-w-[85%] w-fit rounded-lg bg-card border border-border overflow-hidden">
         <button
           type="button"
           onClick={() => setUserToggled((v) => v === null ? false : !v)}
@@ -596,7 +640,7 @@ function CommandResponsePill({ text, isStreaming, copyText, durationText }: { te
           <div className="min-h-0">
             <div className="border-t border-border px-3 py-2 text-xs leading-[1.75rem] whitespace-pre-wrap break-words text-foreground/80">
               <div>{text}</div>
-              {copyText ? <AssistantCopyButton text={copyText} durationText={durationText} /> : null}
+              {copyText ? <AssistantCopyButton text={copyText} durationText={durationText} disabled={copyDisabled} /> : null}
             </div>
           </div>
         </div>
@@ -701,6 +745,7 @@ function UnfurlCards({ text, isStreaming }: { text: string; isStreaming: boolean
 export function MessageRow({
   message,
   isStreaming,
+  isGlobalStreaming,
   freezeStreamingLayout = false,
   subagentStore,
   pinnedToolCallId,
@@ -717,9 +762,14 @@ export function MessageRow({
   onSentAnimationEnd,
   onPluginAction,
   onAddInputAttachment,
+  runDebugCopyText,
+  precedingActivityParts,
+  precedingPluginParts,
+  suppressPlugins = false,
 }: {
   message: Message;
   isStreaming: boolean;
+  isGlobalStreaming?: boolean;
   freezeStreamingLayout?: boolean;
   subagentStore?: SubagentStore;
   pinnedToolCallId?: string | null;
@@ -736,18 +786,67 @@ export function MessageRow({
   onSentAnimationEnd?: () => void;
   onPluginAction?: PluginActionHandler;
   onAddInputAttachment?: (kind: string, data: unknown) => void;
+  runDebugCopyText?: string;
+  /** Activity parts (thinking + tool_call) from preceding tool-only messages in the same run. */
+  precedingActivityParts?: ContentPart[];
+  /** Plugin parts from preceding pass-through messages; rendered after the activity box, before text. */
+  precedingPluginParts?: ContentPart[];
+  /** When true, skip rendering own plugin parts (they are forwarded to the next text message). */
+  suppressPlugins?: boolean;
 }) {
   const messageRef = useRef<HTMLDivElement>(null);
   useNativeClickInterceptor(messageRef);
 
   const isUser = message.role === "user";
+  const streamingForCopyControls = isGlobalStreaming ?? isStreaming;
 
   const text = getTextFromContent(message.content);
   const images = getImages(message.content);
   const files = getFiles(message.content);
-  const assistantCopyText = message.role === "assistant" ? getCopyableAssistantText(message) : "";
+  const [copyButtonDisabled, setCopyButtonDisabled] = useState(streamingForCopyControls);
+  const copyButtonUnlockTimerRef = useRef<number | null>(null);
+  const wasStreamingRef = useRef(streamingForCopyControls);
+
+  useEffect(() => {
+    if (copyButtonUnlockTimerRef.current !== null) {
+      window.clearTimeout(copyButtonUnlockTimerRef.current);
+      copyButtonUnlockTimerRef.current = null;
+    }
+
+    if (streamingForCopyControls) {
+      setCopyButtonDisabled(true);
+      wasStreamingRef.current = true;
+      return;
+    }
+
+    const justFinishedStreaming = wasStreamingRef.current;
+    wasStreamingRef.current = false;
+    if (justFinishedStreaming) {
+      setCopyButtonDisabled(true);
+      copyButtonUnlockTimerRef.current = window.setTimeout(() => {
+        setCopyButtonDisabled(false);
+        copyButtonUnlockTimerRef.current = null;
+      }, COPY_BUTTON_POST_STREAM_LOCK_MS);
+      return;
+    }
+
+    setCopyButtonDisabled(false);
+  }, [streamingForCopyControls]);
+
+  useEffect(() => () => {
+    if (copyButtonUnlockTimerRef.current !== null) {
+      window.clearTimeout(copyButtonUnlockTimerRef.current);
+    }
+  }, []);
+
+  const assistantCopyText = message.role === "assistant" ? normalizeAssistantCopyText(getTextFromContent(message.content)) : "";
   const assistantDurationText = getAssistantDurationText(message);
-  const showAssistantCopyButton = !isStreaming && !!assistantCopyText;
+  const showAssistantCopyButton = !!assistantCopyText;
+  const showDebugCopyButton = !!runDebugCopyText;
+  const isErrorContextMessage = message.isContext
+    || message.stopReason === STOP_REASON_INJECTED
+    || text.startsWith(SYSTEM_PREFIX)
+    || text.startsWith(SYSTEM_MESSAGE_PREFIX);
   const hasStructuredCommandResponse =
     !!message.isCommandResponse &&
     (!!message.reasoning || (
@@ -773,14 +872,25 @@ export function MessageRow({
         </div>
       );
     }
-    return <CommandResponsePill key={message.id} text={text} isStreaming={isStreaming} copyText={!isStreaming ? (assistantCopyText || text) : undefined} durationText={assistantDurationText} />;
+    return (
+      <CommandResponsePill
+        key={message.id}
+        text={text}
+        isStreaming={isStreaming}
+        copyText={assistantCopyText || text}
+        durationText={assistantDurationText}
+        copyDisabled={copyButtonDisabled}
+      />
+    );
   }
 
   // Context pill — expandable pill for system-injected user messages
   if (message.isContext && text) {
     const { type: contextType } = getInjectedSummary(text);
     let summary: string;
-    if (text.startsWith(SYSTEM_MESSAGE_PREFIX)) {
+    if (text.startsWith(OPENCLAW_CONTEXT_BEGIN)) {
+      summary = summarizeOpenClawContext(text);
+    } else if (text.startsWith(SYSTEM_MESSAGE_PREFIX)) {
       // Strip [System Message] and any bracketed tags like [sessionId: ...]
       const bodyMatch = text.match(/^(?:\[System Message\]\s*(?:\[[^\]]*\]\s*)*)(.+)/s);
       const body = bodyMatch?.[1] ?? text;
@@ -803,8 +913,15 @@ export function MessageRow({
       summary = firstLine.replace(/[#*_~`>]/g, "").replace(/\s+/g, " ").trim();
     }
     const useHeartbeatIcon = contextType === "heartbeat" && !text.startsWith(SYSTEM_MESSAGE_PREFIX) && !text.startsWith(SYSTEM_PREFIX);
+    const useOpenClawIcon = text.startsWith(OPENCLAW_CONTEXT_BEGIN);
     const iconEl = useHeartbeatIcon
       ? <InjectedIcon type="heartbeat" />
+      : useOpenClawIcon
+      ? (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-60">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" />
+        </svg>
+      )
       : (
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-60">
           <path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3" /><path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" />
@@ -816,11 +933,12 @@ export function MessageRow({
 
   if (message.isError && (message.role === "system" || message.role === "assistant")) {
     const errorText = text || "Unknown error";
+    const showAssistantErrorCopyButton = message.role === "assistant" && !isErrorContextMessage;
     return (
       <div className="flex justify-center py-2">
-        <div className="max-w-[85%] rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs leading-[1.75rem] text-destructive-foreground whitespace-pre-wrap break-words">
+        <div className="group/message max-w-[85%] rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs leading-[1.75rem] text-destructive-foreground whitespace-pre-wrap break-words">
           <div>{errorText}</div>
-          {message.role === "assistant" && !isStreaming ? <AssistantCopyButton text={assistantCopyText || errorText} durationText={assistantDurationText} /> : null}
+          {showAssistantErrorCopyButton ? <AssistantCopyButton text={assistantCopyText || errorText} durationText={assistantDurationText} timestamp={message.timestamp} disabled={copyButtonDisabled} /> : null}
         </div>
       </div>
     );
@@ -871,19 +989,69 @@ export function MessageRow({
   };
 
   if (!isUser) {
-    if (message.reasoning && !hasThinkingParts) {
-      pushAssistantBlock("reasoning", <ThinkingPill text={message.reasoning} isStreaming={isStreaming} />);
+    if (Array.isArray(message.content)) {
+      // Collect thinking + non-spawn tool_call parts for TurnActivityBox
+      const ownActivityParts = message.content.filter(
+        (p) => p.type === "thinking" || (isToolCallPart(p) && p.name !== SPAWN_TOOL_NAME),
+      );
+      // Include legacy message.reasoning as a synthetic thinking part
+      const reasoningPart = message.reasoning && !hasThinkingParts
+        ? [{ type: "thinking" as const, thinking: message.reasoning }]
+        : [];
+      const allActivityParts = [...(precedingActivityParts ?? []), ...reasoningPart, ...ownActivityParts];
+
+      // Only show the box when this message has visible text/image/file body content,
+      // or when actively streaming (text may be arriving soon). Tool-only and plugin-only
+      // messages suppress the box so the next text-bearing message claims all preceding activity.
+      // Plugins are intentionally excluded: they render at the bottom below text, not as triggers.
+      const hasBodyContent = message.content.some(
+        (p) => (p.type === "text" && p.text?.trim()) || p.type === "image" || p.type === "image_url" || p.type === "file",
+      );
+
+      if (allActivityParts.length > 0 && (hasBodyContent || isStreaming)) {
+        pushAssistantBlock(
+          "activity-box",
+          <TurnActivityBox parts={allActivityParts} isStreaming={isStreaming} />,
+          "message",
+        );
+      }
+      // Render any plugins forwarded from preceding pass-through messages (after box, before text)
+      if (precedingPluginParts) {
+        for (const part of precedingPluginParts) {
+          if (isPluginPart(part) && part.partId && part.pluginType && part.state) {
+            pushAssistantBlock(
+              `preceding-plugin-${part.partId}`,
+              <PluginRenderer
+                part={part as PluginContentPart}
+                messageId={message.id ?? ""}
+                isStreaming={isStreaming}
+                onAction={onPluginAction}
+                onAddInputAttachment={onAddInputAttachment}
+              />,
+              pluginRegistry.getWidth(part.pluginType) === "chat" ? "chat" : "bubble",
+            );
+          }
+        }
+      }
+    } else if (message.reasoning && !hasThinkingParts) {
+      // Non-array content with only legacy reasoning
+      const allActivityParts = [...(precedingActivityParts ?? []), { type: "thinking" as const, thinking: message.reasoning }];
+      pushAssistantBlock(
+        "activity-box",
+        <TurnActivityBox parts={allActivityParts} isStreaming={isStreaming} />,
+        "message",
+      );
     }
 
     if (Array.isArray(message.content)) {
       const contentParts = message.content;
+
       contentParts.forEach((part, i) => {
-        if (part.type === "thinking") {
-          pushAssistantBlock(`thinking-${i}`, <ThinkingPill text={part.thinking || part.text || ""} isStreaming={isStreaming} />);
-          return;
-        }
+        if (part.type === "thinking") return; // handled by TurnActivityBox
+
         if (isToolCallPart(part)) {
           const isSpawn = part.name === SPAWN_TOOL_NAME;
+          if (!isSpawn) return; // non-spawn tool calls handled by TurnActivityBox
           pushAssistantBlock(
             `tool-${i}`,
             (
@@ -893,46 +1061,103 @@ export function MessageRow({
                 status={part.status}
                 result={part.result}
                 resultError={part.resultError}
+                narration={part.narration}
                 toolCallId={part.toolCallId}
-                subagentStore={isSpawn ? subagentStore : undefined}
-                isPinned={isSpawn && !!part.toolCallId && part.toolCallId === pinnedToolCallId}
-                onPin={isSpawn ? onPin : undefined}
-                onUnpin={isSpawn ? onUnpin : undefined}
+                subagentStore={subagentStore}
+                isPinned={!!part.toolCallId && part.toolCallId === pinnedToolCallId}
+                onPin={onPin}
+                onUnpin={onUnpin}
               />
             ),
-            isSpawn ? "message" : "bubble",
+            "message",
           );
           return;
         }
         if (isPluginPart(part) && part.partId && part.pluginType && part.state) {
-          pushAssistantBlock(
-            `plugin-${part.partId}`,
-            (
-              <PluginRenderer
-                part={part as PluginContentPart}
-                messageId={message.id ?? ""}
-                isStreaming={isStreaming}
-                onAction={onPluginAction}
-                onAddInputAttachment={onAddInputAttachment}
-              />
-            ),
-            pluginRegistry.getWidth(part.pluginType) === "chat" ? "chat" : "bubble",
-          );
+          if (!suppressPlugins) {
+            pushAssistantBlock(
+              `plugin-${part.partId}`,
+              (
+                <PluginRenderer
+                  part={part as PluginContentPart}
+                  messageId={message.id ?? ""}
+                  isStreaming={isStreaming}
+                  onAction={onPluginAction}
+                  onAddInputAttachment={onAddInputAttachment}
+                />
+              ),
+              pluginRegistry.getWidth(part.pluginType) === "chat" ? "chat" : "bubble",
+            );
+          }
           return;
         }
         if (part.type === "text" && part.text) {
           const { thinking: extractedThinking, text: rawCleanText } = stripThinkTags(part.text);
-          const cleanText = stripFinalTags(rawCleanText);
+          const cleanText = stripOpenClawInternalContext(stripFinalTags(rawCleanText));
           const remainingParts = contentParts.slice(i + 1);
           const isLastText = !remainingParts.some((p) => p.type === "text" && p.text);
-          // Hide cursor if tool call or thinking appears after this text
-          const hasLaterNonText = remainingParts.some((p) => isToolCallPart(p) || p.type === "thinking" || isPluginPart(p));
+          // Hide cursor if tool call or thinking appears after this text (plugins are deferred so excluded)
+          const hasLaterNonText = remainingParts.some((p) => isToolCallPart(p) || p.type === "thinking");
           const showCursor = isStreaming && isLastText && !hasLaterNonText;
 
           if (extractedThinking && !hasThinkingParts && !message.reasoning) {
             pushAssistantBlock(`text-thinking-${i}`, <ThinkingPill text={extractedThinking} isStreaming={isStreaming} />);
           }
-          if (cleanText) {
+          if (cleanText.trim()) {
+            // Parse <plugin> tags from finalized text (skip during streaming)
+            if (!showCursor) {
+              const segments = parsePluginTags(cleanText);
+              const hasPlugins = segments.some((s) => s.kind === "plugin");
+              if (hasPlugins) {
+                for (const [j, seg] of segments.entries()) {
+                  if (seg.kind === "text" && seg.text.trim()) {
+                    pushAssistantBlock(
+                      `text-${i}-seg-${j}`,
+                      <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
+                        <MarkdownContent text={seg.text} />
+                      </div>,
+                    );
+                    pushAssistantBlock(`unfurl-${i}-seg-${j}`, <UnfurlCards text={seg.text} isStreaming={false} />);
+                  } else if (seg.kind === "plugin") {
+                    const plugin = pluginRegistry.get(seg.pluginType);
+                    if (plugin) {
+                      const parsed = plugin.parse(seg.data);
+                      if (parsed.ok) {
+                        const pluginPart: PluginContentPart = {
+                          type: "plugin",
+                          partId: `text-plugin-${i}-${j}`,
+                          pluginType: seg.pluginType,
+                          state: "settled",
+                          data: seg.data,
+                        };
+                        pushAssistantBlock(
+                          `text-plugin-${i}-${j}`,
+                          <PluginRenderer
+                            part={pluginPart}
+                            messageId={message.id ?? ""}
+                            isStreaming={false}
+                            onAction={onPluginAction}
+                            onAddInputAttachment={onAddInputAttachment}
+                          />,
+                          pluginRegistry.getWidth(seg.pluginType) === "chat" ? "chat" : "bubble",
+                        );
+                        continue;
+                      }
+                    }
+                    // Fallback: render inner text as markdown
+                    if (seg.fallbackText.trim()) {
+                      pushAssistantBlock(
+                        `text-${i}-seg-${j}`,
+                        <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
+                          <MarkdownContent text={seg.fallbackText} />
+                        </div>,
+                      );
+                    }
+                  }
+                }
+                return;
+              }
+            }
             pushAssistantBlock(
               `text-${i}`,
               <div className="text-sm leading-[1.75rem] break-words overflow-hidden text-foreground ml-[2px]">
@@ -953,7 +1178,7 @@ export function MessageRow({
       });
     } else if (text) {
       const { thinking: extractedThinking, text: rawCleanText } = stripThinkTags(text);
-      const cleanText = stripFinalTags(rawCleanText);
+      const cleanText = stripOpenClawInternalContext(stripFinalTags(rawCleanText));
       if (extractedThinking && !hasThinkingParts && !message.reasoning) {
         pushAssistantBlock("fallback-thinking", <ThinkingPill text={extractedThinking} isStreaming={isStreaming} />);
       }
@@ -975,21 +1200,16 @@ export function MessageRow({
 
   const zenCollapsible = !isUser && zenMode && zenGroupCollapsible;
   const streamingLayoutActive = isStreaming || freezeStreamingLayout;
-  const hasWideAssistantBlock = assistantBlocks.some((block) => block.width && block.width !== "bubble");
   const renderAssistantBlock = (block: AssistantBlock) => {
     let widthClass = "self-start w-fit max-w-full min-w-0";
-    if (block.width === "chat") {
+    if (block.width === "chat" || block.width === "message") {
       widthClass = "w-full min-w-0";
-    } else if (block.width === "message") {
-      widthClass = hasWideAssistantBlock
-        ? "w-[85%] md:w-[75%] max-w-full min-w-0"
-        : "w-full min-w-0";
-    } else if (hasWideAssistantBlock) {
-      widthClass = "self-start w-fit max-w-[85%] md:max-w-[75%] min-w-0";
     }
+    const isTool = block.key.startsWith("tool-");
+    const isPlugin = block.key.startsWith("plugin-") || block.key.startsWith("text-plugin-");
 
     return (
-      <div key={block.key} className={widthClass}>
+      <div key={block.key} className={`${widthClass} empty:hidden ${isTool ? "" : "mt-1.5 first:mt-0"} ${isPlugin ? "mb-4" : ""}`} data-block={isTool ? "tool" : "content"}>
         {block.node}
       </div>
     );
@@ -1007,12 +1227,12 @@ export function MessageRow({
       style={collapsedZenSibling ? { marginBottom: "-0.75rem", transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` } : { transition: `margin-bottom ${ZEN_SLIDE_MS}ms ease-out` }}
     >
       <div
-        className={`${isUser ? "max-w-[85%] md:max-w-[75%]" : hasWideAssistantBlock ? "w-full" : "max-w-[85%] md:max-w-[75%]"} min-w-0 ${isUser ? "px-4 py-2.5 text-primary-foreground" : ""}`}
+        className={`group/message ${isUser ? "max-w-[85%] md:max-w-[75%]" : "w-full"} min-w-0 ${isUser ? "px-4 py-2.5 text-primary-foreground" : ""}`}
         style={isUser ? {
           borderRadius: SQUIRCLE_RADIUS,
-          background: "oklch(from var(--primary) l c h / 0.85)",
+          background: "var(--primary)",
           border: "1px solid oklch(from var(--foreground) l c h / 0.12)",
-          boxShadow: "0 2px 4px rgba(49, 49, 49,0.08)",
+          boxShadow: "0 2px 4px oklch(from var(--primary) l c h / 0.08)",
           ...(isSentAnim ? {
             animation: MESSAGE_SEND_ANIMATION,
             transformOrigin: "bottom right",
@@ -1040,7 +1260,7 @@ export function MessageRow({
             )}
             <SlideContent open={zenCollapsedByGroup ? effectiveZenSlideOpen : true}>
               <div
-                className={`flex flex-col gap-1.5 ${zenCollapsedByGroup ? "transition-opacity ease-out" : ""}`}
+                className={`flex flex-col ${zenCollapsedByGroup ? "transition-opacity ease-out" : ""}`}
                 style={zenCollapsedByGroup
                   ? { opacity: effectiveZenFadeVisible ? 1 : 0, transitionDuration: `${ZEN_FADE_MS}ms` }
                   : undefined}
@@ -1049,7 +1269,9 @@ export function MessageRow({
                 {isStreaming && message.role === "assistant" && (
                   <InlineThinkingIndicator startTime={message.timestamp} />
                 )}
-                {showAssistantCopyButton ? <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} /> : null}
+                {(showAssistantCopyButton || showDebugCopyButton) ? (
+                  <AssistantCopyButton text={assistantCopyText} durationText={assistantDurationText} debugCopyText={showDebugCopyButton ? runDebugCopyText : undefined} timestamp={message.timestamp} disabled={copyButtonDisabled} />
+                ) : null}
               </div>
             </SlideContent>
           </SmoothGrow>

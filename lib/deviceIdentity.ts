@@ -2,6 +2,7 @@
 // Based on OpenClaw's ui/src/ui/device-identity.ts
 
 import { getPublicKeyAsync, signAsync, utils } from "@noble/ed25519";
+import { DEFAULT_GATEWAY_CLIENT_ID, DEFAULT_GATEWAY_CLIENT_MODE, DEFAULT_GATEWAY_SCOPES, normalizeDeviceMetadataForAuth } from "@mc/lib/gatewayClientMetadata";
 
 type StoredIdentity = {
   version: 1;
@@ -120,15 +121,17 @@ export async function signDevicePayload(privateKeyBase64Url: string, payload: st
  */
 export async function signConnectChallenge(
   opts: {
-    nonce?: string;
+    nonce: string;
     token: string | null;
     isNative: boolean;
+    platform: string;
+    deviceFamily: string;
   },
 ): Promise<{ id: string; publicKey: string; signature: string; signedAt: number; nonce?: string }> {
   if (opts.isNative) {
     // Delegate to Swift Keychain via bridge — private key never enters JS
     const { requestNativeIdentitySign } = await import("@mc/lib/nativeBridge");
-    const result = await requestNativeIdentitySign(opts.nonce ?? "", opts.token);
+    const result = await requestNativeIdentitySign(opts.nonce, opts.token, opts.platform, opts.deviceFamily);
     return {
       id: result.deviceId,
       publicKey: result.publicKey,
@@ -143,13 +146,15 @@ export async function signConnectChallenge(
   const signedAtMs = Date.now();
   const payload = buildDeviceAuthPayload({
     deviceId: identity.deviceId,
-    clientId: "openclaw-control-ui",
-    clientMode: "webchat",
+    clientId: DEFAULT_GATEWAY_CLIENT_ID,
+    clientMode: DEFAULT_GATEWAY_CLIENT_MODE,
     role: "operator",
-    scopes: ["operator.read", "operator.write", "operator.admin", "operator.approvals", "operator.pairing"],
+    scopes: [...DEFAULT_GATEWAY_SCOPES],
     signedAtMs,
     token: opts.token,
     nonce: opts.nonce,
+    platform: opts.platform,
+    deviceFamily: opts.deviceFamily,
   });
   const signature = await signDevicePayload(identity.privateKey, payload);
   return {
@@ -169,16 +174,16 @@ export type DeviceAuthPayloadParams = {
   scopes: string[];
   signedAtMs: number;
   token: string | null;
-  nonce?: string;
-  version?: "v1" | "v2";
+  nonce: string;
+  platform?: string;
+  deviceFamily?: string;
 };
 
 export function buildDeviceAuthPayload(params: DeviceAuthPayloadParams): string {
-  const version = params.version ?? (params.nonce ? "v2" : "v1");
   const scopes = params.scopes.join(",");
   const token = params.token ?? "";
-  const base = [
-    version,
+  return [
+    "v3",
     params.deviceId,
     params.clientId,
     params.clientMode,
@@ -186,9 +191,8 @@ export function buildDeviceAuthPayload(params: DeviceAuthPayloadParams): string 
     scopes,
     String(params.signedAtMs),
     token,
-  ];
-  if (version === "v2") {
-    base.push(params.nonce ?? "");
-  }
-  return base.join("|");
+    params.nonce,
+    normalizeDeviceMetadataForAuth(params.platform),
+    normalizeDeviceMetadataForAuth(params.deviceFamily),
+  ].join("|");
 }
