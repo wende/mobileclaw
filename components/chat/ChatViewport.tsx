@@ -807,10 +807,6 @@ export function ChatViewport({
               <p className="text-center px-8 text-sm leading-relaxed max-w-sm" style={{ color: "#C8C8C8" }}>
                 Welcome to 8Claw. Send a message to start your first conversation. You can ask your agent anything from general questions to asking it to create automated tools for you.
               </p>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#C8C8C8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 5v14" />
-                <path d="m19 12-7 7-7-7" />
-              </svg>
             </div>
           )}
           {zenDisplayMessages.map((msg, idx) => {

@@ -360,6 +360,69 @@ describe("useOpenClawRuntime", () => {
     );
   });
 
+  it("recovers once on initial device token mismatch by clearing cache and reconnecting", async () => {
+    const options = createOptions();
+    const onTokenRefresh = vi.fn(async () => "fresh-token");
+    const { result } = renderHook(() => useOpenClawRuntime({ ...options, onTokenRefresh }));
+
+    act(() => {
+      result.current.connect("ws://localhost:18789");
+      result.current.gatewayTokenRef.current = "stale-token";
+    });
+
+    await act(async () => {
+      runtimeMocks.webSocketOptions?.onInitialConnectFail?.({
+        code: 1008,
+        reason: "unauthorized: device token mismatch",
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(runtimeMocks.deleteGatewayAuthCacheEntry).toHaveBeenCalledWith("ws://localhost:18789");
+    expect(onTokenRefresh).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.connect).toHaveBeenCalledTimes(2);
+    expect(runtimeMocks.connect).toHaveBeenLastCalledWith("ws://localhost:18789");
+    expect(options.setConnectionError).toHaveBeenCalledWith("Device approval changed. Re-syncing authentication…");
+    expect(options.setShowSetup).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-retry repeatedly on initial device token mismatch", async () => {
+    const options = createOptions();
+    const onTokenRefresh = vi.fn(async () => "fresh-token");
+    const { result } = renderHook(() => useOpenClawRuntime({ ...options, onTokenRefresh }));
+
+    act(() => {
+      result.current.connect("ws://localhost:18789");
+      result.current.gatewayTokenRef.current = "stale-token";
+    });
+
+    await act(async () => {
+      runtimeMocks.webSocketOptions?.onInitialConnectFail?.({
+        code: 1008,
+        reason: "unauthorized: device token mismatch",
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(runtimeMocks.connect).toHaveBeenCalledTimes(2);
+    runtimeMocks.connect.mockClear();
+
+    act(() => {
+      runtimeMocks.webSocketOptions?.onInitialConnectFail?.({
+        code: 1008,
+        reason: "unauthorized: device token mismatch",
+      });
+    });
+
+    expect(runtimeMocks.connect).not.toHaveBeenCalled();
+    expect(onTokenRefresh).toHaveBeenCalledTimes(1);
+    expect(options.setShowSetup).toHaveBeenCalledWith(true);
+  });
+
   it("clears stale cached device approval when the retry also mismatches", async () => {
     const options = createOptions();
     const { result } = renderHook(() => useOpenClawRuntime(options));

@@ -178,6 +178,13 @@ function formatShutdownMessage(payload: ShutdownEventPayload): string {
   return reason;
 }
 
+function isDeviceTokenMismatchReason(reason: string): boolean {
+  const normalized = reason.toLowerCase();
+  return normalized.includes("device token mismatch")
+    || normalized.includes("device_token_mismatch")
+    || normalized.includes("rotate/reissue device token");
+}
+
 export function useOpenClawRuntime({
   backendMode,
   isNative,
@@ -238,6 +245,7 @@ export function useOpenClawRuntime({
   const activeAuthTokenSha256Ref = useRef("");
   const forcedDeviceTokenRef = useRef<string | null>(null);
   const didRetryWithDeviceTokenRef = useRef(false);
+  const didRetryAfterDeviceTokenMismatchRef = useRef(false);
   const didRetryWithFreshTokenRef = useRef(false);
   const pendingTokenRefreshRef = useRef(false);
   const transientRetryCountRef = useRef(0);
@@ -546,6 +554,7 @@ export function useOpenClawRuntime({
     reconnectMessageRef.current = null;
     forcedDeviceTokenRef.current = null;
     didRetryWithDeviceTokenRef.current = false;
+    didRetryAfterDeviceTokenMismatchRef.current = false;
     transientRetryCountRef.current = 0;
     modelsRequestedRef.current = false;
     configResultRef.current = null;
@@ -1218,11 +1227,48 @@ export function useOpenClawRuntime({
     onInitialConnectFail: (info) => {
       if (pendingTokenRefreshRef.current) return; // token refresh will reconnect
 
+      const reason = info?.reason ?? "";
+      if (
+        info?.code === 1008
+        && isDeviceTokenMismatchReason(reason)
+        && !didRetryAfterDeviceTokenMismatchRef.current
+      ) {
+        const url = gatewayUrlRef.current;
+        if (url) {
+          didRetryAfterDeviceTokenMismatchRef.current = true;
+          pendingTokenRefreshRef.current = true;
+          forcedDeviceTokenRef.current = null;
+          activeAuthCacheEntryRef.current = null;
+          reconnectMessageRef.current = "Device approval changed. Re-syncing authentication…";
+          setConnectionError(reconnectMessageRef.current);
+
+          void deleteGatewayAuthCacheEntry(url)
+            .catch(() => {})
+            .then(async () => {
+              let refreshedToken: string | null | undefined = undefined;
+              if (onTokenRefreshRef.current) {
+                try {
+                  refreshedToken = await onTokenRefreshRef.current();
+                } catch {
+                  refreshedToken = undefined;
+                }
+              }
+
+              if (typeof refreshedToken === "string") {
+                gatewayTokenRef.current = refreshedToken;
+              }
+
+              pendingTokenRefreshRef.current = false;
+              connectFnRef.current?.(url);
+            });
+          return;
+        }
+      }
+
       // Transient gateway rejections (e.g., React double-mount race sending a
       // non-connect frame before the handshake) — retry up to 3 times.
       const MAX_TRANSIENT_RETRIES = 3;
-      const reason = info?.reason ?? "";
-      const isDeviceAuthError = reason.includes("signature") || reason.includes("device");
+      const isDeviceAuthError = reason.includes("signature") || reason.includes("device") || reason.includes("mismatch");
       if (
         info?.code === 1008
         && !isDeviceAuthError
@@ -1356,7 +1402,11 @@ export function useOpenClawRuntime({
   }, [reconnectNow]);
 
   const connectTracked = useCallback((url: string) => {
+    const previousGatewayUrl = gatewayUrlRef.current;
     gatewayUrlRef.current = url;
+    if (previousGatewayUrl !== url) {
+      didRetryAfterDeviceTokenMismatchRef.current = false;
+    }
     activeAuthCacheEntryRef.current = null;
     activeAuthTokenSha256Ref.current = "";
     forcedDeviceTokenRef.current = null;
