@@ -74,3 +74,20 @@ export function getToolDisplay(name: string, args?: string): ToolDisplayInfo {
 
   return { label: name, icon: "tool" };
 }
+
+function tc(s: string) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
+
+export function humanizeToolName(name: string): string {
+  const MCP_PREFIX = "__mcp_";
+  if (name.startsWith(MCP_PREFIX)) {
+    const rest = name.slice(MCP_PREFIX.length);
+    const dblIdx = rest.indexOf("__");
+    if (dblIdx !== -1) {
+      const server = rest.slice(0, dblIdx).split("_").map(tc).join(" ");
+      const tool = rest.slice(dblIdx + 2).split("_").map(tc).join(" ");
+      return `${server}: ${tool}`;
+    }
+    return rest.split("_").map(tc).join(" ");
+  }
+  return name.split("_").map(tc).join(" ");
+}

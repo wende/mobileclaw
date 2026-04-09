@@ -1,4 +1,4 @@
 {
-  "startsWith": ["System: [", "[System Message]", "[Queued announce"],
+  "startsWith": ["System: [", "[System Message]", "[Queued announce", "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>"],
   "contains": ["HEARTBEAT_OK"]
 }

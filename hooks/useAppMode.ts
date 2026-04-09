@@ -1,14 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { useWidgetContext } from "@mc/lib/widgetContext";
-
-/** Read a URL search param. Only call on the client. */
-function getSearchParam(name: string): string | null {
-  return new URLSearchParams(window.location.search).get(name);
-}
+import type { DetachedSurface } from "@mc/lib/chat/layoutMode";
 
 interface InitialAppMode {
   isDetached: boolean;
   detachedNoBorder: boolean;
+  detachedNoShell: boolean;
   isNative: boolean;
   uploadDisabled: boolean;
 }
@@ -16,22 +13,31 @@ interface InitialAppMode {
 const SSR_SAFE_MODE: InitialAppMode = {
   isDetached: false,
   detachedNoBorder: false,
+  detachedNoShell: false,
   isNative: false,
   uploadDisabled: false,
 };
 
+export function resolveUrlAppMode(search: string, nativeFlag = false): InitialAppMode {
+  const params = new URLSearchParams(search);
+  const isDetached = params.get("detached") !== null;
+  const detachedNoBorder = isDetached && params.get("noborder") !== null;
+  const detachedNoShell = isDetached && params.get("noshell") !== null;
+  const isNative = params.get("native") !== null || nativeFlag;
+  const uploadDisabled = params.get("upload") === "false";
+  return { isDetached, detachedNoBorder, detachedNoShell, isNative, uploadDisabled };
+}
+
 function getUrlAppMode(): InitialAppMode {
-  const isDetached = getSearchParam("detached") !== null;
-  const detachedNoBorder = isDetached && getSearchParam("noborder") !== null;
   const nativeFlag = (window as unknown as { __nativeMode?: boolean }).__nativeMode === true;
-  const isNative = getSearchParam("native") !== null || nativeFlag;
-  const uploadDisabled = getSearchParam("upload") === "false";
-  return { isDetached, detachedNoBorder, isNative, uploadDisabled };
+  return resolveUrlAppMode(window.location.search, nativeFlag);
 }
 
 export interface AppMode {
   isDetached: boolean;
   detachedNoBorder: boolean;
+  detachedNoShell: boolean;
+  detachedSurface: DetachedSurface;
   isNative: boolean;
   uploadDisabled: boolean;
   hideChrome: boolean;
@@ -41,6 +47,7 @@ export interface AppMode {
 
 export function useAppMode(): AppMode {
   const widgetCtx = useWidgetContext();
+  const detachedSurface: DetachedSurface = widgetCtx ? "widget" : "url";
 
   // When embedded via WidgetContextProvider, use context values as initial state
   // so the first render (including SSR) is already correct — no flash, no hydration mismatch.
@@ -49,6 +56,7 @@ export function useAppMode(): AppMode {
       return {
         isDetached: widgetCtx.isDetached,
         detachedNoBorder: widgetCtx.noBorder,
+        detachedNoShell: false,
         isNative: false,
         uploadDisabled: false,
       };
@@ -64,6 +72,7 @@ export function useAppMode(): AppMode {
       ? {
           isDetached: widgetCtx.isDetached,
           detachedNoBorder: widgetCtx.noBorder,
+          detachedNoShell: false,
           isNative: false,
           uploadDisabled: false,
         }
@@ -73,9 +82,14 @@ export function useAppMode(): AppMode {
     isDetachedRef.current = resolvedMode.isDetached;
     isNativeRef.current = resolvedMode.isNative;
 
-    if (resolvedMode.isDetached) {
+    const shouldUseTransparentHostBackground = widgetCtx ? widgetCtx.transparentHostBackground !== false : false;
+
+    if (resolvedMode.isDetached && shouldUseTransparentHostBackground) {
       document.body.style.background = "transparent";
       document.documentElement.style.background = "transparent";
+    } else if (resolvedMode.isDetached) {
+      document.body.style.background = "";
+      document.documentElement.style.background = "";
     }
 
     if (resolvedMode.isNative) {
@@ -93,6 +107,8 @@ export function useAppMode(): AppMode {
   return {
     isDetached: mode.isDetached,
     detachedNoBorder: mode.detachedNoBorder,
+    detachedNoShell: mode.detachedNoShell,
+    detachedSurface,
     isNative: mode.isNative,
     uploadDisabled: mode.uploadDisabled,
     hideChrome,

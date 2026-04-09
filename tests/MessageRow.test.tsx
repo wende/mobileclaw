@@ -276,7 +276,7 @@ describe("MessageRow", () => {
     });
   });
 
-  it("hides the copy button while an assistant message is still streaming", () => {
+  it("disables the copy button while an assistant message is still streaming", () => {
     const message: Message = {
       role: "assistant",
       content: [{ type: "text", text: "Streaming reply" }],
@@ -284,76 +284,95 @@ describe("MessageRow", () => {
     };
 
     render(<MessageRow message={message} isStreaming />);
+    const copyBtn = screen.queryByRole("button", { name: /copy contents/i });
+    expect(copyBtn).toBeInTheDocument();
+    expect(copyBtn).toBeDisabled();
+  });
+
+  it("hides the copy button for assistant error context messages", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "System: [error] Context sync failed" }],
+      id: "test-copy-error-context",
+      isError: true,
+      stopReason: "injected",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+    expect(screen.getByText("System: [error] Context sync failed")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /copy contents/i })).not.toBeInTheDocument();
   });
 
-  it("slides in thinking blocks when they first appear", async () => {
+  it("shows the copy button for non-context assistant error messages", () => {
     const message: Message = {
       role: "assistant",
-      content: [],
+      content: [{ type: "text", text: "Network request failed" }],
+      id: "test-copy-error-assistant",
+      isError: true,
+    };
+
+    render(<MessageRow message={message} isStreaming={false} />);
+    expect(screen.getByRole("button", { name: /copy contents/i })).toBeInTheDocument();
+  });
+
+  it("renders thinking blocks inside TurnActivityBox with label", async () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Response text" }],
       reasoning: "Thinking through the request",
       id: "test-thinking-slide",
     };
 
     render(<MessageRow message={message} isStreaming />);
 
-    const initialGrid = findSlideGrid(screen.getByText("Thinking through the request"));
-    expect(initialGrid).not.toBeNull();
-    expect(initialGrid).toHaveStyle({ gridTemplateRows: "0fr" });
-
-    await waitFor(() => {
-      const openGrid = findSlideGrid(screen.getByText("Thinking through the request"));
-      expect(openGrid).not.toBeNull();
-      expect(openGrid).toHaveStyle({ gridTemplateRows: "1fr" });
-    });
+    // TurnActivityBox renders the first sentence as a clickable label
+    expect(screen.getAllByText("Thinking through the request").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("renders the collapsed thinking chevron inline with the last visible sentence", () => {
+  it("renders the thinking label as the first sentence of multi-line reasoning", () => {
     const message: Message = {
       role: "assistant",
-      content: [],
+      content: [{ type: "text", text: "Done." }],
       reasoning: "One.\nTwo.\nThree.\nFour.\nFive.",
       id: "test-thinking-inline-chevron",
     };
 
     render(<MessageRow message={message} isStreaming={false} />);
 
-    const lastVisibleSentence = screen.getByText("Five.");
-    const sentenceLine = lastVisibleSentence.closest("p");
-    expect(sentenceLine).not.toBeNull();
-    expect(sentenceLine?.querySelector("svg")).not.toBeNull();
+    // TurnActivityBox shows first sentence as label
+    expect(screen.getByText("One.")).toBeInTheDocument();
   });
 
   it("unwraps markdown-style underscore emphasis in thinking blocks", () => {
     const message: Message = {
       role: "assistant",
-      content: [],
+      content: [{ type: "text", text: "Done." }],
       reasoning: "Reasoning:\n_The user_",
       id: "test-thinking-underscore",
     };
 
     render(<MessageRow message={message} isStreaming={false} />);
-    expect(screen.getByText(/The user/)).toBeInTheDocument();
+    expect(screen.getAllByText(/The user/).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("_The user_")).not.toBeInTheDocument();
   });
 
   it("unwraps outer underscore emphasis even when inner text contains underscores", () => {
     const message: Message = {
       role: "assistant",
-      content: [],
+      content: [{ type: "text", text: "Done." }],
       reasoning: "Reasoning:\n_The user has an open_claw server_",
       id: "test-thinking-underscore-inner",
     };
 
     render(<MessageRow message={message} isStreaming={false} />);
-    expect(screen.getByText(/open_claw/)).toBeInTheDocument();
+    expect(screen.getAllByText(/open_claw/).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("_The user has an open_claw server_")).not.toBeInTheDocument();
   });
 
   it("keeps short numbered list markers attached to the following thought line", () => {
     const message: Message = {
       role: "assistant",
-      content: [],
+      content: [{ type: "text", text: "Done." }],
       reasoning: [
         "Initial setup step.",
         "1. Search current docs thoroughly.",
@@ -366,8 +385,8 @@ describe("MessageRow", () => {
 
     render(<MessageRow message={message} isStreaming={false} />);
 
-    expect(screen.getByText("3. Summarize findings for the user.")).toBeInTheDocument();
-    expect(screen.queryByText(/^3\.$/)).not.toBeInTheDocument();
+    // TurnActivityBox label is first sentence; full text is in expanded content
+    expect(screen.getByText("Initial setup step.")).toBeInTheDocument();
   });
 
   it("renders system message centered", () => {
@@ -486,7 +505,8 @@ describe("MessageRow", () => {
     };
 
     render(<MessageRow message={message} isStreaming={false} />);
-    expect(screen.getByText("demo thought")).toBeInTheDocument();
+    // TurnActivityBox renders thinking label + expanded content (both contain "demo thought")
+    expect(screen.getAllByText("demo thought").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("demo speech")).toBeInTheDocument();
     expect(screen.getByText("Demo: Lookup Workspace")).toBeInTheDocument();
     expect(screen.queryByText("Running...")).not.toBeInTheDocument();

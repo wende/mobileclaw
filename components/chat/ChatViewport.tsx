@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 
-import { MessageRow } from "@mc/components/MessageRow";
+import { MessageRow, getFullAssistantCopyText } from "@mc/components/MessageRow";
 import { ZenToggle } from "@mc/components/ZenToggle";
 import { formatMessageTime, getMessageSide } from "@mc/lib/messageUtils";
 import { STOP_REASON_INJECTED, isToolCallPart, MESSAGE_SEND_ANIMATION } from "@mc/lib/constants";
@@ -20,6 +20,7 @@ interface ChatViewportProps {
   isDetached: boolean;
   detachedNoBorder?: boolean;
   isNative: boolean;
+  useDocumentScroll?: boolean;
   historyLoaded: boolean;
   inputZoneHeight: string;
   bottomPad: string;
@@ -56,6 +57,7 @@ export function ChatViewport({
   isDetached,
   detachedNoBorder = false,
   isNative,
+  useDocumentScroll = false,
   historyLoaded,
   inputZoneHeight,
   bottomPad,
@@ -98,8 +100,10 @@ export function ChatViewport({
   const modeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const prevZenModeRef = useRef(zenMode);
   const prevStreamingRef = useRef(isStreaming);
+  const prevGlobalStreamingRef = useRef(isStreaming);
   const prevZenMetaByMessageIdRef = useRef<Record<string, { groupId: string; isTail: boolean; hasMultiple: boolean }>>({});
   const prevZenTailIdsRef = useRef<Set<string>>(new Set());
+  const [streamingFallbackStartTs, setStreamingFallbackStartTs] = useState<number | null>(null);
 
   // Split single assistant messages that contain multiple completed tool-call cycles
   // into separate display messages. This lets the existing multi-message zen machinery
@@ -211,6 +215,88 @@ export function ChatViewport({
     return { byIndex, groupIds, multiGroupIds };
   }, [zenDisplayMessages]);
 
+  // Group consecutive tool-only messages so they render in a single tight container
+  const toolGroupMap = useMemo(() => {
+    const isToolOnly = (m: Message) =>
+      m.role === "assistant" && Array.isArray(m.content) && m.content.length > 0 &&
+      m.content.every((p: any) => isToolCallPart(p) || (p.type === "text" && !p.text?.trim()) || p.type === "thinking");
+    const map = new Map<number, number>(); // idx -> group head idx
+    for (let i = 0; i < zenDisplayMessages.length; i++) {
+      if (!isToolOnly(zenDisplayMessages[i])) continue;
+      map.set(i, i > 0 && map.has(i - 1) ? map.get(i - 1)! : i);
+    }
+    return map;
+  }, [zenDisplayMessages]);
+
+  // Collect activity (thinking + tool_call) and plugin parts from preceding pass-through
+  // assistant messages in the same run, so the first text-bearing message can render one
+  // consolidated activity box followed by any plugins, then the text response.
+  // Pass-through = message whose content has no actual text body (only tools, thinking, plugins).
+  const precedingPartsMap = useMemo(() => {
+    type Preceding = { activityParts: import("@mc/types/chat").ContentPart[]; pluginParts: import("@mc/types/chat").ContentPart[] };
+    const isPassThrough = (m: Message) =>
+      m.role === "assistant" && Array.isArray(m.content) && m.content.length > 0 &&
+      m.content.every((p: any) => isToolCallPart(p) || (p.type === "text" && !p.text?.trim()) || p.type === "thinking" || p.type === "plugin");
+    const map = new Map<number, Preceding>();
+    // Indices of pass-through messages whose plugins were successfully forwarded to a text message.
+    // These messages must suppress their own plugin rendering to avoid double-rendering.
+    const suppressedPluginIndices = new Set<number>();
+    let pendingActivity: import("@mc/types/chat").ContentPart[] = [];
+    let pendingPlugins: import("@mc/types/chat").ContentPart[] = [];
+    let pendingSourceIndices: number[] = [];
+    for (let i = 0; i < zenDisplayMessages.length; i++) {
+      const msg = zenDisplayMessages[i];
+      if (msg.role === "user") { pendingActivity = []; pendingPlugins = []; pendingSourceIndices = []; continue; }
+      if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+      if (isPassThrough(msg)) {
+        pendingSourceIndices.push(i);
+        for (const p of msg.content as any[]) {
+          if (p.type === "thinking" || (isToolCallPart(p) && p.name !== "sessions_spawn")) {
+            pendingActivity = [...pendingActivity, p];
+          } else if (p.type === "plugin") {
+            pendingPlugins = [...pendingPlugins, p];
+          }
+        }
+      } else {
+        if (pendingActivity.length > 0 || pendingPlugins.length > 0) {
+          map.set(i, { activityParts: [...pendingActivity], pluginParts: [...pendingPlugins] });
+          for (const si of pendingSourceIndices) suppressedPluginIndices.add(si);
+          pendingActivity = [];
+          pendingPlugins = [];
+          pendingSourceIndices = [];
+        }
+      }
+    }
+    return { map, suppressedPluginIndices };
+  }, [zenDisplayMessages]);
+
+  // Compute full-run debug copy text: aggregate all assistant messages between
+  // user messages. Only the last assistant message in each run gets the text.
+  const runDebugCopyMap = useMemo(() => {
+    const map = new Map<number, string>();
+    const msgs = zenDisplayMessages;
+    let runStart = 0;
+    for (let i = 0; i <= msgs.length; i++) {
+      const isEnd = i === msgs.length || msgs[i].role === "user";
+      if (!isEnd) continue;
+      // Collect all assistant messages in [runStart, i)
+      const sections: string[] = [];
+      let lastAssistantIdx = -1;
+      for (let j = runStart; j < i; j++) {
+        if (msgs[j].role === "assistant") {
+          const text = getFullAssistantCopyText(msgs[j]);
+          if (text) sections.push(text);
+          lastAssistantIdx = j;
+        }
+      }
+      if (lastAssistantIdx >= 0 && sections.length > 0) {
+        map.set(lastAssistantIdx, sections.join("\n\n"));
+      }
+      runStart = i + 1;
+    }
+    return map;
+  }, [zenDisplayMessages]);
+
   const clearGroupTimers = useCallback((groupId: string) => {
     const timers = animationTimersRef.current[groupId];
     if (!timers) return;
@@ -318,6 +404,27 @@ export function ChatViewport({
     zenMode,
     zenRenderMode,
   ]);
+
+  useEffect(() => {
+    const wasStreaming = prevGlobalStreamingRef.current;
+    if (isStreaming && !wasStreaming) {
+      setStreamingFallbackStartTs(Date.now());
+    } else if (!isStreaming && wasStreaming) {
+      setStreamingFallbackStartTs(null);
+    }
+    prevGlobalStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
+  const hasActiveStreamingRow = useMemo(() => {
+    if (!isStreaming || !effectiveStreamingId) return false;
+
+    for (let idx = 0; idx < zenDisplayMessages.length; idx++) {
+      const toolGroupHead = toolGroupMap.get(idx) ?? -1;
+      if (toolGroupHead >= 0 && toolGroupHead !== idx) continue;
+      if (zenDisplayMessages[idx].id === effectiveStreamingId) return true;
+    }
+    return false;
+  }, [effectiveStreamingId, isStreaming, toolGroupMap, zenDisplayMessages]);
 
   useEffect(() => {
     setExpandedZenGroups((prev) => {
@@ -674,12 +781,15 @@ export function ChatViewport({
   }, [clearModeTimers]);
 
   return (
-    <div ref={pullContentRef} className={`relative flex flex-1 flex-col min-h-0 ${detachedShell ? "px-3 pt-3" : ""}`}>
+    <div
+      ref={pullContentRef}
+      className={`relative flex flex-col ${useDocumentScroll ? "" : "flex-1 min-h-0"} ${detachedShell ? "px-3 pt-3" : ""}`}
+    >
 
-      {!isNative && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${detachedShell ? "inset-x-3 rounded-b-2xl" : "inset-x-0"}`} style={{ bottom: isDetached ? inputZoneHeight : 0, background: "linear-gradient(to top, var(--background) 40%, transparent)" }} />}
+      {!isNative && !useDocumentScroll && !detachedNoBorder && <div className={`pointer-events-none absolute z-20 h-7 opacity-60 ${detachedShell ? "inset-x-3 rounded-b-2xl" : "inset-x-0"}`} style={{ bottom: isDetached ? inputZoneHeight : 0, background: "linear-gradient(to top, var(--background) 40%, transparent)" }} />}
       <main
         ref={scrollRef}
-        onScroll={() => {
+        onScroll={useDocumentScroll ? undefined : () => {
           onScroll();
           if (onNativeScrollPosition && scrollRef.current) {
             const el = scrollRef.current;
@@ -687,12 +797,20 @@ export function ChatViewport({
             onNativeScrollPosition(distFromBottom);
           }
         }}
-        className={`scrollbar-hide flex-1 overflow-y-auto overflow-x-hidden ${isNative ? "" : "bg-background"} ${detachedShell ? "rounded-2xl" : (!isDetached ? "pt-14" : "")}`}
-        style={{ ...(isNative ? {} : { overscrollBehavior: "none" as const }), ...(detachedShell ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
+        className={`scrollbar-hide ${useDocumentScroll ? "overflow-visible" : "flex-1 overflow-y-auto overflow-x-hidden"} ${isNative || detachedNoBorder ? "" : "bg-background"} ${detachedShell ? "rounded-2xl" : (!isDetached ? "pt-14" : "")}`}
+        style={{ ...(isNative || useDocumentScroll ? {} : { overscrollBehavior: "none" as const }), ...(detachedShell ? { boxShadow: "0 -4px 6px -1px rgb(0 0 0 / 0.06), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)" } : {}) }}
       >
-        <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 py-6 md:px-6 md:py-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"}`} style={{ paddingBottom: bottomPad }}>
+        <div className={`mx-auto flex w-full ${isDetached || isNative ? "max-w-none" : "max-w-2xl"} flex-col gap-3 px-4 pt-16 pb-6 md:px-6 md:pt-24 md:pb-4 transition-opacity duration-300 ease-out ${historyLoaded ? "opacity-100" : "opacity-0"} ${historyLoaded && zenDisplayMessages.length === 0 ? "min-h-full" : ""}`} style={{ paddingBottom: bottomPad }}>
           {isNative && <div aria-hidden="true" style={{ height: IOS_TOP_MESSAGE_SPACER_HEIGHT, flexShrink: 0 }} />}
+          {historyLoaded && zenDisplayMessages.length === 0 && (
+            <div className="flex flex-1 flex-col items-center justify-center gap-6">
+              <p className="text-center px-8 text-sm leading-relaxed max-w-sm" style={{ color: "#C8C8C8" }}>
+                Welcome to 8Claw. Send a message to start your first conversation. You can ask your agent anything from general questions to asking it to create automated tools for you.
+              </p>
+            </div>
+          )}
           {zenDisplayMessages.map((msg, idx) => {
+            const toolGroupHead = toolGroupMap.get(idx) ?? -1;
             const side = getMessageSide(msg.role);
             const prevSide = idx > 0 ? getMessageSide(zenDisplayMessages[idx - 1].role) : null;
             const prevTimestamp = idx > 0 ? zenDisplayMessages[idx - 1].timestamp : null;
@@ -756,7 +874,7 @@ export function ChatViewport({
               <React.Fragment key={msg.id || idx}>
                 {isTimeGap && !isNewTurn && !collapsedZenSibling && msg.timestamp && (
                   <div className="flex items-center justify-center gap-1 py-1">
-                    <span className="text-2xs text-muted-foreground/60">{formatMessageTime(msg.timestamp)}</span>
+                    <span className="text-2xs text-muted-foreground/60 invisible">{formatMessageTime(msg.timestamp)}</span>
                     {showZenTimestampToggle && zenMeta
                       ? (
                         <ZenToggle
@@ -770,7 +888,7 @@ export function ChatViewport({
                 )}
                 {showTimestamp && isNewTurn && !collapsedZenSibling && msg.timestamp && (
                   <div className={`flex items-center gap-1 ${side === "right" ? "justify-end" : "justify-start"}`}>
-                    <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
+                    <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"} invisible`}>
                       {formatMessageTime(msg.timestamp)}
                       {msg.role === "assistant" && msg.runDuration && msg.runDuration > 0 && (
                         <span className="ml-1">&middot; Worked for {msg.runDuration}s</span>
@@ -793,7 +911,7 @@ export function ChatViewport({
                 {showZenTimestampToggle && collapsedZenSibling && zenMeta && (
                   <div className={`flex items-center gap-1 ${side === "right" ? "justify-end" : "justify-start"}`}>
                     {msg.timestamp && (
-                      <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"}`}>
+                      <p className={`text-2xs text-muted-foreground/60 ${side === "right" ? "text-right" : "text-left"} invisible`}>
                         {formatMessageTime(msg.timestamp)}
                         {msg.role === "assistant" && msg.runDuration && msg.runDuration > 0 && (
                           <span className="ml-1">&middot; Worked for {msg.runDuration}s</span>
@@ -810,39 +928,73 @@ export function ChatViewport({
                     />
                   </div>
                 )}
-                <div
-                  style={messageRowWrapperStyle}
-                  onAnimationEnd={!isZenSiblingRow && msg.id === sentAnimId && !isSentUserAnim ? onSentAnimationEnd : undefined}
-                >
-                  <MessageRow
-                    message={msg}
-                    isStreaming={isStreaming && msg.id === effectiveStreamingId}
-                    freezeStreamingLayout={freezeStreamingLayout}
-                    subagentStore={subagentStore}
-                    pinnedToolCallId={pinnedToolCallId}
-                    onPin={onPin}
-                    onUnpin={onUnpin}
-                    zenMode={zenRenderMode}
-                    zenGroupCollapsible={false}
-                    zenGroupExpanded={zenGroupExpanded}
-                    zenCollapsedByGroup={isZenSiblingRow}
-                    zenGroupSlideOpen={effectiveRowSlideOpen}
-                    zenGroupFadeVisible={effectiveRowFadeVisible}
-                    onZenGroupToggle={undefined}
-                    isSentAnim={isSentUserAnim}
-                    onSentAnimationEnd={isSentUserAnim ? onSentAnimationEnd : undefined}
-                    onPluginAction={onPluginAction}
-                    onAddInputAttachment={onAddInputAttachment}
-                  />
-                </div>
+                {toolGroupHead >= 0 && toolGroupHead !== idx ? null : (
+                  <div
+                    style={messageRowWrapperStyle}
+                    onAnimationEnd={!isZenSiblingRow && msg.id === sentAnimId && !isSentUserAnim ? onSentAnimationEnd : undefined}
+                  >
+                    <MessageRow
+                      message={toolGroupHead === idx ? (() => {
+                        // Merge all tool-only messages in this group into one
+                        const parts: any[] = [];
+                        for (let gi = idx; toolGroupMap.get(gi) === idx; gi++) {
+                          const gMsg = zenDisplayMessages[gi];
+                          if (Array.isArray(gMsg.content)) parts.push(...gMsg.content);
+                        }
+                        return { ...msg, content: parts };
+                      })() : msg}
+                      isStreaming={isStreaming && msg.id === effectiveStreamingId}
+                      isGlobalStreaming={isStreaming}
+                      freezeStreamingLayout={freezeStreamingLayout}
+                      subagentStore={subagentStore}
+                      pinnedToolCallId={pinnedToolCallId}
+                      onPin={onPin}
+                      onUnpin={onUnpin}
+                      zenMode={zenRenderMode}
+                      zenGroupCollapsible={false}
+                      zenGroupExpanded={zenGroupExpanded}
+                      zenCollapsedByGroup={isZenSiblingRow}
+                      zenGroupSlideOpen={effectiveRowSlideOpen}
+                      zenGroupFadeVisible={effectiveRowFadeVisible}
+                      onZenGroupToggle={undefined}
+                      isSentAnim={isSentUserAnim}
+                      onSentAnimationEnd={isSentUserAnim ? onSentAnimationEnd : undefined}
+                      onPluginAction={onPluginAction}
+                      onAddInputAttachment={onAddInputAttachment}
+                      runDebugCopyText={runDebugCopyMap.get(idx)}
+                      precedingActivityParts={precedingPartsMap.map.get(idx)?.activityParts}
+                      precedingPluginParts={precedingPartsMap.map.get(idx)?.pluginParts}
+                      suppressPlugins={precedingPartsMap.suppressedPluginIndices.has(idx)}
+                    />
+                  </div>
+                )}
               </React.Fragment>
             );
           })}
+          {isStreaming && !hasActiveStreamingRow && (
+            <MessageRow
+              message={{
+                id: "__global-streaming-indicator__",
+                role: "assistant",
+                content: [],
+                timestamp: streamingFallbackStartTs ?? Date.now(),
+              }}
+              isStreaming
+              isGlobalStreaming={isStreaming}
+              subagentStore={subagentStore}
+              pinnedToolCallId={pinnedToolCallId}
+              onPin={onPin}
+              onUnpin={onUnpin}
+              zenMode={zenRenderMode}
+              onPluginAction={onPluginAction}
+              onAddInputAttachment={onAddInputAttachment}
+            />
+          )}
           <div ref={bottomRef} />
         </div>
       </main>
 
-      {isDetached && !isNative && <div style={{ height: inputZoneHeight, flexShrink: 0 }} />}
+      {isDetached && !detachedNoBorder && !isNative && !useDocumentScroll && <div style={{ height: inputZoneHeight, flexShrink: 0 }} />}
 
       {!isDetached && !isNative && (
         <div

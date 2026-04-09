@@ -63,6 +63,8 @@ type IdentitySignResult = {
   nonce: string;
 };
 
+type GatewayAuthGetResult = string | null;
+
 const pendingIdentityCallbacks = new Map<string, {
   resolve: (result: IdentitySignResult) => void;
   reject: (err: Error) => void;
@@ -77,13 +79,15 @@ let identityCallbackCounter = 0;
 export function requestNativeIdentitySign(
   nonce: string,
   token: string | null,
+  platform: string,
+  deviceFamily: string,
 ): Promise<IdentitySignResult> {
   const callbackId = `idcb-${++identityCallbackCounter}-${Date.now()}`;
   return new Promise((resolve, reject) => {
     pendingIdentityCallbacks.set(callbackId, { resolve, reject });
     postToNative({
       type: "identity:sign",
-      payload: { nonce, token, callbackId },
+      payload: { nonce, token, platform, deviceFamily, callbackId },
     });
     // Timeout after 5s
     setTimeout(() => {
@@ -108,6 +112,46 @@ export function resolveIdentitySign(payload: Record<string, unknown>) {
     signedAt: payload.signedAt as number,
     nonce: payload.nonce as string,
   });
+}
+
+const pendingGatewayAuthCallbacks = new Map<string, {
+  resolve: (result: GatewayAuthGetResult) => void;
+  reject: (err: Error) => void;
+}>();
+
+let gatewayAuthCallbackCounter = 0;
+
+export function requestNativeGatewayAuthGet(): Promise<GatewayAuthGetResult> {
+  const callbackId = `gacb-${++gatewayAuthCallbackCounter}-${Date.now()}`;
+  return new Promise((resolve, reject) => {
+    pendingGatewayAuthCallbacks.set(callbackId, { resolve, reject });
+    postToNative({
+      type: "gatewayAuth:get",
+      payload: { callbackId },
+    });
+    setTimeout(() => {
+      if (pendingGatewayAuthCallbacks.has(callbackId)) {
+        pendingGatewayAuthCallbacks.delete(callbackId);
+        reject(new Error("Native gateway auth get timed out"));
+      }
+    }, 5000);
+  });
+}
+
+export function resolveNativeGatewayAuthGet(payload: Record<string, unknown>) {
+  const callbackId = payload.callbackId as string;
+  const pending = pendingGatewayAuthCallbacks.get(callbackId);
+  if (!pending) return;
+  pendingGatewayAuthCallbacks.delete(callbackId);
+  pending.resolve(typeof payload.raw === "string" ? payload.raw : null);
+}
+
+export function postNativeGatewayAuthSet(raw: string) {
+  postToNative({ type: "gatewayAuth:set", payload: { raw } });
+}
+
+export function postNativeGatewayAuthDelete() {
+  postToNative({ type: "gatewayAuth:delete" });
 }
 
 // ── State posting (Phase 2) ──────────────────────────────────────────────────

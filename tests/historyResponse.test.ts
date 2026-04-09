@@ -104,6 +104,36 @@ describe("mergeHistoryWithOptimistic", () => {
     expect(ids).toContain("hist-42");
   });
 
+  it("preserves streaming assistant message when history does not include it yet", () => {
+    const previous: Message[] = [
+      { role: "assistant", id: "hist-0", timestamp: 1000, content: [{ type: "text", text: "Ready" }] },
+      { role: "user", id: "u-1", timestamp: 2000, content: [{ type: "text", text: "Create a flow" }] },
+      {
+        role: "assistant",
+        id: "run-abc",
+        timestamp: 2001,
+        content: [
+          { type: "text", text: "Sure, here's the flow." },
+          { type: "plugin", partId: "pause-1", pluginType: "pause_card", state: "active", data: { prompt: "Pick one" } },
+        ],
+      },
+    ];
+
+    // History has the user message but the assistant run hasn't completed yet
+    const history: Message[] = [
+      { role: "assistant", id: "hist-0", timestamp: 1000, content: [{ type: "text", text: "Ready" }] },
+      { role: "user", id: "hist-1", timestamp: 2000, content: [{ type: "text", text: "Create a flow" }] },
+    ];
+
+    const merged = mergeHistoryWithOptimistic(history, previous);
+    expect(merged).toHaveLength(3);
+    const streaming = merged.find((m) => m.id === "run-abc");
+    expect(streaming).toBeDefined();
+    expect(streaming!.role).toBe("assistant");
+    const plugin = (streaming!.content as Array<{ type: string }>).find((p) => p.type === "plugin");
+    expect(plugin).toBeDefined();
+  });
+
   it("still appends optimistic user messages that are missing from history", () => {
     const previous: Message[] = [
       { role: "assistant", id: "hist-0", timestamp: 1000, content: [{ type: "text", text: "Ready" }] },
@@ -210,6 +240,50 @@ describe("buildHistoryMessages", () => {
 
     expect(history).toHaveLength(1);
     expect(history[0].id).toBe("run-123:user");
+  });
+
+  it("uses __openclaw.id as stable ID when no messageId or runId exists", () => {
+    const history = buildHistoryMessages([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Gateway response" }],
+        timestamp: 1000,
+        responseId: "chatcmpl-abc",
+        __openclaw: { id: "9de2f2c7", seq: 42 },
+      },
+    ]);
+
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe("oc-9de2f2c7");
+  });
+
+  it("uses __openclaw.id for user messages too", () => {
+    const history = buildHistoryMessages([
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hello" }],
+        timestamp: 1000,
+        __openclaw: { id: "a1b2c3d4", seq: 1 },
+      },
+    ]);
+
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe("oc-a1b2c3d4");
+  });
+
+  it("prefers runId over __openclaw.id for assistant messages", () => {
+    const history = buildHistoryMessages([
+      {
+        role: "assistant",
+        runId: "run-456",
+        content: [{ type: "text", text: "Has both" }],
+        timestamp: 1000,
+        __openclaw: { id: "deadbeef", seq: 10 },
+      },
+    ]);
+
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe("run-456");
   });
 
   it("keeps canvas-only messages even when there is no text content", () => {

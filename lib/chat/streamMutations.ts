@@ -1,7 +1,31 @@
 import { isToolCallPart } from "@mc/lib/constants";
-import { appendCanvasPart, canvasToPluginPart, ensureContentArray } from "@mc/lib/plugins/compat";
+import {
+  appendCanvasPart,
+  canvasToPluginPart,
+  ensureContentArray,
+} from "@mc/lib/plugins/compat";
 import { updateAt } from "@mc/lib/messageUtils";
-import type { CanvasPayload, ContentPart, Message, PluginContentPart } from "@mc/types/chat";
+import type {
+  CanvasPayload,
+  ContentPart,
+  Message,
+  PluginContentPart,
+} from "@mc/types/chat";
+
+function summarizeParts(parts: ContentPart[]): string {
+  return parts.map((p) => {
+    if (p.type === "text") return `text(${(p.text || "").length}ch)`;
+    if (p.type === "thinking") return `thinking(${(p.text || "").length}ch)`;
+    if (p.type === "tool_call") return `tool_call(${p.name}/${p.status || "?"})`;
+    if (p.type === "plugin") return `plugin(${(p as PluginContentPart).pluginType || "?"})`;
+    return p.type;
+  }).join(", ");
+}
+
+function summarizeMsg(m: Message): string {
+  const parts = Array.isArray(m.content) ? m.content : [];
+  return `{id=${m.id} role=${m.role} parts=[${summarizeParts(parts)}]}`;
+}
 
 interface EnsureResult {
   messages: Message[];
@@ -13,12 +37,18 @@ function mergeStreamText(existingText: string, incomingText: string): string {
   if (!existingText) return incomingText;
 
   // Some runtimes send cumulative snapshots instead of true token deltas.
-  if (incomingText.length > existingText.length && incomingText.startsWith(existingText)) {
+  if (
+    incomingText.length > existingText.length &&
+    incomingText.startsWith(existingText)
+  ) {
     return incomingText;
   }
 
   // Drop stale/truncated snapshots that can arrive out of order.
-  if (existingText.length > incomingText.length && existingText.startsWith(incomingText)) {
+  if (
+    existingText.length > incomingText.length &&
+    existingText.startsWith(incomingText)
+  ) {
     return existingText;
   }
 
@@ -31,30 +61,58 @@ export function ensureStreamingMessage(
   ts: number,
   extra?: Partial<Message>,
 ): EnsureResult {
-  if (prev.some((m) => m.id === runId)) return { messages: prev, created: false };
+  const exists = prev.some((m) => m.id === runId);
+  if (exists) {
+    const existing = prev.find((m) => m.id === runId)!;
+    console.log(`[STREAM-MUT] ensureStreamingMessage: EXISTS runId=${runId} msg=${summarizeMsg(existing)}`);
+    return { messages: prev, created: false };
+  }
+  console.log(`[STREAM-MUT] ensureStreamingMessage: CREATING runId=${runId} prevMsgCount=${prev.length}`);
   return {
     created: true,
     messages: [
       ...prev,
-      { role: "assistant", content: [], id: runId, timestamp: ts, ...extra } as Message,
+      {
+        role: "assistant",
+        content: [],
+        id: runId,
+        timestamp: ts,
+        ...extra,
+      } as Message,
     ],
   };
 }
 
-export function appendContentDelta(messages: Message[], runId: string, delta: string, ts: number): EnsureResult {
+export function appendContentDelta(
+  messages: Message[],
+  runId: string,
+  delta: string,
+  ts: number,
+): EnsureResult {
+  console.log(`[STREAM-MUT] appendContentDelta runId=${runId} deltaLen=${delta.length}`);
   const ensured = ensureStreamingMessage(messages, runId, ts);
   const updated = ensured.messages;
   const idx = updated.findIndex((m) => m.id === runId);
-  if (idx < 0) return ensured;
+  if (idx < 0) {
+    console.log(`[STREAM-MUT] appendContentDelta: msg NOT FOUND for runId=${runId}`);
+    return ensured;
+  }
   return {
     created: ensured.created,
     messages: updateAt(updated, idx, (target) => {
       const parts = ensureContentArray(target.content);
-      const lastNonTextIdx = parts.findLastIndex((p: ContentPart) => p.type !== "text");
-      const lastTextIdx = parts.findLastIndex((p: ContentPart) => p.type === "text");
+      const lastNonTextIdx = parts.findLastIndex(
+        (p: ContentPart) => p.type !== "text",
+      );
+      const lastTextIdx = parts.findLastIndex(
+        (p: ContentPart) => p.type === "text",
+      );
       if (lastTextIdx > lastNonTextIdx) {
         const existing = parts[lastTextIdx].text || "";
-        parts[lastTextIdx] = { ...parts[lastTextIdx], text: mergeStreamText(existing, delta) };
+        parts[lastTextIdx] = {
+          ...parts[lastTextIdx],
+          text: mergeStreamText(existing, delta),
+        };
       } else {
         parts.push({ type: "text" as const, text: delta });
       }
@@ -63,17 +121,30 @@ export function appendContentDelta(messages: Message[], runId: string, delta: st
   };
 }
 
-export function appendThinkingDelta(messages: Message[], runId: string, delta: string, ts: number): EnsureResult {
+export function appendThinkingDelta(
+  messages: Message[],
+  runId: string,
+  delta: string,
+  ts: number,
+): EnsureResult {
+  console.log(`[STREAM-MUT] appendThinkingDelta runId=${runId} deltaLen=${delta.length}`);
   const ensured = ensureStreamingMessage(messages, runId, ts);
   const updated = ensured.messages;
   const idx = updated.findIndex((m) => m.id === runId);
-  if (idx < 0) return ensured;
+  if (idx < 0) {
+    console.log(`[STREAM-MUT] appendThinkingDelta: msg NOT FOUND for runId=${runId}`);
+    return ensured;
+  }
   return {
     created: ensured.created,
     messages: updateAt(updated, idx, (target) => {
       const parts = ensureContentArray(target.content);
-      const lastThinkIdx = parts.findLastIndex((p: ContentPart) => p.type === "thinking");
-      const lastNonThinkingIdx = parts.findLastIndex((p: ContentPart) => p.type !== "thinking");
+      const lastThinkIdx = parts.findLastIndex(
+        (p: ContentPart) => p.type === "thinking",
+      );
+      const lastNonThinkingIdx = parts.findLastIndex(
+        (p: ContentPart) => p.type !== "thinking",
+      );
       if (lastThinkIdx > lastNonThinkingIdx) {
         const existing = parts[lastThinkIdx].text || "";
         parts[lastThinkIdx] = {
@@ -89,7 +160,11 @@ export function appendThinkingDelta(messages: Message[], runId: string, delta: s
   };
 }
 
-export function startThinkingBlock(messages: Message[], runId: string, ts: number): EnsureResult {
+export function startThinkingBlock(
+  messages: Message[],
+  runId: string,
+  ts: number,
+): EnsureResult {
   const ensured = ensureStreamingMessage(messages, runId, ts);
   const updated = ensured.messages;
   const idx = updated.findIndex((m) => m.id === runId);
@@ -115,25 +190,62 @@ export function addToolCall(
   ts: number,
   toolCallId?: string,
   args?: string,
+  narration?: string,
 ): EnsureResult {
+  console.log(`[STREAM-MUT] addToolCall runId=${runId} name=${name} tcid=${toolCallId || "none"}`);
   const ensured = ensureStreamingMessage(messages, runId, ts);
   const updated = ensured.messages;
   const idx = updated.findIndex((m) => m.id === runId);
-  if (idx < 0) return ensured;
+  if (idx < 0) {
+    console.log(`[STREAM-MUT] addToolCall: msg NOT FOUND for runId=${runId}`);
+    return ensured;
+  }
+  console.log(`[STREAM-MUT] addToolCall: target msg=${summarizeMsg(updated[idx])}`);
+
+  const parts = ensureContentArray(updated[idx].content);
+  // If a tool_call part with this toolCallId already exists, update it
+  // (e.g. narration arrived after the initial start event).
+  if (toolCallId) {
+    const existingIdx = parts.findIndex(
+      (p) => isToolCallPart(p) && p.toolCallId === toolCallId,
+    );
+    if (existingIdx >= 0) {
+      console.log(`[STREAM-MUT] addToolCall: UPDATING existing tcid=${toolCallId} at partIdx=${existingIdx}`);
+      return {
+        created: ensured.created,
+        messages: updateAt(updated, idx, (target) => ({
+          ...target,
+          content: (target.content as ContentPart[]).map((part, i) =>
+            i === existingIdx
+              ? {
+                  ...part,
+                  ...(narration ? { narration } : {}),
+                  ...(args ? { arguments: args } : {}),
+                }
+              : part,
+          ),
+        })),
+      };
+    }
+  }
+
+  const newParts = [
+    ...parts,
+    {
+      type: "tool_call" as const,
+      name,
+      toolCallId,
+      arguments: args,
+      status: "running" as const,
+      ...(narration ? { narration } : {}),
+    },
+  ];
+  console.log(`[STREAM-MUT] addToolCall: APPENDED resultParts=[${summarizeParts(newParts)}]`);
   return {
     created: ensured.created,
     messages: updateAt(updated, idx, (target) => ({
       ...target,
-      content: [
-        ...ensureContentArray(target.content),
-        {
-          type: "tool_call" as const,
-          name,
-          toolCallId,
-          arguments: args,
-          status: "running" as const,
-        },
-      ],
+      content: newParts,
     })),
   };
 }
@@ -148,12 +260,19 @@ export function resolveToolCall(
 ): Message[] {
   let idx = messages.findIndex((m) => m.id === runId);
   if (idx < 0) idx = messages.findLastIndex((m) => m.role === "assistant");
-  if (idx < 0 || !Array.isArray(messages[idx].content)) return messages;
+  console.log(`[STREAM-MUT] resolveToolCall runId=${runId} name=${name} tcid=${toolCallId || "none"} foundIdx=${idx} isError=${!!isError}`);
+  if (idx < 0 || !Array.isArray(messages[idx].content)) {
+    console.log(`[STREAM-MUT] resolveToolCall: msg NOT FOUND or no content array`);
+    return messages;
+  }
+  console.log(`[STREAM-MUT] resolveToolCall: target msg=${summarizeMsg(messages[idx])}`);
   return updateAt(messages, idx, (target) => ({
     ...target,
     content: (target.content as ContentPart[]).map((part) => {
       if (isToolCallPart(part)) {
-        const isMatch = toolCallId ? part.toolCallId === toolCallId : part.name === name && !part.result;
+        const isMatch = toolCallId
+          ? part.toolCallId === toolCallId
+          : part.name === name && !part.result;
         if (isMatch) {
           return {
             ...part,
@@ -168,7 +287,10 @@ export function resolveToolCall(
   }));
 }
 
-function shouldApplyRevision(current: PluginContentPart, nextRevision?: number): boolean {
+function shouldApplyRevision(
+  current: PluginContentPart,
+  nextRevision?: number,
+): boolean {
   if (nextRevision == null) return true;
   if (current.revision == null) return true;
   return nextRevision >= current.revision;
@@ -179,7 +301,9 @@ function upsertPluginIntoParts(
   part: PluginContentPart,
   index?: number,
 ): ContentPart[] {
-  const existingIdx = parts.findIndex((entry) => entry.type === "plugin" && entry.partId === part.partId);
+  const existingIdx = parts.findIndex(
+    (entry) => entry.type === "plugin" && entry.partId === part.partId,
+  );
   if (existingIdx >= 0) {
     const current = parts[existingIdx] as PluginContentPart;
     if (!shouldApplyRevision(current, part.revision)) return parts;
@@ -210,7 +334,11 @@ export function mountPluginPart(
     created: ensured.created,
     messages: updateAt(updated, idx, (target) => ({
       ...target,
-      content: upsertPluginIntoParts(ensureContentArray(target.content), part, index),
+      content: upsertPluginIntoParts(
+        ensureContentArray(target.content),
+        part,
+        index,
+      ),
     })),
   };
 }
@@ -225,7 +353,9 @@ export function replacePluginPart(
   if (idx < 0) return messages;
   return updateAt(messages, idx, (target) => {
     const parts = ensureContentArray(target.content);
-    const pluginIdx = parts.findIndex((part) => part.type === "plugin" && part.partId === partId);
+    const pluginIdx = parts.findIndex(
+      (part) => part.type === "plugin" && part.partId === partId,
+    );
     if (pluginIdx < 0) return target;
     const current = parts[pluginIdx] as PluginContentPart;
     if (!shouldApplyRevision(current, next.revision)) return target;
@@ -246,13 +376,20 @@ export function removePluginPart(
   if (idx < 0) return messages;
   return updateAt(messages, idx, (target) => {
     const parts = ensureContentArray(target.content);
-    const pluginIdx = parts.findIndex((part) => part.type === "plugin" && part.partId === partId);
+    const pluginIdx = parts.findIndex(
+      (part) => part.type === "plugin" && part.partId === partId,
+    );
     if (pluginIdx < 0) return target;
     return {
       ...target,
       content: tombstone
-        ? updateAt(parts, pluginIdx, (part) => ({ ...part, state: "tombstone" as const }))
-        : parts.filter((part) => !(part.type === "plugin" && part.partId === partId)),
+        ? updateAt(parts, pluginIdx, (part) => ({
+            ...part,
+            state: "tombstone" as const,
+          }))
+        : parts.filter(
+            (part) => !(part.type === "plugin" && part.partId === partId),
+          ),
     };
   });
 }
@@ -271,11 +408,17 @@ export function upsertCanvasPluginByMessageId(
   }));
 }
 
-function normalizeIncomingContent(content: ContentPart[] | string, canvas?: CanvasPayload): ContentPart[] {
+function normalizeIncomingContent(
+  content: ContentPart[] | string,
+  canvas?: CanvasPayload,
+): ContentPart[] {
   return appendCanvasPart(content, canvas);
 }
 
-function hasIncomingContent(content: ContentPart[] | string, canvas?: CanvasPayload): boolean {
+function hasIncomingContent(
+  content: ContentPart[] | string,
+  canvas?: CanvasPayload,
+): boolean {
   if (canvas) return true;
   if (typeof content === "string") return content.length > 0;
   return content.length > 0;
@@ -296,22 +439,43 @@ export function upsertFinalRunMessage(
   if (!incoming) return messages;
   if (incoming.role === "user") return messages;
 
-  const nextContent = normalizeIncomingContent(incoming.content, incoming.canvas);
-  const shouldApplyContent = hasIncomingContent(incoming.content, incoming.canvas);
+  const nextContent = normalizeIncomingContent(
+    incoming.content,
+    incoming.canvas,
+  );
+  const shouldApplyContent = hasIncomingContent(
+    incoming.content,
+    incoming.canvas,
+  );
   const idx = messages.findIndex((m) => m.id === runId);
 
+  console.log(
+    `[STREAM-MUT] upsertFinalRunMessage runId=${runId} role=${incoming.role} ` +
+    `shouldApplyContent=${shouldApplyContent} existingIdx=${idx} ` +
+    `nextParts=[${summarizeParts(nextContent)}]` +
+    (idx >= 0 ? ` existingMsg=${summarizeMsg(messages[idx])}` : "")
+  );
+
   if (idx >= 0) {
-    return updateAt(messages, idx, (target) => ({
-      ...target,
-      role: incoming.role,
-      content: shouldApplyContent ? nextContent : target.content,
-      timestamp: incoming.timestamp ?? target.timestamp,
-      reasoning: incoming.reasoning ?? target.reasoning,
-    }));
+    return updateAt(messages, idx, (target) => {
+      const result = {
+        ...target,
+        role: incoming.role,
+        content: shouldApplyContent ? nextContent : target.content,
+        timestamp: incoming.timestamp ?? target.timestamp,
+        reasoning: incoming.reasoning ?? target.reasoning,
+      };
+      console.log(
+        `[STREAM-MUT] upsertFinalRunMessage: UPDATED ` +
+        `contentReplaced=${shouldApplyContent} resultParts=[${summarizeParts(Array.isArray(result.content) ? result.content : [])}]`
+      );
+      return result;
+    });
   }
 
   if (!shouldApplyContent && !incoming.reasoning) return messages;
 
+  console.log(`[STREAM-MUT] upsertFinalRunMessage: CREATED NEW`);
   return [
     ...messages,
     {

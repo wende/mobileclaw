@@ -12,9 +12,12 @@ export function hasVisibleMessageContent(msg: Message): boolean {
   if (typeof msg.content === "string") return msg.content.trim().length > 0;
   if (!Array.isArray(msg.content)) return false;
   return msg.content.some((part) => {
-    if (part.type === "text" || part.type === "thinking") return !!part.text?.trim();
-    if (isToolCallPart(part)) return !!(part.name || part.result || part.status);
-    if (part.type === "image" || part.type === "image_url") return !!part.image_url?.url;
+    if (part.type === "text" || part.type === "thinking")
+      return !!part.text?.trim();
+    if (isToolCallPart(part))
+      return !!(part.name || part.result || part.status);
+    if (part.type === "image" || part.type === "image_url")
+      return !!part.image_url?.url;
     if (part.type === "file") return !!(part.file_name || part.file_url);
     if (part.type === "plugin") return !!part.pluginType;
     return false;
@@ -38,8 +41,15 @@ export function mergeAndNormalizeToolResults(msgs: Message[]): Message[] {
   const mergedIds = new Set<string>();
   for (let i = 0; i < msgs.length; i++) {
     const hm = msgs[i];
-    const toolName = hm.toolName || ((hm as unknown as Record<string, unknown>).name as string | undefined);
-    if ((hm.role === "tool" || hm.role === "toolResult" || hm.role === "tool_result") && toolName) {
+    const toolName =
+      hm.toolName ||
+      ((hm as unknown as Record<string, unknown>).name as string | undefined);
+    if (
+      (hm.role === "tool" ||
+        hm.role === "toolResult" ||
+        hm.role === "tool_result") &&
+      toolName
+    ) {
       const resultText = getTextFromContent(hm.content);
       let isErr = !!hm.isError;
       if (!isErr && resultText) {
@@ -59,7 +69,12 @@ export function mergeAndNormalizeToolResults(msgs: Message[]): Message[] {
           const tc = prev.content.find((p) => p.name === toolName && !p.result);
           if (tc) {
             const args = tc.arguments;
-            tc.arguments = typeof args === "string" ? args : args ? JSON.stringify(args) : undefined;
+            tc.arguments =
+              typeof args === "string"
+                ? args
+                : args
+                  ? JSON.stringify(args)
+                  : undefined;
             tc.result = resultText;
             tc.resultError = isErr;
             tc.status = isErr ? "error" : "success";
@@ -85,7 +100,9 @@ export function mergeAndNormalizeToolResults(msgs: Message[]): Message[] {
         }
         if (!part.arguments) {
           const p = part as unknown as Record<string, unknown>;
-          if (p.input) part.arguments = typeof p.input === "string" ? p.input : JSON.stringify(p.input);
+          if (p.input)
+            part.arguments =
+              typeof p.input === "string" ? p.input : JSON.stringify(p.input);
         } else if (typeof part.arguments !== "string") {
           part.arguments = JSON.stringify(part.arguments);
         }
@@ -96,6 +113,10 @@ export function mergeAndNormalizeToolResults(msgs: Message[]): Message[] {
 }
 
 export function buildDisplayMessages(messages: Message[]): Message[] {
+  console.log(
+    `[STREAM] buildDisplayMessages input=${messages.length}msgs ` +
+    `ids=[${messages.map(m => `${m.id}(${m.role}${m.isHidden ? ",hidden" : ""})`).join(",")}]`
+  );
   const result: Message[] = [];
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
@@ -103,7 +124,8 @@ export function buildDisplayMessages(messages: Message[]): Message[] {
     if (
       msg.role === "assistant" &&
       msgText &&
-      (hasHeartbeatOnOwnLine(msgText) || hasUnquotedMarker(msgText, NO_REPLY_MARKER)) &&
+      (hasHeartbeatOnOwnLine(msgText) ||
+        hasUnquotedMarker(msgText, NO_REPLY_MARKER)) &&
       result.length > 0
     ) {
       const absorbed: ContentPart[] = [];
@@ -113,7 +135,8 @@ export function buildDisplayMessages(messages: Message[]): Message[] {
         if (prev.role !== "assistant" || !Array.isArray(prev.content)) break;
         const prevParts = prev.content;
         absorbed.unshift(...prevParts);
-        if (!absorbedReasoning && prev.reasoning) absorbedReasoning = prev.reasoning;
+        if (!absorbedReasoning && prev.reasoning)
+          absorbedReasoning = prev.reasoning;
         result.pop();
       }
       if (absorbed.length > 0) {
@@ -130,5 +153,9 @@ export function buildDisplayMessages(messages: Message[]): Message[] {
     }
     result.push(msg);
   }
-  return result.filter((m) => !m.isHidden);
+  const final = result.filter((m) => !m.isHidden);
+  if (final.length !== messages.length) {
+    console.log(`[STREAM] buildDisplayMessages output=${final.length}msgs (filtered from ${result.length})`);
+  }
+  return final;
 }
