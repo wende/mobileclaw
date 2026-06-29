@@ -4,6 +4,7 @@ import { useWidgetContext } from "@mc/lib/widgetContext";
 import { DEMO_HISTORY } from "@mc/lib/demoMode";
 import type { LmStudioConfig } from "@mc/lib/lmStudio";
 import { notifyWebViewReady, registerBridgeHandler, updateBridgeHandler, type BridgeMessage } from "@mc/lib/nativeBridge";
+import { appendSessionKeyToWsUrl, getOrCreateSessionKey } from "@mc/lib/sessionKey";
 import type { Command } from "@mc/components/CommandSheet";
 import type { BackendMode, ConnectionConfig, Message } from "@mc/types/chat";
 
@@ -28,6 +29,13 @@ function removeSearchParam(name: string): void {
 function toWsUrl(url: string): string {
   if (url.startsWith("ws://") || url.startsWith("wss://")) return url;
   return url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+}
+
+/** Attach a stable session key so chat history survives page refresh. */
+function toPersistedWsUrl(url: string): string {
+  const sessionKey = getOrCreateSessionKey();
+  if (!sessionKey) return toWsUrl(url);
+  return appendSessionKeyToWsUrl(toWsUrl(url), sessionKey);
 }
 
 interface UseModeBootstrapOptions {
@@ -134,7 +142,7 @@ export function useModeBootstrap({
       setBackendMode("openclaw");
       setOpenclawUrl(embedUrl);
       setIsInitialConnecting(true);
-      connect(toWsUrl(embedUrl));
+      connect(toPersistedWsUrl(embedUrl));
       return;
     }
 
@@ -181,7 +189,7 @@ export function useModeBootstrap({
           }
         } catch {}
         setIsInitialConnecting(true);
-        connect(toWsUrl(savedUrl));
+        connect(toPersistedWsUrl(savedUrl));
       } else {
         if (!detached) setShowSetup(true);
         setHistoryLoaded(true);
@@ -257,7 +265,7 @@ export function useModeBootstrap({
     lmStudioHandlerRef.current = null;
     setOpenclawUrl(config.url);
     setIsInitialConnecting(true);
-    connect(toWsUrl(config.url));
+    connect(toPersistedWsUrl(config.url));
   }, [
     connect,
     disconnect,
