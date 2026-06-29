@@ -154,6 +154,15 @@
     overscroll-behavior: none;
     letter-spacing: 0.01em;
   }
+  /* iframe embed (?detached): percentage heights need a sized ancestor chain */
+  html.detached,
+  html.detached body {
+    height: 100%;
+  }
+  html.detached #mc-app-root {
+    height: 100% !important;
+    min-height: 0;
+  }
   summary {
     list-style: none;
   }

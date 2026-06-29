@@ -730,7 +730,12 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   }
 
   return (
-    <div ref={appRef} className={`relative flex flex-col overflow-hidden ${hideChrome ? "" : "bg-background"}`} style={{ height: isDetached ? "100%" : "100dvh" }}>
+    <div
+      id="mc-app-root"
+      ref={appRef}
+      className={`relative flex min-h-0 flex-col overflow-hidden ${hideChrome ? "" : "bg-background"}`}
+      style={{ height: isDetached ? "100%" : "100dvh" }}
+    >
       <ChatChrome
         hideChrome={hideChrome}
         openclawUrl={openclawUrl}

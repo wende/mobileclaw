@@ -52,6 +52,9 @@ const headScript = `
   }
   if (detached) {
     document.documentElement.classList.add('detached-loading');
+    document.documentElement.classList.add('detached');
+    document.documentElement.style.height = '100%';
+    document.body.style.height = '100%';
   }
   if ('serviceWorker' in navigator && location.hostname !== 'localhost' && !window.__nativeMode) {
     window.addEventListener('load', function() {
