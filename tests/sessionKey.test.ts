@@ -3,7 +3,7 @@ import {
   appendSessionKeyToWsUrl,
   isValidSessionKey,
   normalizeSessionKey,
-} from "@/lib/sessionKey";
+} from "@mc/lib/sessionKey";
 
 describe("sessionKey", () => {
   test("isValidSessionKey accepts hex and uuid", () => {
