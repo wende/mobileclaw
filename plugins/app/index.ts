@@ -23,3 +23,5 @@ export const appInputAttachmentPlugins: AnyInputAttachmentPlugin[] = [
   promptContextAttachmentPlugin,
   flowRunAttachmentPlugin,
 ];
+
+export { appToolResultBuilders } from "@mc/plugins/app/toolResultBuilders";

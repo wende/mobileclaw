@@ -43,6 +43,12 @@ export const SYSTEM_PREFIX = CONTEXT_STARTS_WITH[0];
 export const SYSTEM_MESSAGE_PREFIX = CONTEXT_STARTS_WITH[1];
 export const QUEUED_ANNOUNCE_PREFIX = CONTEXT_STARTS_WITH[2];
 export const GATEWAY_INJECTED_MODEL = "gateway-injected";
+
+/** Empty-chat welcome copy. Product deployments (e.g. 8claw) brand it via
+ * NEXT_PUBLIC_WELCOME_MESSAGE at build time; the default stays product-neutral. */
+export const EMPTY_CHAT_WELCOME =
+  process.env.NEXT_PUBLIC_WELCOME_MESSAGE ||
+  "Welcome. Send a message to start your first conversation with your agent.";
 export const LITTERBOX_UPLOAD_URL = "https://litterbox.catbox.moe/resources/internals/api.php";
 
 // WebSocket protocol

@@ -5,7 +5,7 @@ import React, { useMemo, useState, useEffect, useLayoutEffect, useCallback, useR
 import { MessageRow, getFullAssistantCopyText } from "@mc/components/MessageRow";
 import { ZenToggle } from "@mc/components/ZenToggle";
 import { formatMessageTime, getMessageSide } from "@mc/lib/messageUtils";
-import { STOP_REASON_INJECTED, isToolCallPart, MESSAGE_SEND_ANIMATION } from "@mc/lib/constants";
+import { EMPTY_CHAT_WELCOME, STOP_REASON_INJECTED, isToolCallPart, MESSAGE_SEND_ANIMATION } from "@mc/lib/constants";
 import { ZEN_SLIDE_MS, ZEN_FADE_MS, ZEN_TOGGLE_FRAME_MS } from "@mc/lib/chat/zenUi";
 import type { Message } from "@mc/types/chat";
 import type { useSubagentStore } from "@mc/hooks/useSubagentStore";
@@ -805,7 +805,7 @@ export function ChatViewport({
           {historyLoaded && zenDisplayMessages.length === 0 && (
             <div className="flex flex-1 flex-col items-center justify-center gap-6">
               <p className="text-center px-8 text-sm leading-relaxed max-w-sm" style={{ color: "#C8C8C8" }}>
-                Welcome to 8Claw. Send a message to start your first conversation. You can ask your agent anything from general questions to asking it to create automated tools for you.
+                {EMPTY_CHAT_WELCOME}
               </p>
             </div>
           )}
