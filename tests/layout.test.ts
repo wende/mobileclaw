@@ -10,17 +10,17 @@ describe("chat layout spacing", () => {
       inputZoneHeight: "4rem",
       hasQueued: false,
       hasPinnedSubagent: false,
-    })).toBe("calc(4rem + 9rem)");
+    })).toBe("calc(4rem + min(9rem, 18svh, 36svw))");
   });
 
-  it("keeps fullscreen bottom padding on the existing svh/rem scale", () => {
+  it("keeps fullscreen bottom padding on the svh/rem scale, capped to the viewport", () => {
     expect(getChatBottomPad({
       isNative: false,
       isDetached: false,
       inputZoneHeight: "4rem",
       hasQueued: false,
       hasPinnedSubagent: false,
-    })).toBe("calc(4.5svh + 12.5rem)");
+    })).toBe("calc(4.5svh + min(12.5rem, 25svh, 50svw))");
   });
 
   it("lifts the detached thinking indicator above both spacer and composer", () => {
