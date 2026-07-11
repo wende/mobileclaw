@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import type { ContentPart, Message } from "@mc/types/chat";
 import { getTextFromContent, getImages, getFiles, formatMessageTime } from "@mc/lib/messageUtils";
-import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, MESSAGE_SEND_ANIMATION } from "@mc/lib/constants";
+import { HEARTBEAT_MARKER, NO_REPLY_MARKER, SYSTEM_PREFIX, SYSTEM_MESSAGE_PREFIX, STOP_REASON_INJECTED, isToolCallPart, SPAWN_TOOL_NAME, hasUnquotedMarker, hasHeartbeatOnOwnLine, SQUIRCLE_RADIUS, MESSAGE_SEND_ANIMATION, OPENCLAW_CONTEXT_BEGIN, stripOpenClawInternalContext, summarizeOpenClawContext } from "@mc/lib/constants";
 import { useExpandablePanel } from "@mc/hooks/useExpandablePanel";
 import { useElapsedSeconds } from "@mc/hooks/useElapsedSeconds";
 import { SlideContent } from "@mc/components/SlideContent";
@@ -399,7 +399,7 @@ function UserTextWithQuotes({ text }: { text: string }) {
 
 function normalizeAssistantCopyText(text: string): string {
   const { text: rawCleanText } = stripThinkTags(text);
-  return stripFinalTags(rawCleanText).trim();
+  return stripOpenClawInternalContext(stripFinalTags(rawCleanText)).trim();
 }
 
 /** Serialize the full assistant message — thinking, tool calls, and text — in chronological order. */
@@ -888,7 +888,9 @@ export function MessageRow({
   if (message.isContext && text) {
     const { type: contextType } = getInjectedSummary(text);
     let summary: string;
-    if (text.startsWith(SYSTEM_MESSAGE_PREFIX)) {
+    if (text.startsWith(OPENCLAW_CONTEXT_BEGIN)) {
+      summary = summarizeOpenClawContext(text);
+    } else if (text.startsWith(SYSTEM_MESSAGE_PREFIX)) {
       // Strip [System Message] and any bracketed tags like [sessionId: ...]
       const bodyMatch = text.match(/^(?:\[System Message\]\s*(?:\[[^\]]*\]\s*)*)(.+)/s);
       const body = bodyMatch?.[1] ?? text;
@@ -911,8 +913,15 @@ export function MessageRow({
       summary = firstLine.replace(/[#*_~`>]/g, "").replace(/\s+/g, " ").trim();
     }
     const useHeartbeatIcon = contextType === "heartbeat" && !text.startsWith(SYSTEM_MESSAGE_PREFIX) && !text.startsWith(SYSTEM_PREFIX);
+    const useOpenClawIcon = text.startsWith(OPENCLAW_CONTEXT_BEGIN);
     const iconEl = useHeartbeatIcon
       ? <InjectedIcon type="heartbeat" />
+      : useOpenClawIcon
+      ? (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-60">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" />
+        </svg>
+      )
       : (
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-60">
           <path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3" /><path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" />
