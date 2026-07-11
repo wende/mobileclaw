@@ -12,6 +12,7 @@ enum SwiftToWebMessage {
 
     // Identity signing response (Phase 0)
     case identitySignResponse(callbackId: String, deviceId: String, publicKey: String, signature: String, signedAt: Int, nonce: String)
+    case gatewayAuthGetResponse(callbackId: String, raw: String?)
 
     // Config bridge — tell web to open its own connection (Phase 1)
     case configConnection(mode: String, url: String, token: String?, model: String?)
@@ -50,6 +51,14 @@ enum SwiftToWebMessage {
                 "signedAt": signedAt,
                 "nonce": nonce,
             ]
+
+        case .gatewayAuthGetResponse(let callbackId, let raw):
+            dict["type"] = "gatewayAuth:getResponse"
+            var payload: [String: Any] = ["callbackId": callbackId]
+            if let raw {
+                payload["raw"] = raw
+            }
+            dict["payload"] = payload
 
         case .configConnection(let mode, let url, let token, let model):
             dict["type"] = "config:connection"

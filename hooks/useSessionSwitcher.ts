@@ -41,6 +41,7 @@ export function useSessionSwitcher({ sendWS, sessionKeyRef, backendMode }: UseSe
   const [sessionSwitching, setSessionSwitching] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const lastFetchTimeRef = useRef(0);
+  const sessionsDirtyRef = useRef(false);
 
   const requestSessionsList = useCallback(() => {
     if (backendMode !== "openclaw") return;
@@ -56,6 +57,7 @@ export function useSessionSwitcher({ sendWS, sessionKeyRef, backendMode }: UseSe
   const handleSessionsListResponse = useCallback((payload: Record<string, unknown>) => {
     setSessionsLoading(false);
     lastFetchTimeRef.current = Date.now();
+    sessionsDirtyRef.current = false;
     const raw = (payload.sessions ?? payload.items ?? payload.list ?? (Array.isArray(payload) ? payload : undefined)) as Array<Record<string, unknown>> | undefined;
     if (!Array.isArray(raw)) return;
     const parsed: SessionInfo[] = raw.map((s) => ({
@@ -78,7 +80,7 @@ export function useSessionSwitcher({ sendWS, sessionKeyRef, backendMode }: UseSe
     if (backendMode !== "openclaw") return;
     setSheetOpen(true);
     // Re-fetch if stale (>10s)
-    if (Date.now() - lastFetchTimeRef.current > 10_000) {
+    if (sessionsDirtyRef.current || Date.now() - lastFetchTimeRef.current > 10_000) {
       requestSessionsList();
     }
   }, [backendMode, requestSessionsList]);
@@ -103,6 +105,10 @@ export function useSessionSwitcher({ sendWS, sessionKeyRef, backendMode }: UseSe
     setCurrentSessionKey(key);
   }, [sessionKeyRef]);
 
+  const markSessionsDirty = useCallback(() => {
+    sessionsDirtyRef.current = true;
+  }, []);
+
   return {
     sessions,
     sessionsLoading,
@@ -116,5 +122,6 @@ export function useSessionSwitcher({ sendWS, sessionKeyRef, backendMode }: UseSe
     switchSession,
     onHistoryLoadedAfterSwitch,
     syncSessionKey,
+    markSessionsDirty,
   };
 }

@@ -1,7 +1,11 @@
 import { useCallback } from "react";
 
 import { PIN_LOCK_MS } from "@mc/hooks/useScrollManager";
-import { resolveIdentitySign, type BridgeMessage } from "@mc/lib/nativeBridge";
+import {
+  resolveIdentitySign,
+  resolveNativeGatewayAuthGet,
+  type BridgeMessage,
+} from "@mc/lib/nativeBridge";
 import type { BackendMode, ConnectionConfig, Message } from "@mc/types/chat";
 
 interface UseNativeBridgeMessageOptions {
@@ -38,6 +42,10 @@ export function useNativeBridgeMessage({
       // Phase 0: Identity signing response from Swift
       case "identity:signResponse": {
         resolveIdentitySign(msg.payload as Record<string, unknown>);
+        break;
+      }
+      case "gatewayAuth:getResponse": {
+        resolveNativeGatewayAuthGet(msg.payload as Record<string, unknown>);
         break;
       }
 

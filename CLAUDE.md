@@ -52,11 +52,20 @@ MobileClaw has a native iOS app that wraps the webapp in a WKWebView. See [`ios/
 MobileClaw connects to OpenClaw's gateway WebSocket. Protocol frames:
 
 1. **Server sends** `event:connect.challenge` with nonce
-2. **Client responds** with `req:connect` including auth token, capabilities
-3. **Server responds** with `res:hello-ok` including server info, session snapshot
-4. **Client requests** `req:chat.history` to load message history
-5. **Messages flow** via `event:chat` (delta/final/aborted/error) and `event:agent` (content/tool/reasoning/lifecycle streams)
-6. **Client sends** `req:chat.send` with user messages
+2. **Client responds** with `req:connect` using protocol `3`, a v3 device-auth signature, and either a shared auth token or a cached `auth.deviceToken`
+3. **Server responds** with `res:hello-ok` including server info, session snapshot, `features`, `policy`, and optional `auth.deviceToken` state
+4. **Client persists** `hello-ok.auth.deviceToken` per normalized gateway URL and reuses it on later connects when the current shared token hash still matches
+5. **Client requests** `req:chat.history` to load message history
+6. **Messages flow** via `event:chat` (delta/final/aborted/error) and `event:agent` (content/tool/reasoning/lifecycle streams)
+7. **Client optionally subscribes** to `sessions.subscribe` and `sessions.messages.subscribe` when the gateway advertises those methods, but still uses `chat.history` as the source of truth for transcript reconciliation
+8. **Client sends** `req:chat.send` with user messages
+
+### Protocol Notes
+
+- `lib/deviceIdentity.ts` and `ios/MobileClaw/Networking/DeviceIdentity.swift` must stay aligned. Both build the same v3 auth payload: `v3|deviceId|clientId|clientMode|role|scopes|signedAtMs|token|nonce|platform|deviceFamily`.
+- Device-token cache lives in `lib/gatewayAuth.ts` under `mc-openclaw-device-auth-v1`. Web uses `localStorage`; native uses the bridge-backed Keychain store.
+- MobileClaw treats `session.message`, `session.tool`, and `sessions.changed` as invalidation signals only. The realtime UI still renders from `chat` and `agent` events.
+- On `AUTH_TOKEN_MISMATCH`, MobileClaw retries once with a cached device token if the gateway says `canRetryWithDeviceToken`. `DEVICE_AUTH_*` errors are treated as client bugs and are surfaced directly.
 
 <cicada>
   **ALWAYS use cicada-mcp tools for Elixir and Python code searches. NEVER use Grep/Find for these tasks.**

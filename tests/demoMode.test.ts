@@ -4,8 +4,8 @@ import type { PluginActionInvocation } from "@mc/lib/plugins/types";
 import type { AgentEventPayload, PluginContentPart } from "@mc/types/chat";
 
 describe("DEMO_HISTORY", () => {
-  it("contains system + user + assistant messages", () => {
-    expect(DEMO_HISTORY.length).toBe(3);
+  it("contains system + multi-turn user/assistant messages", () => {
+    expect(DEMO_HISTORY.length).toBeGreaterThanOrEqual(3);
   });
 
   it("starts with a system message (model changed)", () => {

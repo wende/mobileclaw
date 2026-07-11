@@ -10,19 +10,35 @@ export type { ChatInputHandle }
 
 export interface ChatWidgetProps {
   wsUrl?: string
+  token?: string | null
   className?: string
   demo?: boolean
+  transparentHostBackground?: boolean
+  onSessionsChange?: (sessions: import("@mc/types/chat").SessionInfo[], currentKey: string, loading: boolean) => void
+  /** Called when the gateway rejects with DEVICE_AUTH_SIGNATURE_INVALID.
+   *  Return a fresh gateway auth token (or null) to retry. */
+  onTokenRefresh?: () => Promise<string | null>
 }
 
 export const ChatWidget = forwardRef<ChatInputHandle, ChatWidgetProps>(
-  function ChatWidget({ wsUrl, className, demo }, ref) {
+  function ChatWidget({ wsUrl, token, className, demo, transparentHostBackground = true, onSessionsChange, onTokenRefresh }, ref) {
+    const rootClassName = className ? `bg-background ${className}` : "bg-background"
     const modeValue = useMemo(
-      () => ({ isDetached: true, noBorder: true, wsUrl: wsUrl ?? null, demo: demo ?? false }),
-      [wsUrl, demo],
+      () => ({
+        isDetached: true,
+        noBorder: true,
+        wsUrl: wsUrl ?? null,
+        token: token ?? null,
+        demo: demo ?? false,
+        transparentHostBackground,
+        onSessionsChange,
+        onTokenRefresh,
+      }),
+      [wsUrl, token, demo, transparentHostBackground, onSessionsChange, onTokenRefresh],
     )
 
     return (
-      <div className={className} data-mobileclaw-embedded>
+      <div className={rootClassName} data-mobileclaw-embedded>
         <WidgetContextProvider value={modeValue}>
           <Home ref={ref} />
         </WidgetContextProvider>

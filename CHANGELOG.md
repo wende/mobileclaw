@@ -2,6 +2,19 @@
 
 All notable changes to MobileClaw are documented in this file.
 
+## 2026-04-07
+
+### Added
+- OpenClaw gateway-auth cache (`mc-openclaw-device-auth-v1`) for persisted `hello-ok.auth.deviceToken` reuse across reconnects on web and in the native iOS shell
+- Native bridge support for gateway-auth storage (`gatewayAuth:get`, `gatewayAuth:set`, `gatewayAuth:delete`) backed by Keychain on iOS
+- Runtime tests covering hello-ok auth persistence, cached-device-token reuse, bounded `AUTH_TOKEN_MISMATCH` retry, and session invalidation events
+
+### Changed
+- OpenClaw handshake now signs the v3 device-auth payload with `platform` and `deviceFamily` on both web and iOS; MobileClaw no longer silently downgrades when device signing fails
+- `types/chat.ts` now models `hello-ok` auth/features/policy payloads plus newer gateway method and event names without hard-coding the full surface area
+- `useOpenClawRuntime.ts` now capability-gates `sessions.subscribe` / `sessions.messages.subscribe`, treats `session.message` / `session.tool` / `sessions.changed` as invalidation signals, and surfaces gateway shutdown/auth guidance more explicitly
+- Session switcher now marks session lists dirty and refreshes immediately when session-change events arrive
+
 ## 2026-03-03
 
 ### Added

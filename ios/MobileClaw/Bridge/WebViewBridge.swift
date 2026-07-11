@@ -4,6 +4,8 @@ import Observation
 
 @Observable
 final class WebViewBridge: NSObject, WKScriptMessageHandler {
+    private let gatewayAuthCacheKey = "mc-openclaw-device-auth-v1"
+
     weak var webView: WKWebView? {
         didSet { wsProxy.webView = webView }
     }
@@ -127,10 +129,32 @@ final class WebViewBridge: NSObject, WKScriptMessageHandler {
         // Phase 0: Identity signing — web asks Swift to sign a connect challenge
         case "identity:sign":
             if let nonce = payload?["nonce"] as? String,
-               let callbackId = payload?["callbackId"] as? String {
+               let callbackId = payload?["callbackId"] as? String,
+               let platform = payload?["platform"] as? String,
+               let deviceFamily = payload?["deviceFamily"] as? String {
                 let token = payload?["token"] as? String
-                handleIdentitySign(nonce: nonce, token: token, callbackId: callbackId)
+                handleIdentitySign(
+                    nonce: nonce,
+                    token: token,
+                    platform: platform,
+                    deviceFamily: deviceFamily,
+                    callbackId: callbackId
+                )
             }
+
+        case "gatewayAuth:get":
+            if let callbackId = payload?["callbackId"] as? String {
+                send(.gatewayAuthGetResponse(
+                    callbackId: callbackId,
+                    raw: KeychainHelper.load(key: gatewayAuthCacheKey)
+                ))
+            }
+        case "gatewayAuth:set":
+            if let raw = payload?["raw"] as? String {
+                KeychainHelper.save(key: gatewayAuthCacheKey, value: raw)
+            }
+        case "gatewayAuth:delete":
+            KeychainHelper.delete(key: gatewayAuthCacheKey)
 
         // Phase 2: State reporting from web
         case "state:connection":
@@ -172,7 +196,13 @@ final class WebViewBridge: NSObject, WKScriptMessageHandler {
 
     // MARK: - Identity Signing (Phase 0)
 
-    private func handleIdentitySign(nonce: String, token: String?, callbackId: String) {
+    private func handleIdentitySign(
+        nonce: String,
+        token: String?,
+        platform: String,
+        deviceFamily: String,
+        callbackId: String
+    ) {
         let identity = DeviceIdentityManager.loadOrCreate()
         let scopes = ["operator.read", "operator.write", "operator.admin", "operator.approvals", "operator.pairing"]
         let role = "operator"
@@ -188,7 +218,9 @@ final class WebViewBridge: NSObject, WKScriptMessageHandler {
             scopes: scopes,
             signedAtMs: signedAtMs,
             token: token,
-            nonce: nonce
+            nonce: nonce,
+            platform: platform,
+            deviceFamily: deviceFamily
         )
         let signature = DeviceIdentityManager.signPayload(payload, privateKeyBase64URL: identity.privateKey)
 

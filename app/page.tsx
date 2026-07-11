@@ -26,6 +26,7 @@ import {
 import { buildDisplayMessages } from "@mc/lib/chat/messageTransforms";
 import { applyNativeZenMode } from "@mc/lib/chat/zenBridge";
 import { DEFAULT_INPUT_ZONE_HEIGHT, getChatBottomPad } from "@mc/lib/chat/layout";
+import { getChatLayoutConfig } from "@mc/lib/chat/layoutMode";
 
 import type {
   BackendMode,
@@ -51,6 +52,8 @@ import { useZenMode } from "@mc/hooks/useZenMode";
 import { useSubagentStore } from "@mc/hooks/useSubagentStore";
 import { formatSessionName } from "@mc/hooks/useSessionSwitcher";
 import { useAppMode } from "@mc/hooks/useAppMode";
+import { useIsMobileViewport } from "@mc/hooks/useIsMobileViewport";
+import { useWidgetContext } from "@mc/lib/widgetContext";
 
 import { useModeBootstrap } from "@mc/hooks/chat/useModeBootstrap";
 import { useOpenClawRuntime } from "@mc/hooks/chat/useOpenClawRuntime";
@@ -76,11 +79,55 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   const isStreamingRef = useRef(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sentAnimId, setSentAnimId] = useState<string | null>(null);
-  const { isDetached, detachedNoBorder, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
+  const { isDetached, detachedNoBorder, detachedNoShell, detachedSurface, isNative, uploadDisabled, hideChrome, isDetachedRef, isNativeRef } = useAppMode();
+  const widgetCtx = useWidgetContext();
+  const isMobileViewport = useIsMobileViewport();
+  const {
+    useDocumentScroll,
+    shellHeight,
+    useKeyboardLayout: shouldUseKeyboardLayout,
+  } = getChatLayoutConfig({
+    isDetached,
+    detachedNoShell,
+    isNative,
+    isMobileViewport,
+    detachedSurface,
+  });
+
+  useEffect(() => {
+    if (!useDocumentScroll) return;
+
+    const html = document.documentElement;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevBodyOverscroll = document.body.style.overscrollBehavior;
+    const prevHtmlHeight = html.style.height;
+    const prevBodyHeight = document.body.style.height;
+    const hadDetachedClass = html.classList.contains("detached");
+
+    html.style.overflow = "visible";
+    document.body.style.overflow = "visible";
+    document.body.style.overscrollBehavior = "auto";
+    // The ?detached head script sizes the html/body chain for iframe shells;
+    // document scroll needs the body free to grow, so undo that here.
+    html.style.height = "";
+    document.body.style.height = "";
+    html.classList.remove("detached");
+
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.body.style.overscrollBehavior = prevBodyOverscroll;
+      html.style.height = prevHtmlHeight;
+      document.body.style.height = prevBodyHeight;
+      if (hadDetachedClass) html.classList.add("detached");
+    };
+  }, [useDocumentScroll]);
 
   const {
     scrollRef,
     bottomRef,
+    footerReserveRef,
     morphRef,
     scrollPhase,
     pinnedToBottomRef,
@@ -88,7 +135,12 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     handleScroll,
     scrollToBottom,
     updateGraceForStreamingChange,
-  } = useScrollManager(messages, isStreamingRef, isNativeRef);
+  } = useScrollManager({
+    messages,
+    isStreamingRef,
+    isNativeRef,
+    useDocumentScroll,
+  });
 
   const setIsStreaming = useCallback((value: boolean) => {
     const wasStreaming = isStreamingRef.current;
@@ -260,7 +312,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     setTurnstileChecked(true);
   }, []);
 
-  useKeyboardLayout(appRef, floatingBarRef, bottomRef, !isNative);
+  useKeyboardLayout(appRef, floatingBarRef, bottomRef, shouldUseKeyboardLayout);
 
   const appendContentDelta = useCallback((runId: string, delta: string, ts: number) => {
     beginContentArrival();
@@ -289,10 +341,10 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     });
   }, [beginContentArrival]);
 
-  const addToolCall = useCallback((runId: string, name: string, ts: number, toolCallId?: string, args?: string) => {
+  const addToolCall = useCallback((runId: string, name: string, ts: number, toolCallId?: string, args?: string, narration?: string) => {
     beginContentArrival();
     setMessages((prev) => {
-      const next = addToolCallToMessages(prev, runId, name, ts, toolCallId, args);
+      const next = addToolCallToMessages(prev, runId, name, ts, toolCallId, args, narration);
       if (next.created) setStreamingId(runId);
       return next.messages;
     });
@@ -361,6 +413,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   } = useOpenClawRuntime({
     backendMode,
     isNative,
+    useDocumentScroll,
     isDetachedRef,
     isNativeRef,
     scrollRef,
@@ -395,6 +448,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     replacePluginPart,
     removePluginPart,
     upsertCanvasPluginByMessageId,
+    onTokenRefresh: widgetCtx?.onTokenRefresh,
   });
 
   const { setQuoteText, quotePopup, quotePopupRef, handleAcceptQuote: rawAcceptQuote } = useQuoteSelection({ scrollRef });
@@ -512,7 +566,28 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
 
   useImperativeHandle(forwardedRef, () => ({
     setValue: (v: string) => chatInputRef.current?.setValue(v),
-  }), []);
+    addInputAttachment: (kind: string, data: unknown) => add(kind, data),
+    sendCommand: (text: string) => void sendMessage(text),
+    switchSession: (key: string) => handleSessionSelect(key),
+  }), [add, sendMessage, handleSessionSelect]);
+
+  // ── Bridge session state to host via widget context callback ──────────────
+  const onSessionsChangeRef = useRef(widgetCtx?.onSessionsChange);
+  onSessionsChangeRef.current = widgetCtx?.onSessionsChange;
+
+  // Fire callback whenever session state changes
+  useEffect(() => {
+    onSessionsChangeRef.current?.(sessions, currentSessionKey, sessionsLoading);
+  }, [sessions, currentSessionKey, sessionsLoading]);
+
+  // Eagerly fetch session list when host provides callback (so sidebar has data immediately)
+  const didEagerFetchRef = useRef(false);
+  useEffect(() => {
+    if (onSessionsChangeRef.current && !didEagerFetchRef.current && backendMode === "openclaw" && isConnected) {
+      didEagerFetchRef.current = true;
+      requestSessionsList();
+    }
+  }, [backendMode, isConnected, requestSessionsList]);
 
   const {
     queuedMessage,
@@ -702,11 +777,11 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
   const bottomPad = getChatBottomPad({
     isNative,
     isDetached,
+    useDocumentScroll,
     inputZoneHeight,
     hasQueued: !!queuedMessage,
     hasPinnedSubagent: !!pinnedSubagent,
   });
-
   const lastUserMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "user" && !messages[i].isContext) {
@@ -715,6 +790,9 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     }
     return "";
   }, [messages]);
+
+  const showAppBackground = useDocumentScroll || !hideChrome;
+  const shellStyle = shellHeight ? { height: shellHeight } : undefined;
 
   if (!turnstileChecked) return null;
   if (!turnstileVerified && TURNSTILE_SITE_KEY) {
@@ -733,8 +811,8 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
     <div
       id="mc-app-root"
       ref={appRef}
-      className={`relative flex min-h-0 flex-col overflow-hidden ${hideChrome ? "" : "bg-background"}`}
-      style={{ height: isDetached ? "100%" : "100dvh" }}
+      className={`relative flex flex-col ${useDocumentScroll ? "min-h-svh overflow-visible" : "min-h-0 overflow-hidden"} ${showAppBackground ? "bg-background" : ""}`}
+      style={shellStyle}
     >
       <ChatChrome
         hideChrome={hideChrome}
@@ -775,6 +853,7 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
         isDetached={isDetached}
         detachedNoBorder={detachedNoBorder}
         isNative={isNative}
+        useDocumentScroll={useDocumentScroll}
         historyLoaded={historyLoaded}
         inputZoneHeight={inputZoneHeight}
         bottomPad={bottomPad}
@@ -820,7 +899,9 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
       <ChatComposerBar
         isNative={isNative}
         isDetached={isDetached}
+        useDocumentScroll={useDocumentScroll}
         floatingBarRef={floatingBarRef}
+        footerReserveRef={footerReserveRef}
         morphRef={morphRef}
         pinnedSubagent={pinnedSubagent}
         subagentStore={subagentStore}
@@ -853,6 +934,13 @@ export default forwardRef<ChatInputHandle>(function Home(_props, forwardedRef) {
         lastUserMessage={lastUserMessage}
         uploadDisabled={uploadDisabled}
       />
+
+      {useDocumentScroll && (
+        <div
+          aria-hidden="true"
+          style={{ height: "calc(env(safe-area-inset-bottom, 0px) + 10dvh)", flexShrink: 0 }}
+        />
+      )}
     </div>
   );
 });
