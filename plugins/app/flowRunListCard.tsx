@@ -133,7 +133,7 @@ function FlowRunListCardView({ state, data, addInputAttachment }: PluginViewProp
       {hasMore && (
         <div className="px-3.5 py-2 border-t border-border/60">
           <span className="text-[10px] text-muted-foreground">
-            +{total! - runs.length} more
+            +{total - runs.length} more
           </span>
         </div>
       )}

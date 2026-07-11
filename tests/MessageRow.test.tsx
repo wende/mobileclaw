@@ -276,7 +276,7 @@ describe("MessageRow", () => {
     });
   });
 
-  it("hides the copy button while an assistant message is still streaming", () => {
+  it("disables the copy button while an assistant message is still streaming", () => {
     const message: Message = {
       role: "assistant",
       content: [{ type: "text", text: "Streaming reply" }],
@@ -284,7 +284,9 @@ describe("MessageRow", () => {
     };
 
     render(<MessageRow message={message} isStreaming />);
-    expect(screen.queryByRole("button", { name: /copy contents/i })).not.toBeInTheDocument();
+    const copyButton = screen.getByRole("button", { name: /copy contents/i });
+    expect(copyButton).toBeDisabled();
+    expect(copyButton).toHaveAttribute("title", "Copy temporarily disabled");
   });
 
   it("hides the copy button for assistant error context messages", () => {

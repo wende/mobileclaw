@@ -89,7 +89,7 @@ export function pluginFromToolResult(
 
 function buildFlowListPlugin(data: unknown): PluginMatch {
   const d = data as Record<string, unknown> | null;
-  const flows = Array.isArray(d?.data) ? d!.data : null;
+  const flows = Array.isArray(d?.data) ? d.data : null;
   if (!flows || flows.length === 0) return null;
 
   return {
@@ -119,13 +119,15 @@ function buildFlowCanvasPlugin(data: unknown): PluginMatch {
   const steps = extractSteps(d);
   if (steps.length === 0) return null;
 
+  const flowId = typeof d.id === "string" || typeof d.id === "number" ? String(d.id) : "";
+
   return {
     type: "plugin",
     pluginType: "flow_canvas",
-    partId: `flow-canvas-${d.id || Date.now()}`,
+    partId: `flow-canvas-${flowId || Date.now()}`,
     state: "settled",
     data: {
-      flowId: d.id || "",
+      flowId,
       displayName: d.displayName || "Untitled",
       status: d.status ?? "DRAFT",
       steps,
@@ -175,7 +177,7 @@ function extractSteps(flow: Record<string, unknown>): Array<Record<string, unkno
 
 function buildRunListPlugin(data: unknown): PluginMatch {
   const d = data as Record<string, unknown> | null;
-  const runs = Array.isArray(d?.data) ? d!.data : null;
+  const runs = Array.isArray(d?.data) ? d.data : null;
   if (!runs || runs.length === 0) return null;
 
   return {
@@ -203,11 +205,12 @@ function buildRunListPlugin(data: unknown): PluginMatch {
 function buildRunDetailPlugin(data: unknown): PluginMatch {
   const d = data as Record<string, unknown> | null;
   if (!d?.id) return null;
+  const runId = typeof d.id === "string" || typeof d.id === "number" ? String(d.id) : Date.now();
 
   return {
     type: "plugin",
     pluginType: "flow_run_detail_card",
-    partId: `run-detail-${d.id}`,
+    partId: `run-detail-${runId}`,
     state: "settled",
     data: d,
   };

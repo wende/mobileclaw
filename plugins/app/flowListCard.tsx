@@ -134,7 +134,7 @@ function FlowListCardView({ state, data }: PluginViewProps<FlowListCardData>) {
       {hasMore && (
         <div className="px-3.5 py-2 border-t border-border/60">
           <span className="text-[10px] text-muted-foreground">
-            +{total! - flows.length} more
+            +{total - flows.length} more
           </span>
         </div>
       )}

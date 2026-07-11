@@ -51,6 +51,8 @@ export function serializeToolArgs(args: unknown): string | undefined {
   try {
     return JSON.stringify(args);
   } catch {
-    return String(args);
+    // JSON.stringify only throws for BigInt and circular structures; circular
+    // objects would render "[object Object]", which is worse than showing nothing.
+    return typeof args === "bigint" ? args.toString() : undefined;
   }
 }

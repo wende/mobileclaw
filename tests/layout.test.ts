@@ -10,7 +10,7 @@ describe("chat layout spacing", () => {
       inputZoneHeight: "4rem",
       hasQueued: false,
       hasPinnedSubagent: false,
-    })).toBe("calc(4rem + 4rem)");
+    })).toBe("calc(4rem + 9rem)");
   });
 
   it("keeps fullscreen bottom padding on the existing svh/rem scale", () => {
@@ -20,7 +20,7 @@ describe("chat layout spacing", () => {
       inputZoneHeight: "4rem",
       hasQueued: false,
       hasPinnedSubagent: false,
-    })).toBe("calc(4.5svh + 7.5rem)");
+    })).toBe("calc(4.5svh + 12.5rem)");
   });
 
   it("lifts the detached thinking indicator above both spacer and composer", () => {
