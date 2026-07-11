@@ -32,6 +32,16 @@ export function useKeyboardLayout(
       app.style.height = `${window.innerHeight}px`;
     }
 
+    // Re-lock when the window itself resizes (desktop window resize, orientation
+    // change). iOS Safari's keyboard only shrinks the visualViewport — it never
+    // fires window resize — so this can't fight the keyboard offset math.
+    const onWindowResize = () => {
+      if (app) {
+        app.style.height = `${window.innerHeight}px`;
+      }
+    };
+    window.addEventListener("resize", onWindowResize);
+
     let debounceTimer = 0;
 
     // Debounced handler for floating bar positioning — SwiftKey fires
@@ -65,6 +75,7 @@ export function useKeyboardLayout(
     vv?.addEventListener("resize", onViewportResize);
     return () => {
       vv?.removeEventListener("resize", onViewportResize);
+      window.removeEventListener("resize", onWindowResize);
       clearTimeout(debounceTimer);
       if (app) app.style.height = prevHeight;
     };
