@@ -353,9 +353,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   const isPill = !disableScrollMorph && scrollPhase === "pill";
   const hasContent = !!value.trim() || attachments.length > 0;
   const staticComposer = disableScrollMorph;
-  const composerBackground = isPill
-    ? "oklch(from var(--background) l c h / 0.30)"
-    : "oklch(from var(--background) l c h / 0.30)";
+  const composerBackground = "oklch(from var(--background) l c h / 0.30)";
   const composerBackdrop = isPill
     ? (isMobileDevice ? "blur(12px) saturate(1.8)" : 'url("#filter_liquidGlassPill")')
     : "none";

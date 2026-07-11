@@ -91,6 +91,18 @@ export function ConnectionListCardInner({
           <div
             key={conn.id}
             className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-accent/30 cursor-pointer"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onConnectionClick?.({
+                  id: conn.id,
+                  externalId: conn.externalId,
+                  displayName: conn.displayName,
+                });
+              }
+            }}
             onClick={() =>
               onConnectionClick?.({
                 id: conn.id,
