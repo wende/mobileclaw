@@ -23,8 +23,13 @@ export function useKeyboardLayout(
 
     // Lock the container to the initial full-screen height so it doesn't
     // shrink when the keyboard opens (iOS Safari resizes layout viewport).
-    if (appRef.current) {
-      appRef.current.style.height = `${window.innerHeight}px`;
+    // Remember the previous inline height so it can be restored if the layout
+    // mode flips (e.g. viewport crosses the mobile breakpoint) — React won't
+    // rewrite an unchanged style prop over this manual mutation.
+    const app = appRef.current;
+    const prevHeight = app?.style.height ?? "";
+    if (app) {
+      app.style.height = `${window.innerHeight}px`;
     }
 
     let debounceTimer = 0;
@@ -61,6 +66,7 @@ export function useKeyboardLayout(
     return () => {
       vv?.removeEventListener("resize", onViewportResize);
       clearTimeout(debounceTimer);
+      if (app) app.style.height = prevHeight;
     };
   }, [enabled, appRef, floatingBarRef, bottomRef]);
 }
