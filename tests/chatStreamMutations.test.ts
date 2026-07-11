@@ -11,6 +11,7 @@ import {
   upsertFinalRunMessage,
   startThinkingBlock,
 } from "@mc/lib/chat/streamMutations";
+import { upsertChatEventMessage } from "@mc/lib/chat/chatEventUpsert";
 import type { Message, PluginContentPart } from "@mc/types/chat";
 
 describe("chat stream mutations", () => {
@@ -298,5 +299,157 @@ describe("chat stream mutations", () => {
       content: "should not create a message",
     });
     expect(next).toHaveLength(0);
+  });
+
+  it("stores narration on tool call content part when provided", () => {
+    const result = addToolCall([], "run-narr", "list_flows", Date.now(), "tc-1", "{}", "Checking what flows you already have");
+    const parts = result.messages[0].content as Array<{ type: string; name?: string; narration?: string }>;
+    expect(parts).toHaveLength(1);
+    expect(parts[0].name).toBe("list_flows");
+    expect(parts[0].narration).toBe("Checking what flows you already have");
+  });
+
+  it("omits narration from tool call content part when not provided", () => {
+    const result = addToolCall([], "run-no-narr", "read_file", Date.now(), "tc-2", "{}");
+    const parts = result.messages[0].content as Array<{ type: string; narration?: string }>;
+    expect(parts).toHaveLength(1);
+    expect(parts[0].narration).toBeUndefined();
+  });
+
+  it("updates existing tool call with narration instead of duplicating", () => {
+    // First call creates the tool_call part without narration (streaming start before args arrive)
+    const first = addToolCall([], "run-update", "list_flows", Date.now(), "tc-3");
+    const parts1 = first.messages[0].content as Array<{ type: string; name?: string; narration?: string; toolCallId?: string }>;
+    expect(parts1).toHaveLength(1);
+    expect(parts1[0].narration).toBeUndefined();
+
+    // Second call with same toolCallId should update, not duplicate
+    const second = addToolCall(first.messages, "run-update", "list_flows", Date.now(), "tc-3", "{}", "Checking your flows");
+    const parts2 = second.messages[0].content as Array<{ type: string; name?: string; narration?: string; toolCallId?: string }>;
+    expect(parts2).toHaveLength(1);
+    expect(parts2[0].narration).toBe("Checking your flows");
+  });
+});
+
+describe("upsertChatEventMessage deduplication", () => {
+  it("deduplicates accumulated text when tool calls split text into segments", () => {
+    // Simulates the dual-pathway bug:
+    // 1. appendContentDelta created text₁ "Hello " before tool calls
+    // 2. addToolCall inserted tool parts
+    // 3. appendContentDelta created text₂ after tools
+    // 4. Chat event delta arrives with accumulated "Hello Good overview"
+    //    → should NOT duplicate "Hello " in the trailing text part
+    const initial: Message[] = [{
+      role: "assistant",
+      id: "run-1",
+      content: [
+        { type: "text", text: "Hello " },
+        { type: "tool_call", name: "list_flows", status: "success", result: "ok" },
+        { type: "text", text: "partial" },
+      ],
+    }];
+
+    const result = upsertChatEventMessage(initial, {
+      sessionKey: "main",
+      runId: "run-1",
+      state: "delta",
+      message: {
+        role: "assistant",
+        content: "Hello Good overview of your flows.",
+        timestamp: 1000,
+      },
+    });
+
+    const parts = result[0].content as Array<{ type: string; text?: string }>;
+    // text₁ should remain "Hello ", text₂ should be the remainder
+    expect(parts[0].text).toBe("Hello ");
+    expect(parts[2].text).toBe("Good overview of your flows.");
+  });
+
+  it("handles multiple tool call groups without text snowballing", () => {
+    // Simulates: text₁ → tools₁ → text₂ → tools₂ → text₃
+    // Chat event sends full accumulated text for all three segments
+    const initial: Message[] = [{
+      role: "assistant",
+      id: "run-1",
+      content: [
+        { type: "text", text: "First. " },
+        { type: "tool_call", name: "tool_a", status: "success" },
+        { type: "text", text: "Second. " },
+        { type: "tool_call", name: "tool_b", status: "success" },
+        { type: "text", text: "" },
+      ],
+    }];
+
+    const result = upsertChatEventMessage(initial, {
+      sessionKey: "main",
+      runId: "run-1",
+      state: "delta",
+      message: {
+        role: "assistant",
+        content: "First. Second. Third.",
+        timestamp: 1000,
+      },
+    });
+
+    const parts = result[0].content as Array<{ type: string; text?: string }>;
+    expect(parts[0].text).toBe("First. ");
+    expect(parts[2].text).toBe("Second. ");
+    // Trailing text should only contain the new portion
+    expect(parts[4].text).toBe("Third.");
+  });
+
+  it("falls through without deduplication when text doesn't match prefix", () => {
+    // If the accumulated text doesn't start with the preceding text, no dedup
+    const initial: Message[] = [{
+      role: "assistant",
+      id: "run-1",
+      content: [
+        { type: "text", text: "Old text " },
+        { type: "tool_call", name: "tool_a", status: "success" },
+        { type: "text", text: "" },
+      ],
+    }];
+
+    const result = upsertChatEventMessage(initial, {
+      sessionKey: "main",
+      runId: "run-1",
+      state: "delta",
+      message: {
+        role: "assistant",
+        content: "Completely different text",
+        timestamp: 1000,
+      },
+    });
+
+    const parts = result[0].content as Array<{ type: string; text?: string }>;
+    // Falls through to raw replacement since prefix doesn't match
+    expect(parts[2].text).toBe("Completely different text");
+  });
+
+  it("works correctly when there are no preceding text parts", () => {
+    // Only one text part after tools — no dedup needed, just replacement
+    const initial: Message[] = [{
+      role: "assistant",
+      id: "run-1",
+      content: [
+        { type: "tool_call", name: "tool_a", status: "success" },
+        { type: "text", text: "partial" },
+      ],
+    }];
+
+    const result = upsertChatEventMessage(initial, {
+      sessionKey: "main",
+      runId: "run-1",
+      state: "delta",
+      message: {
+        role: "assistant",
+        content: "full response text",
+        timestamp: 1000,
+      },
+    });
+
+    const parts = result[0].content as Array<{ type: string; text?: string }>;
+    expect(parts[1].text).toBe("full response text");
   });
 });

@@ -88,7 +88,10 @@ describe("useModeBootstrap", () => {
     });
 
     expect(window.location.search).toBe("");
-    expect(options.connect).toHaveBeenCalledWith("wss://gateway.example.com");
+    // The WS URL carries a generated session key so history survives refresh.
+    expect(options.connect).toHaveBeenCalledWith(
+      expect.stringMatching(/^wss:\/\/gateway\.example\.com\/\?sessionKey=[0-9a-f]{32}$/),
+    );
     expect(options.setIsDemoMode).toHaveBeenCalledWith(false);
     expect(options.setBackendMode).toHaveBeenCalledWith("openclaw");
   });

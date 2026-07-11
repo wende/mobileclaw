@@ -4,9 +4,9 @@ import type { PluginActionInvocation } from "@mc/lib/plugins/types";
 import type { AgentEventPayload, Message, PluginAction, PluginActionStyle, PluginContentPart, PluginState } from "@mc/types/chat";
 
 // ── Demo conversation history ────────────────────────────────────────────────
-// Single message exchange that showcases ALL display features
+// Showcases all 8claw custom plugins in a realistic automation-assistant conversation
 
-const BASE_TS = Date.now() - 5 * 60 * 1000; // 5 minutes ago
+const BASE_TS = Date.now() - 8 * 60 * 1000; // 8 minutes ago
 
 export const DEMO_HISTORY: Message[] = [
   {
@@ -15,106 +15,286 @@ export const DEMO_HISTORY: Message[] = [
     timestamp: BASE_TS,
     id: "demo-sys-1",
   },
+
+  // ── Turn 1: user asks about recent runs ─────────────────────────────────
   {
     role: "user",
-    content: [{ type: "text", text: "Show me what MobileClaw can do!" }],
+    content: [{ type: "text", text: "What's been running lately? Show me the recent flow runs." }],
     timestamp: BASE_TS + 1_000,
     id: "demo-u-1",
   },
   {
     role: "assistant",
     content: [
-      // Thinking content part
       {
         type: "thinking",
-        text: "The user wants to see all UI features. Let me demonstrate:\n\n1. This thinking block shows the reasoning/chain-of-thought display\n2. I'll run some tool calls — both successful and failed ones\n3. Then finish with rich markdown: headers, code blocks, tables, lists, links\n\nThis covers every visual element in the chat interface.",
+        text: "The user wants to see recent flow runs. I'll fetch the last few runs from the API and display them as a flow_run_list_card plugin so they can see status, duration and any failures at a glance.",
       },
-      // Successful tool call
       {
         type: "tool_call",
-        name: "web_search",
-        arguments: JSON.stringify({ query: "MobileClaw chat UI features" }),
+        name: "ap_list_runs",
+        narration: "Fetching recent flow runs",
+        arguments: JSON.stringify({ limit: 4, includeTestRuns: false }),
         status: "success",
-        result: JSON.stringify({
-          results: [
-            { title: "MobileClaw — Mobile-First Chat UI", url: "https://github.com/user/mobileclaw", snippet: "Real-time streaming, tool execution, and reasoning display." },
-          ],
-        }, null, 2),
-      },
-      // Failed tool call (to show error state)
-      {
-        type: "tool_call",
-        name: "exec",
-        arguments: JSON.stringify({ command: "cat /etc/shadow" }),
-        status: "error",
-        result: "Permission denied — /etc/shadow is readable only by root",
-        resultError: true,
-      },
-      // Running tool call (to show pending state)
-      {
-        type: "tool_call",
-        name: "sessions_spawn",
-        toolCallId: "demo-history-spawn",
-        arguments: JSON.stringify({ model: "claude-sonnet-4-5", task: "Analyze codebase structure" }),
-        status: "running",
+        result: JSON.stringify({ data: [
+          { id: "run-1", status: "SUCCEEDED", flowName: "Weekly Report Generation", startTime: new Date(Date.now() - 3 * 60 * 1000).toISOString(), finishTime: new Date(Date.now() - 60 * 1000).toISOString(), stepsCount: 22 },
+          { id: "run-2", status: "FAILED", flowName: "New Lead Processing", startTime: new Date(Date.now() - 8 * 60 * 1000).toISOString(), finishTime: new Date(Date.now() - 7 * 60 * 1000).toISOString(), stepsCount: 5, failedStep: "Slack Notification" },
+          { id: "run-3", status: "RUNNING", flowName: "Database Sync", startTime: new Date(Date.now() - 30 * 1000).toISOString(), stepsCount: 8 },
+          { id: "run-4", status: "SUCCEEDED", flowName: "Nightly Backup", startTime: new Date(Date.now() - 20 * 60 * 1000).toISOString(), finishTime: new Date(Date.now() - 18 * 60 * 1000).toISOString(), stepsCount: 14 },
+        ] }, null, 2),
       },
       {
         type: "plugin",
-        partId: "demo-history-status",
-        pluginType: "status_card",
+        partId: "demo-run-list-1",
+        pluginType: "flow_run_list_card",
         state: "settled",
-        data: {
-          label: "Demo background task",
-          status: "succeeded",
-          detail: "Indexed demo conversation assets",
-          startedAt: BASE_TS + 2_800,
-          duration: 1600,
-        },
         revision: 1,
-      },
-      {
-        type: "plugin",
-        partId: "demo-history-pause",
-        pluginType: "pause_card",
-        state: "settled",
         data: {
-          prompt: "Want me to add an AI-powered summary step to this flow?",
-          selectedLabel: "Yes, add it",
-          options: [
-            {
-              id: "yes",
-              label: "Yes, add it",
-              value: "yes",
-              style: "primary",
-              action: { id: "demo-yes", label: "Yes, add it", style: "primary", request: { kind: "ws", method: "demo.pause.respond", params: {} } },
-            },
-            {
-              id: "no",
-              label: "No thanks",
-              value: "no",
-              action: { id: "demo-no", label: "No thanks", request: { kind: "ws", method: "demo.pause.respond", params: {} } },
-            },
+          total: 4,
+          runs: [
+            { runId: "run-1", flowName: "Weekly Report Generation", status: "SUCCEEDED", startTime: new Date(Date.now() - 3 * 60 * 1000).toISOString(), finishTime: new Date(Date.now() - 60 * 1000).toISOString(), durationMs: 120_000, stepsCount: 22 },
+            { runId: "run-2", flowName: "New Lead Processing", status: "FAILED", startTime: new Date(Date.now() - 8 * 60 * 1000).toISOString(), finishTime: new Date(Date.now() - 7 * 60 * 1000).toISOString(), durationMs: 20_000, stepsCount: 5, failedStep: "Slack Notification" },
+            { runId: "run-3", flowName: "Database Sync", status: "RUNNING", startTime: new Date(Date.now() - 30 * 1000).toISOString(), stepsCount: 8 },
+            { runId: "run-4", flowName: "Nightly Backup", status: "SUCCEEDED", startTime: new Date(Date.now() - 20 * 60 * 1000).toISOString(), finishTime: new Date(Date.now() - 18 * 60 * 1000).toISOString(), durationMs: 114_000, stepsCount: 14 },
           ],
         },
-        revision: 1,
       },
-      // Simplified text
       {
         type: "text",
-        text: `## Demo Response
-
-\`\`\`typescript
-console.log("Hello from MobileClaw!");
-\`\`\`
-
-You're absolutely right!
-
-Run **/help** to discover all the features.`,
+        text: "Here are your 4 most recent runs. **New Lead Processing** failed at the **Slack Notification** step — likely a token expiry. Want me to investigate and fix it?",
       },
     ],
-    timestamp: BASE_TS + 5_000,
+    timestamp: BASE_TS + 10_000,
     id: "demo-a-1",
-    thinkingDuration: 3.2,
+    thinkingDuration: 1.8,
+  },
+
+  // ── Turn 2: user asks to investigate the failure ─────────────────────────
+  {
+    role: "user",
+    content: [{ type: "text", text: "Yes, investigate the Slack failure and show me the flow details." }],
+    timestamp: BASE_TS + 70_000,
+    id: "demo-u-2",
+  },
+  {
+    role: "assistant",
+    content: [
+      {
+        type: "thinking",
+        text: "I need to look at the failed run in detail, then pull the flow configuration to understand what went wrong with the Slack notification step. I'll also fetch the full flow list so the user can see what other flows exist.",
+      },
+      {
+        type: "tool_call",
+        name: "ap_get_run",
+        narration: "Reading failed run details",
+        arguments: JSON.stringify({ runId: "run-2" }),
+        status: "success",
+        result: JSON.stringify({ id: "run-2", status: "FAILED", errorMessage: "Slack API error: token_revoked", failedStepIndex: 4 }, null, 2),
+      },
+      {
+        type: "tool_call",
+        name: "ap_list_flows",
+        narration: "Listing all flows",
+        arguments: JSON.stringify({ limit: 5 }),
+        status: "success",
+        result: JSON.stringify({ data: [], total: 5 }, null, 2),
+      },
+      // Show the single failed run as a flow_run_card
+      {
+        type: "plugin",
+        partId: "demo-run-card-1",
+        pluginType: "flow_run_card",
+        state: "settled",
+        revision: 1,
+        data: {
+          runId: "run-2",
+          flowId: "flow-leads",
+          flowName: "New Lead Processing",
+          status: "FAILED",
+          stepsCount: 5,
+          startTime: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
+          finishTime: new Date(Date.now() - 7 * 60 * 1000).toISOString(),
+          durationMs: 20_000,
+          failedStep: "Slack Notification",
+        },
+      },
+      // Show the full flow list as a flow_list_card
+      {
+        type: "plugin",
+        partId: "demo-flow-list-1",
+        pluginType: "flow_list_card",
+        state: "settled",
+        revision: 1,
+        data: {
+          total: 5,
+          flows: [
+            { id: "flow-leads", displayName: "New Lead Processing", status: "ENABLED", triggerType: "WEBHOOK", triggerPiece: "@activepieces/piece-hubspot", lastRun: { status: "FAILED", createdAt: new Date(Date.now() - 8 * 60 * 1000).toISOString() } },
+            { id: "flow-report", displayName: "Weekly Report Generation", status: "ENABLED", triggerType: "SCHEDULE", lastRun: { status: "SUCCEEDED", createdAt: new Date(Date.now() - 3 * 60 * 1000).toISOString() } },
+            { id: "flow-db", displayName: "Database Sync", status: "ENABLED", triggerType: "SCHEDULE", lastRun: { status: "RUNNING", createdAt: new Date(Date.now() - 30 * 1000).toISOString() } },
+            { id: "flow-backup", displayName: "Nightly Backup", status: "ENABLED", triggerType: "SCHEDULE", lastRun: { status: "SUCCEEDED", createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString() } },
+            { id: "flow-email", displayName: "Marketing Emails", status: "DISABLED", triggerType: "WEBHOOK", triggerPiece: "@activepieces/piece-mailchimp" },
+          ],
+        },
+      },
+      {
+        type: "text",
+        text: `The failure is a **revoked Slack token** — the bot was removed from the workspace or its token was rotated.
+
+**Root cause:** \`token_revoked\` at step 4 (Slack Notification).
+
+**Fix:** Reconnect the Slack integration in Settings → Connections, then re-enable the flow. Want me to prepare a notification for the user to approve the reconnection?`,
+      },
+    ],
+    timestamp: BASE_TS + 90_000,
+    id: "demo-a-2",
+    thinkingDuration: 2.4,
+  },
+
+  // ── Turn 3: approval notification ────────────────────────────────────────
+  {
+    role: "user",
+    content: [{ type: "text", text: "Yes, create the approval notification." }],
+    timestamp: BASE_TS + 150_000,
+    id: "demo-u-3",
+  },
+  {
+    role: "assistant",
+    content: [
+      {
+        type: "thinking",
+        text: "The user wants me to create a notification card so the operator can approve reconnecting the Slack integration. I'll emit a notification_card plugin with a blocking mode and high urgency.",
+      },
+      {
+        type: "plugin",
+        partId: "demo-notif-card-1",
+        pluginType: "notification_card",
+        state: "active",
+        revision: 1,
+        data: {
+          notificationId: "demo-notif-slack-1",
+          flowName: "New Lead Processing",
+          question: "Reconnect the **Slack** integration to restore the New Lead Processing flow?",
+          context: "The Slack bot token was revoked. Reconnecting will re-authenticate and re-enable the flow automatically.",
+          target: "user",
+          urgency: "high",
+          mode: "blocking",
+          createdAt: BASE_TS + 150_500,
+          options: [
+            { label: "Reconnect Slack", value: "reconnect", style: "primary" },
+            { label: "Skip for now", value: "skip", style: "secondary" },
+          ],
+        },
+      },
+      {
+        type: "text",
+        text: "Notification sent to your inbox. Once you approve, I'll automatically re-enable the flow and replay the last failed run.\n\nTry **`flow list`** or **`run list`** to explore more, or **`/help`** to see all demo commands.",
+      },
+    ],
+    timestamp: BASE_TS + 160_000,
+    id: "demo-a-3",
+    thinkingDuration: 1.1,
+  },
+
+  // ── Turn 4: deep-dive on the failed run + canvas + context chip ───────────
+  {
+    role: "user",
+    content: [{ type: "text", text: "Show me the step-by-step details of that failed run, and the flow structure." }],
+    timestamp: BASE_TS + 220_000,
+    id: "demo-u-4",
+  },
+  {
+    role: "assistant",
+    content: [
+      {
+        type: "thinking",
+        text: "The user wants a detailed breakdown of the failed run's steps and a visual of the flow's structure. I'll emit a flow_run_detail_card with the step timeline, then a flow_canvas card showing the flow graph with the failed step highlighted. Finally I'll offer a context_chip so they can attach the error context to their next message.",
+      },
+      {
+        type: "tool_call",
+        name: "ap_get_run_steps",
+        narration: "Loading step-by-step execution trace",
+        arguments: JSON.stringify({ runId: "run-2" }),
+        status: "success",
+        result: JSON.stringify({
+          steps: {
+            "Webhook Trigger": { status: "SUCCEEDED" },
+            "Enrich Lead (HubSpot)": { status: "SUCCEEDED" },
+            "Score Lead": { status: "SUCCEEDED" },
+            "Add to CRM": { status: "SUCCEEDED" },
+            "Slack Notification": { status: "FAILED", errorMessage: "Slack API error: token_revoked — the bot token was rotated or the app was uninstalled from the workspace." },
+          },
+        }, null, 2),
+      },
+      // Detailed step timeline
+      {
+        type: "plugin",
+        partId: "demo-run-detail-1",
+        pluginType: "flow_run_detail_card",
+        state: "settled",
+        revision: 1,
+        data: {
+          runId: "run-2",
+          flowId: "flow-leads",
+          flowName: "New Lead Processing",
+          status: "FAILED",
+          startTime: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
+          finishTime: new Date(Date.now() - 7 * 60 * 1000).toISOString(),
+          durationMs: 20_000,
+          failedStep: "Slack Notification",
+          steps: {
+            "Webhook Trigger": { status: "SUCCEEDED" },
+            "Enrich Lead (HubSpot)": { status: "SUCCEEDED" },
+            "Score Lead": { status: "SUCCEEDED" },
+            "Add to CRM": { status: "SUCCEEDED" },
+            "Slack Notification": {
+              status: "FAILED",
+              errorMessage: "Slack API error: token_revoked — the bot token was rotated or the app was uninstalled from the workspace.",
+            },
+          },
+        },
+      },
+      // Visual flow canvas with the failed step highlighted
+      {
+        type: "plugin",
+        partId: "demo-canvas-1",
+        pluginType: "flow_canvas",
+        state: "settled",
+        revision: 1,
+        data: {
+          flowId: "flow-leads",
+          displayName: "New Lead Processing",
+          status: "ENABLED",
+          highlightedSteps: ["Slack Notification"],
+          steps: [
+            { name: "Webhook Trigger", displayName: "Webhook Trigger", type: "trigger", stepNumber: 1, valid: true },
+            { name: "Enrich Lead (HubSpot)", displayName: "Enrich Lead", type: "piece", pieceName: "@activepieces/piece-hubspot", stepNumber: 2, valid: true },
+            { name: "Score Lead", displayName: "Score Lead", type: "code", stepNumber: 3, valid: true },
+            { name: "Add to CRM", displayName: "Add to CRM", type: "piece", pieceName: "@activepieces/piece-salesforce", stepNumber: 4, valid: true },
+            { name: "Slack Notification", displayName: "Slack Notification", type: "piece", pieceName: "@activepieces/piece-slack", stepNumber: 5, valid: true, highlighted: true },
+          ],
+        },
+      },
+      // Context chip — lets the user attach the error context to their next message
+      {
+        type: "plugin",
+        partId: "demo-context-chip-1",
+        pluginType: "context_chip",
+        state: "settled",
+        revision: 1,
+        data: {
+          label: "Slack token_revoked error",
+          context: "Flow: New Lead Processing\nRun ID: run-2\nFailed step: Slack Notification (step 5)\nError: Slack API error: token_revoked — the bot token was rotated or the app was uninstalled from the workspace.\nAll prior steps succeeded.",
+          description: "Attach this error context to your next message",
+        },
+      },
+      {
+        type: "text",
+        text: "Steps 1–4 completed successfully. The failure is entirely in the **Slack Notification** step — the bot token was revoked.\n\nThe highlighted node in the canvas shows exactly where the flow broke. I've prepared a context chip above — click **Attach** to pin this error to your next message if you want to discuss a fix.",
+      },
+    ],
+    timestamp: BASE_TS + 235_000,
+    id: "demo-a-4",
+    thinkingDuration: 2.0,
   },
 ];
 

@@ -13,6 +13,35 @@ export function isContextText(text: string): boolean {
 export const HEARTBEAT_MARKER = "HEARTBEAT_OK";
 export const NO_REPLY_MARKER = "NO_REPLY";
 
+// OpenClaw internal context delimiters
+export const OPENCLAW_CONTEXT_BEGIN = "<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>";
+export const OPENCLAW_CONTEXT_END = "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>";
+
+const OPENCLAW_CONTEXT_RE = /<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>[\s\S]*?<<<END_OPENCLAW_INTERNAL_CONTEXT>>>/g;
+
+/** Strip all <<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>…<<<END_OPENCLAW_INTERNAL_CONTEXT>>> blocks from text. */
+export function stripOpenClawInternalContext(text: string): string {
+  return text.replace(OPENCLAW_CONTEXT_RE, "").trim();
+}
+
+/** Extract a human-readable summary from an OpenClaw internal context block. */
+export function summarizeOpenClawContext(text: string): string {
+  const taskMatch = text.match(/^task:\s*(.+)$/m);
+  const statusMatch = text.match(/^status:\s*(.+)$/m);
+  const typeMatch = text.match(/^type:\s*(.+)$/m);
+  if (taskMatch) {
+    const task = taskMatch[1].trim();
+    const status = statusMatch?.[1]?.trim();
+    return status ? `${task} — ${status}` : task;
+  }
+  if (typeMatch) {
+    const type = typeMatch[1].trim();
+    const status = statusMatch?.[1]?.trim();
+    return status ? `${type} — ${status}` : type;
+  }
+  return "Internal context";
+}
+
 /** Returns true if any line, after stripping non-letter/underscore characters, equals HEARTBEAT_OK.
  * This handles cases where the model wraps the marker in formatting (e.g. **HEARTBEAT_OK**). */
 export function hasHeartbeatOnOwnLine(text: string): boolean {
@@ -43,6 +72,12 @@ export const SYSTEM_PREFIX = CONTEXT_STARTS_WITH[0];
 export const SYSTEM_MESSAGE_PREFIX = CONTEXT_STARTS_WITH[1];
 export const QUEUED_ANNOUNCE_PREFIX = CONTEXT_STARTS_WITH[2];
 export const GATEWAY_INJECTED_MODEL = "gateway-injected";
+
+/** Empty-chat welcome copy. Product deployments (e.g. 8claw) brand it via
+ * NEXT_PUBLIC_WELCOME_MESSAGE at build time; the default stays product-neutral. */
+export const EMPTY_CHAT_WELCOME =
+  process.env.NEXT_PUBLIC_WELCOME_MESSAGE ||
+  "Welcome. Send a message to start your first conversation with your agent.";
 export const LITTERBOX_UPLOAD_URL = "https://litterbox.catbox.moe/resources/internals/api.php";
 
 // WebSocket protocol

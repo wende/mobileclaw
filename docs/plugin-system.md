@@ -608,7 +608,7 @@ The downstream `onSend(text, ImageAttachment[])` signature is unchanged. Input a
 To add a new input attachment kind, add a plugin to `plugins/app/index.ts`:
 
 ```ts
-import type { AnyInputAttachmentPlugin } from "@/lib/plugins/inputAttachmentTypes";
+import type { AnyInputAttachmentPlugin } from "@mc/lib/plugins/inputAttachmentTypes";
 
 export const appInputAttachmentPlugins: AnyInputAttachmentPlugin[] = [
   {
