@@ -46,7 +46,7 @@ export function getChatBottomPad({
   if (isDetached) {
     // The viewport already has a detached composer spacer below the scroll area.
     // Only add message-list padding when a queued or pinned panel extends above it.
-    if (!hasPinnedSubagent && !hasQueued) return "0px";
+    if (!hasPinnedSubagent && !hasQueued) return "1rem";
 
     return hasPinnedSubagent
       ? BOTTOM_PAD_DETACHED_PINNED
