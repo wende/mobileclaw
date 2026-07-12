@@ -81,6 +81,24 @@ describe("chat stream mutations", () => {
     expect(parts[0].text).toBe("Lets See what's in the file");
   });
 
+  it("strips repeated trailing MiniMax escape fragments from streamed snapshots", () => {
+    const initial: Message[] = [{ role: "assistant", id: "run-minimax", content: [] }];
+    const step1 = appendContentDelta(initial, "run-minimax", "Hey.[e~[[e~[", Date.now());
+    const step2 = appendContentDelta(step1.messages, "run-minimax", "Hey. There.[e~[", Date.now());
+
+    const parts = step2.messages[0].content as Array<{ type: string; text?: string }>;
+    expect(parts[0].text).toBe("Hey. There.");
+  });
+
+  it("strips a trailing MiniMax escape fragment split across streamed chunks", () => {
+    const initial: Message[] = [{ role: "assistant", id: "run-minimax-split", content: [] }];
+    const step1 = appendContentDelta(initial, "run-minimax-split", "Hey.[e", Date.now());
+    const step2 = appendContentDelta(step1.messages, "run-minimax-split", "~[", Date.now());
+
+    const parts = step2.messages[0].content as Array<{ type: string; text?: string }>;
+    expect(parts[0].text).toBe("Hey.");
+  });
+
   it("treats plugin parts as text boundaries", () => {
     const initial: Message[] = [{
       role: "assistant",

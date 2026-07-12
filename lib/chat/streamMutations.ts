@@ -8,21 +8,38 @@ interface EnsureResult {
   created: boolean;
 }
 
+// MiniMax occasionally appends one or more terminal escape fragments to a
+// streamed message. Strip them before comparing cumulative snapshots so they
+// cannot be appended back into an otherwise clean message.
+function stripTrailingMiniMaxEscapeFragments(text: string): string {
+  return text.replace(/(?:\[e~\[)+$/, "");
+}
+
 function mergeStreamText(existingText: string, incomingText: string): string {
-  if (!incomingText) return existingText;
-  if (!existingText) return incomingText;
+  const existing = stripTrailingMiniMaxEscapeFragments(existingText);
+  const incoming = stripTrailingMiniMaxEscapeFragments(incomingText);
+  if (!incoming) return existing;
+  if (!existing) return incoming;
+
+  // A sanitized cumulative snapshot can be exactly equal to the text already
+  // shown (for example, "Hey.[e~["). Preserve it rather than appending it.
+  if (incoming !== incomingText && incoming.startsWith(existing)) {
+    return incoming;
+  }
 
   // Some runtimes send cumulative snapshots instead of true token deltas.
-  if (incomingText.length > existingText.length && incomingText.startsWith(existingText)) {
-    return incomingText;
+  if (incoming.length > existing.length && incoming.startsWith(existing)) {
+    return incoming;
   }
 
   // Drop stale/truncated snapshots that can arrive out of order.
-  if (existingText.length > incomingText.length && existingText.startsWith(incomingText)) {
-    return existingText;
+  if (existing.length > incoming.length && existing.startsWith(incoming)) {
+    return existing;
   }
 
-  return existingText + incomingText;
+  // The escape sequence can itself be split across chunks, so normalize once
+  // more after joining incremental deltas.
+  return stripTrailingMiniMaxEscapeFragments(existing + incoming);
 }
 
 export function ensureStreamingMessage(
