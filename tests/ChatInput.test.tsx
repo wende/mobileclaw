@@ -44,7 +44,7 @@ describe("ChatInput", () => {
     render(<ChatInput {...defaultProps} compact />);
 
     const textarea = screen.getByPlaceholderText("Send a message...");
-    expect(textarea.parentElement?.parentElement).toHaveClass("flex", "items-center");
+    expect(textarea.parentElement?.parentElement).toHaveClass("flex", "min-h-12", "items-center");
     expect(textarea).toHaveClass("h-7", "p-0");
     expect(screen.getByLabelText("Attach file")).toHaveClass("order-first");
     expect(screen.getByLabelText("Send")).toHaveClass("order-last");

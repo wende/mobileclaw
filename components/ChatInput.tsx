@@ -560,7 +560,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
           </div>
         )}
 
-        <div className={compact ? "flex items-center" : undefined}>
+        <div className={compact ? "flex min-h-12 items-center" : undefined}>
           {/* Textarea */}
           <div
             className={compact ? "flex min-w-0 flex-1 px-2 py-0" : "px-4 pt-2.5 pb-1"}
