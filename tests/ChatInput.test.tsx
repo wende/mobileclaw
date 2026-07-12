@@ -49,6 +49,13 @@ describe("ChatInput", () => {
     expect(screen.getByLabelText("Send")).toHaveClass("order-last");
   });
 
+  it("keeps the input available when compact mode receives a scroll-pill phase", () => {
+    render(<ChatInput {...defaultProps} compact scrollPhase="pill" disableScrollMorph />);
+
+    expect(screen.getByPlaceholderText("Send a message...")).toBeInTheDocument();
+    expect(screen.queryByText("Scroll to bottom")).not.toBeInTheDocument();
+  });
+
   it("calls onSend when Enter is pressed with text", async () => {
     const onSend = vi.fn();
     const user = userEvent.setup();

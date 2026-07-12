@@ -110,7 +110,7 @@ export function ChatComposerBar({
       </button>
     </div>
   ) : null;
-  const composerWidthStyle = useDocumentScroll
+  const composerWidthStyle = useDocumentScroll || isDetached
     ? ({ maxWidth: "calc(42rem + 48px)" } as React.CSSProperties)
     : ({
         maxWidth: "min(calc(200px + (100% - 200px) * (1 - var(--lp, 0))), calc(200px + (42rem + 48px - 200px) * (1 - var(--lp, 0))))",
@@ -151,7 +151,7 @@ export function ChatComposerBar({
           onSend={onSend}
           scrollPhase={scrollPhase}
           onScrollToBottom={onScrollToBottom}
-          disableScrollMorph={useDocumentScroll}
+          disableScrollMorph={useDocumentScroll || isDetached}
           availableModels={availableModels}
           modelsLoading={modelsLoading}
           onFetchModels={onFetchModels}
