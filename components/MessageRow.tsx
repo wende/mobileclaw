@@ -1275,7 +1275,7 @@ export function MessageRow({
                   : undefined}
               >
                 {assistantBlocks.map(renderAssistantBlock)}
-                {isStreaming && !hideThinking && message.role === "assistant" && (
+                {isStreaming && message.role === "assistant" && (
                   <InlineThinkingIndicator startTime={message.timestamp} />
                 )}
                 {(showAssistantCopyButton || showDebugCopyButton) ? (

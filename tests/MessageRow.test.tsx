@@ -42,6 +42,18 @@ describe("MessageRow", () => {
     expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
   });
 
+  it("keeps the streaming Thinking indicator visible when reasoning content is hidden", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [{ type: "thinking", text: "Internal reasoning" }],
+      id: "hidden-streaming-thinking",
+    };
+
+    render(<MessageRow message={message} isStreaming hideThinking />);
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.queryByText("Internal reasoning")).not.toBeInTheDocument();
+  });
+
   it("renders a built-in status card plugin", () => {
     const message: Message = {
       role: "assistant",
