@@ -8,6 +8,7 @@ interface InitialAppMode {
   detachedNoShell: boolean;
   isNative: boolean;
   uploadDisabled: boolean;
+  hideThinking: boolean;
 }
 
 const SSR_SAFE_MODE: InitialAppMode = {
@@ -16,6 +17,7 @@ const SSR_SAFE_MODE: InitialAppMode = {
   detachedNoShell: false,
   isNative: false,
   uploadDisabled: false,
+  hideThinking: false,
 };
 
 export function resolveUrlAppMode(search: string, nativeFlag = false): InitialAppMode {
@@ -25,7 +27,8 @@ export function resolveUrlAppMode(search: string, nativeFlag = false): InitialAp
   const detachedNoShell = isDetached && params.get("noshell") !== null;
   const isNative = params.get("native") !== null || nativeFlag;
   const uploadDisabled = params.get("upload") === "false";
-  return { isDetached, detachedNoBorder, detachedNoShell, isNative, uploadDisabled };
+  const hideThinking = params.has("nothink");
+  return { isDetached, detachedNoBorder, detachedNoShell, isNative, uploadDisabled, hideThinking };
 }
 
 function getUrlAppMode(): InitialAppMode {
@@ -40,6 +43,7 @@ export interface AppMode {
   detachedSurface: DetachedSurface;
   isNative: boolean;
   uploadDisabled: boolean;
+  hideThinking: boolean;
   hideChrome: boolean;
   isDetachedRef: React.MutableRefObject<boolean>;
   isNativeRef: React.MutableRefObject<boolean>;
@@ -59,6 +63,7 @@ export function useAppMode(): AppMode {
         detachedNoShell: false,
         isNative: false,
         uploadDisabled: false,
+        hideThinking: false,
       };
     }
     return SSR_SAFE_MODE;
@@ -75,6 +80,7 @@ export function useAppMode(): AppMode {
           detachedNoShell: false,
           isNative: false,
           uploadDisabled: false,
+          hideThinking: false,
         }
       : getUrlAppMode();
 
@@ -111,6 +117,7 @@ export function useAppMode(): AppMode {
     detachedSurface,
     isNative: mode.isNative,
     uploadDisabled: mode.uploadDisabled,
+    hideThinking: mode.hideThinking,
     hideChrome,
     isDetachedRef,
     isNativeRef,

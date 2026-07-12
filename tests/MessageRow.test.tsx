@@ -26,6 +26,22 @@ describe("MessageRow", () => {
     expect(screen.getByText("Hi there!")).toBeInTheDocument();
   });
 
+  it("hides thinking content when requested while retaining the response", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [
+        { type: "thinking", text: "Internal reasoning" },
+        { type: "text", text: "Visible answer" },
+      ],
+      id: "hidden-thinking",
+    };
+
+    render(<MessageRow message={message} isStreaming={false} hideThinking />);
+    expect(screen.getByText("Visible answer")).toBeInTheDocument();
+    expect(screen.queryByText("Internal reasoning")).not.toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+  });
+
   it("renders a built-in status card plugin", () => {
     const message: Message = {
       role: "assistant",

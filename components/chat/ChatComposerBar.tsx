@@ -166,6 +166,7 @@ export function ChatComposerBar({
           onAbort={onAbort}
           lastUserMessage={lastUserMessage}
           uploadDisabled={uploadDisabled}
+          compact={isDetached}
         />
       </div>
     </div>

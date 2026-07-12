@@ -159,14 +159,14 @@ function getInjectedSummary(text: string): { type: "heartbeat" | "no_reply" | "i
   return { type: "info", summary: firstLine };
 }
 
-function InjectedPill({ text, message, subagentStore }: { text: string; message?: Message; subagentStore?: SubagentStore }) {
+function InjectedPill({ text, message, subagentStore, hideThinking = false }: { text: string; message?: Message; subagentStore?: SubagentStore; hideThinking?: boolean }) {
   const { open, toggle, mounted, expanded, outerRef, contentRef, handleTransitionEnd } = useExpandablePanel();
   const { type, summary: rawSummary } = getInjectedSummary(text);
   const summary = rawSummary.replace(/[#*_~`>]/g, "").replace(/\s+/g, " ").trim();
 
   const parts = message && Array.isArray(message.content) ? message.content : null;
   const hasThinkingParts = parts?.some((p) => p.type === "thinking");
-  const hasRichContent = !!(parts && parts.some((p) => p.type === "thinking" || isToolCallPart(p))) || !!message?.reasoning;
+  const hasRichContent = !!(parts && parts.some((p) => (!hideThinking && p.type === "thinking") || isToolCallPart(p))) || (!hideThinking && !!message?.reasoning);
 
   return (
     <div className="flex justify-center py-2">
@@ -199,10 +199,10 @@ function InjectedPill({ text, message, subagentStore }: { text: string; message?
               <div ref={contentRef} className={`px-4 pb-2 ${DEMO_SYSTEM_PILL_TEXT_CLS}`}>
                 {hasRichContent ? (
                   <div className="flex flex-col gap-1.5">
-                    {message?.reasoning && !hasThinkingParts && <ThinkingPill text={message.reasoning} />}
+                    {!hideThinking && message?.reasoning && !hasThinkingParts && <ThinkingPill text={message.reasoning} />}
                     {parts?.map((part, i) => {
                       if (part.type === "thinking") {
-                        return <ThinkingPill key={`thinking-${i}`} text={part.thinking || part.text || ""} />;
+                        return hideThinking ? null : <ThinkingPill key={`thinking-${i}`} text={part.thinking || part.text || ""} />;
                       }
                       if (isToolCallPart(part)) {
                         return <ToolCallPill key={`${part.name}-${i}`} name={part.name || "tool"} args={typeof part.arguments === "string" ? part.arguments : part.arguments ? JSON.stringify(part.arguments) : undefined} status={part.status} result={part.result} resultError={part.resultError} narration={part.narration} toolCallId={part.toolCallId} subagentStore={part.name === SPAWN_TOOL_NAME ? subagentStore : undefined} />;
@@ -766,6 +766,7 @@ export function MessageRow({
   precedingActivityParts,
   precedingPluginParts,
   suppressPlugins = false,
+  hideThinking = false,
 }: {
   message: Message;
   isStreaming: boolean;
@@ -793,6 +794,8 @@ export function MessageRow({
   precedingPluginParts?: ContentPart[];
   /** When true, skip rendering own plugin parts (they are forwarded to the next text message). */
   suppressPlugins?: boolean;
+  /** Suppress reasoning/thinking UI while retaining normal text and tool output. */
+  hideThinking?: boolean;
 }) {
   const messageRef = useRef<HTMLDivElement>(null);
   useNativeClickInterceptor(messageRef);
@@ -849,9 +852,9 @@ export function MessageRow({
     || text.startsWith(SYSTEM_MESSAGE_PREFIX);
   const hasStructuredCommandResponse =
     !!message.isCommandResponse &&
-    (!!message.reasoning || (
+    (!hideThinking && !!message.reasoning || (
       Array.isArray(message.content) &&
-      message.content.some((part) => part.type === "thinking" || isToolCallPart(part) || isPluginPart(part))
+      message.content.some((part) => (!hideThinking && part.type === "thinking") || isToolCallPart(part) || isPluginPart(part))
     ));
 
   if (message.role === "toolResult" || message.role === "tool_result" || message.role === "tool") {
@@ -946,7 +949,7 @@ export function MessageRow({
 
   // Injected assistant messages — expandable context pill (tool-call style)
   if (message.stopReason === STOP_REASON_INJECTED && text) {
-    return <InjectedPill text={text} message={message} subagentStore={subagentStore} />;
+    return <InjectedPill text={text} message={message} subagentStore={subagentStore} hideThinking={hideThinking} />;
   }
 
   if (message.role === "system") {
@@ -992,13 +995,16 @@ export function MessageRow({
     if (Array.isArray(message.content)) {
       // Collect thinking + non-spawn tool_call parts for TurnActivityBox
       const ownActivityParts = message.content.filter(
-        (p) => p.type === "thinking" || (isToolCallPart(p) && p.name !== SPAWN_TOOL_NAME),
+        (p) => (!hideThinking && p.type === "thinking") || (isToolCallPart(p) && p.name !== SPAWN_TOOL_NAME),
       );
       // Include legacy message.reasoning as a synthetic thinking part
-      const reasoningPart = message.reasoning && !hasThinkingParts
+      const reasoningPart = !hideThinking && message.reasoning && !hasThinkingParts
         ? [{ type: "thinking" as const, thinking: message.reasoning }]
         : [];
-      const allActivityParts = [...(precedingActivityParts ?? []), ...reasoningPart, ...ownActivityParts];
+      const visiblePrecedingActivityParts = hideThinking
+        ? (precedingActivityParts ?? []).filter((part) => part.type !== "thinking")
+        : (precedingActivityParts ?? []);
+      const allActivityParts = [...visiblePrecedingActivityParts, ...reasoningPart, ...ownActivityParts];
 
       // Only show the box when this message has visible text/image/file body content,
       // or when actively streaming (text may be arriving soon). Tool-only and plugin-only
@@ -1033,9 +1039,12 @@ export function MessageRow({
           }
         }
       }
-    } else if (message.reasoning && !hasThinkingParts) {
+    } else if (!hideThinking && message.reasoning && !hasThinkingParts) {
       // Non-array content with only legacy reasoning
-      const allActivityParts = [...(precedingActivityParts ?? []), { type: "thinking" as const, thinking: message.reasoning }];
+      const visiblePrecedingActivityParts = hideThinking
+        ? (precedingActivityParts ?? []).filter((part) => part.type !== "thinking")
+        : (precedingActivityParts ?? []);
+      const allActivityParts = [...visiblePrecedingActivityParts, { type: "thinking" as const, thinking: message.reasoning }];
       pushAssistantBlock(
         "activity-box",
         <TurnActivityBox parts={allActivityParts} isStreaming={isStreaming} />,
@@ -1100,7 +1109,7 @@ export function MessageRow({
           const hasLaterNonText = remainingParts.some((p) => isToolCallPart(p) || p.type === "thinking");
           const showCursor = isStreaming && isLastText && !hasLaterNonText;
 
-          if (extractedThinking && !hasThinkingParts && !message.reasoning) {
+          if (!hideThinking && extractedThinking && !hasThinkingParts && !message.reasoning) {
             pushAssistantBlock(`text-thinking-${i}`, <ThinkingPill text={extractedThinking} isStreaming={isStreaming} />);
           }
           if (cleanText.trim()) {
@@ -1179,7 +1188,7 @@ export function MessageRow({
     } else if (text) {
       const { thinking: extractedThinking, text: rawCleanText } = stripThinkTags(text);
       const cleanText = stripFinalTags(rawCleanText);
-      if (extractedThinking && !hasThinkingParts && !message.reasoning) {
+      if (!hideThinking && extractedThinking && !hasThinkingParts && !message.reasoning) {
         pushAssistantBlock("fallback-thinking", <ThinkingPill text={extractedThinking} isStreaming={isStreaming} />);
       }
       if (cleanText) {
@@ -1266,7 +1275,7 @@ export function MessageRow({
                   : undefined}
               >
                 {assistantBlocks.map(renderAssistantBlock)}
-                {isStreaming && message.role === "assistant" && (
+                {isStreaming && !hideThinking && message.role === "assistant" && (
                   <InlineThinkingIndicator startTime={message.timestamp} />
                 )}
                 {(showAssistantCopyButton || showDebugCopyButton) ? (

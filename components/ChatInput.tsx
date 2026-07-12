@@ -44,6 +44,8 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   onAbort?: () => void;
   lastUserMessage?: string;
   uploadDisabled?: boolean;
+  /** Keep the empty composer controls in one horizontal row for embeds. */
+  compact?: boolean;
 }>(function ChatInput({
   onSend,
   scrollPhase = "input",
@@ -63,6 +65,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
   onAbort,
   lastUserMessage = "",
   uploadDisabled = false,
+  compact = false,
 }, forwardedRef) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -557,14 +560,15 @@ export const ChatInput = forwardRef<ChatInputHandle, {
           </div>
         )}
 
-        {/* Textarea */}
-        <div
-          className="px-4 pt-2.5 pb-1"
-          style={{
-            opacity: staticComposer ? 1 : "calc(1 - var(--sp, 0))",
-            pointerEvents: isPill ? "none" : "auto",
-          } as React.CSSProperties}
-        >
+        <div className={compact ? "flex items-center" : undefined}>
+          {/* Textarea */}
+          <div
+            className={compact ? "flex min-w-0 flex-1 px-2 py-0" : "px-4 pt-2.5 pb-1"}
+            style={{
+              opacity: staticComposer ? 1 : "calc(1 - var(--sp, 0))",
+              pointerEvents: isPill ? "none" : "auto",
+            } as React.CSSProperties}
+          >
           <textarea
             ref={ref}
             value={value}
@@ -584,21 +588,21 @@ export const ChatInput = forwardRef<ChatInputHandle, {
             rows={1}
             className="block w-full resize-none overflow-hidden bg-transparent text-sm leading-[1.75rem] text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
           />
-        </div>
+          </div>
 
-        {/* Bottom toolbar — attach + send */}
-        <div
-          className="flex items-center justify-between px-2.5 pb-2"
-          style={{
-            opacity: staticComposer ? 1 : "calc(1 - var(--sp, 0))",
-            pointerEvents: isPill ? "none" : "auto",
-          } as React.CSSProperties}
-        >
+          {/* Bottom toolbar — attach + send */}
+          <div
+            className={compact ? "contents" : "flex items-center justify-between px-2.5 pb-2"}
+            style={{
+              opacity: staticComposer ? 1 : "calc(1 - var(--sp, 0))",
+              pointerEvents: isPill ? "none" : "auto",
+            } as React.CSSProperties}
+          >
           {/* Attach button */}
           <button
             type="button"
             onClick={uploadDisabled ? undefined : () => fileInputRef.current?.click()}
-            className={`flex items-center justify-center rounded-full border-0 shadow-none outline-none transition-colors${uploadDisabled ? " opacity-30 cursor-not-allowed" : " text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+            className={`flex items-center justify-center rounded-full border-0 shadow-none outline-none transition-colors${compact ? " order-first ml-1" : ""}${uploadDisabled ? " opacity-30 cursor-not-allowed" : " text-muted-foreground hover:bg-accent hover:text-foreground"}`}
             style={{ width: 36, height: 36 }}
             aria-label="Attach file"
             disabled={uploadDisabled}
@@ -621,7 +625,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
                 type="button"
                 onClick={showStop ? onAbort : submit}
                 disabled={!isActive || queueFull}
-                className="relative shrink-0 rounded-full overflow-hidden active:scale-85"
+                className={`relative shrink-0 rounded-full overflow-hidden active:scale-85${compact ? " order-last mr-1" : ""}`}
                 style={{
                   opacity: (isActive && !queueFull) ? 1 : 0.3,
                   width: 36,
@@ -654,6 +658,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
               </button>
             );
           })()}
+          </div>
         </div>
       </div>
       {lightboxSrc && (

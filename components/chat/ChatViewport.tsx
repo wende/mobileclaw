@@ -20,6 +20,7 @@ interface ChatViewportProps {
   isDetached: boolean;
   detachedNoBorder?: boolean;
   isNative: boolean;
+  hideThinking?: boolean;
   useDocumentScroll?: boolean;
   historyLoaded: boolean;
   inputZoneHeight: string;
@@ -57,6 +58,7 @@ export function ChatViewport({
   isDetached,
   detachedNoBorder = false,
   isNative,
+  hideThinking = false,
   useDocumentScroll = false,
   historyLoaded,
   inputZoneHeight,
@@ -944,6 +946,7 @@ export function ChatViewport({
                         return { ...msg, content: parts };
                       })() : msg}
                       isStreaming={isStreaming && msg.id === effectiveStreamingId}
+                      hideThinking={hideThinking}
                       isGlobalStreaming={isStreaming}
                       freezeStreamingLayout={freezeStreamingLayout}
                       subagentStore={subagentStore}
@@ -980,6 +983,7 @@ export function ChatViewport({
                 timestamp: streamingFallbackStartTs ?? Date.now(),
               }}
               isStreaming
+              hideThinking={hideThinking}
               isGlobalStreaming={isStreaming}
               subagentStore={subagentStore}
               pinnedToolCallId={pinnedToolCallId}

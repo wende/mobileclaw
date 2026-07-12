@@ -10,6 +10,7 @@ describe("url app mode parsing", () => {
       detachedNoShell: false,
       isNative: false,
       uploadDisabled: false,
+      hideThinking: false,
     });
   });
 
@@ -20,6 +21,7 @@ describe("url app mode parsing", () => {
       detachedNoShell: true,
       isNative: false,
       uploadDisabled: false,
+      hideThinking: false,
     });
 
     expect(resolveUrlAppMode("?noshell")).toEqual({
@@ -28,6 +30,7 @@ describe("url app mode parsing", () => {
       detachedNoShell: false,
       isNative: false,
       uploadDisabled: false,
+      hideThinking: false,
     });
   });
 
@@ -38,6 +41,14 @@ describe("url app mode parsing", () => {
       detachedNoShell: true,
       isNative: false,
       uploadDisabled: false,
+      hideThinking: false,
+    });
+  });
+
+  it("enables thinking suppression independently of detached mode", () => {
+    expect(resolveUrlAppMode("?nothink")).toMatchObject({
+      isDetached: false,
+      hideThinking: true,
     });
   });
 });

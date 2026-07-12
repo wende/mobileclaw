@@ -40,6 +40,15 @@ describe("ChatInput", () => {
     expect(screen.getByLabelText("Send")).toBeInTheDocument();
   });
 
+  it("keeps detached-style controls on one row in compact mode", () => {
+    render(<ChatInput {...defaultProps} compact />);
+
+    const textarea = screen.getByPlaceholderText("Send a message...");
+    expect(textarea.parentElement?.parentElement).toHaveClass("flex", "items-center");
+    expect(screen.getByLabelText("Attach file")).toHaveClass("order-first");
+    expect(screen.getByLabelText("Send")).toHaveClass("order-last");
+  });
+
   it("calls onSend when Enter is pressed with text", async () => {
     const onSend = vi.fn();
     const user = userEvent.setup();
