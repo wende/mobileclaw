@@ -10,7 +10,6 @@ const BOTTOM_PAD_SVH = 4.5;
 const BOTTOM_PAD_BASE = viewportCappedRem(12.5);
 const BOTTOM_PAD_QUEUED = viewportCappedRem(15.5);
 const BOTTOM_PAD_PINNED = viewportCappedRem(18.5);
-const BOTTOM_PAD_DETACHED_BASE = viewportCappedRem(9);
 const BOTTOM_PAD_DETACHED_QUEUED = viewportCappedRem(12);
 const BOTTOM_PAD_DETACHED_PINNED = viewportCappedRem(15);
 const BOTTOM_PAD_NATIVE = viewportCappedRem(8);
@@ -45,16 +44,15 @@ export function getChatBottomPad({
   if (useDocumentScroll) return BOTTOM_PAD_DOCUMENT_SCROLL;
 
   if (isDetached) {
-    const overlayPad = hasPinnedSubagent
+    // The viewport already has a detached composer spacer below the scroll area.
+    // Only add message-list padding when a queued or pinned panel extends above it.
+    if (!hasPinnedSubagent && !hasQueued) return "0px";
+
+    return hasPinnedSubagent
       ? BOTTOM_PAD_DETACHED_PINNED
       : hasQueued
         ? BOTTOM_PAD_DETACHED_QUEUED
-        : BOTTOM_PAD_DETACHED_BASE;
-
-    // Detached mode renders a spacer below the scroll area for the fixed composer.
-    // Reserve that composer height again inside the scroll content so floating
-    // overlays like the thinking indicator sit above the bar instead of inside it.
-    return addCalc(inputZoneHeight, overlayPad);
+        : "0px";
   }
 
   if (hasPinnedSubagent) return `calc(${BOTTOM_PAD_SVH}svh + ${BOTTOM_PAD_PINNED})`;
