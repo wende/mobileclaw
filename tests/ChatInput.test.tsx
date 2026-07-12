@@ -47,7 +47,7 @@ describe("ChatInput", () => {
     expect(textarea.parentElement?.parentElement).toHaveClass("flex", "min-h-12", "items-center");
     expect(textarea).toHaveClass("h-7", "p-0");
     expect(screen.getByLabelText("Attach file")).toHaveClass("order-first");
-    expect(screen.getByLabelText("Send")).toHaveClass("order-last");
+    expect(screen.getByLabelText("Send")).toHaveClass("order-last", "mr-1.5");
   });
 
   it("keeps the input available when compact mode receives a scroll-pill phase", () => {

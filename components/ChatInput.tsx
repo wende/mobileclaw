@@ -625,7 +625,7 @@ export const ChatInput = forwardRef<ChatInputHandle, {
                 type="button"
                 onClick={showStop ? onAbort : submit}
                 disabled={!isActive || queueFull}
-                className={`relative shrink-0 rounded-full overflow-hidden active:scale-85${compact ? " order-last mr-1" : ""}`}
+                className={`relative shrink-0 rounded-full overflow-hidden active:scale-85${compact ? " order-last mr-1.5" : ""}`}
                 style={{
                   opacity: (isActive && !queueFull) ? 1 : 0.3,
                   width: 36,
