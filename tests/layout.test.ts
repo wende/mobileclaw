@@ -3,14 +3,14 @@ import { describe, expect, it } from "vitest";
 import { getChatBottomPad, getDocumentScrollFooterReserve, getThinkingIndicatorBottom } from "@mc/lib/chat/layout";
 
 describe("chat layout spacing", () => {
-  it("keeps a small gap above the detached composer without duplicating its clearance", () => {
+  it("keeps a viewport-capped medium gap above the detached composer", () => {
     expect(getChatBottomPad({
       isNative: false,
       isDetached: true,
       inputZoneHeight: "4rem",
       hasQueued: false,
       hasPinnedSubagent: false,
-    })).toBe("1rem");
+    })).toBe("min(5rem, 10svh, 20svw)");
   });
 
   it("keeps fullscreen bottom padding on the svh/rem scale, capped to the viewport", () => {

@@ -10,6 +10,7 @@ const BOTTOM_PAD_SVH = 4.5;
 const BOTTOM_PAD_BASE = viewportCappedRem(12.5);
 const BOTTOM_PAD_QUEUED = viewportCappedRem(15.5);
 const BOTTOM_PAD_PINNED = viewportCappedRem(18.5);
+const BOTTOM_PAD_DETACHED_BASE = viewportCappedRem(5);
 const BOTTOM_PAD_DETACHED_QUEUED = viewportCappedRem(12);
 const BOTTOM_PAD_DETACHED_PINNED = viewportCappedRem(15);
 const BOTTOM_PAD_NATIVE = viewportCappedRem(8);
@@ -46,7 +47,7 @@ export function getChatBottomPad({
   if (isDetached) {
     // The viewport already has a detached composer spacer below the scroll area.
     // Only add message-list padding when a queued or pinned panel extends above it.
-    if (!hasPinnedSubagent && !hasQueued) return "1rem";
+    if (!hasPinnedSubagent && !hasQueued) return BOTTOM_PAD_DETACHED_BASE;
 
     return hasPinnedSubagent
       ? BOTTOM_PAD_DETACHED_PINNED
