@@ -10,7 +10,8 @@ describe("url app mode parsing", () => {
       detachedNoShell: false,
       isNative: false,
       uploadDisabled: false,
-      hideThinking: false,
+      // Detached embeds hide reasoning by default (end-user facing).
+      hideThinking: true,
     });
   });
 
@@ -21,7 +22,7 @@ describe("url app mode parsing", () => {
       detachedNoShell: true,
       isNative: false,
       uploadDisabled: false,
-      hideThinking: false,
+      hideThinking: true,
     });
 
     expect(resolveUrlAppMode("?noshell")).toEqual({
@@ -41,11 +42,29 @@ describe("url app mode parsing", () => {
       detachedNoShell: true,
       isNative: false,
       uploadDisabled: false,
+      hideThinking: true,
+    });
+  });
+
+  it("hides thinking by default in detached mode", () => {
+    expect(resolveUrlAppMode("?detached")).toMatchObject({ hideThinking: true });
+  });
+
+  it("re-enables thinking in detached mode with ?think", () => {
+    expect(resolveUrlAppMode("?detached&think")).toMatchObject({
+      isDetached: true,
       hideThinking: false,
     });
   });
 
-  it("enables thinking suppression independently of detached mode", () => {
+  it("does not hide thinking outside detached mode by default", () => {
+    expect(resolveUrlAppMode("")).toMatchObject({
+      isDetached: false,
+      hideThinking: false,
+    });
+  });
+
+  it("suppresses thinking outside detached mode when ?nothink is set", () => {
     expect(resolveUrlAppMode("?nothink")).toMatchObject({
       isDetached: false,
       hideThinking: true,

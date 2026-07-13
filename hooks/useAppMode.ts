@@ -27,7 +27,10 @@ export function resolveUrlAppMode(search: string, nativeFlag = false): InitialAp
   const detachedNoShell = isDetached && params.get("noshell") !== null;
   const isNative = params.get("native") !== null || nativeFlag;
   const uploadDisabled = params.get("upload") === "false";
-  const hideThinking = params.has("nothink");
+  // Detached iframe embeds are end-user facing (e.g. the portfolio site), so
+  // model reasoning is hidden by default. ?think re-enables it for debugging;
+  // ?nothink still forces it off in non-detached contexts.
+  const hideThinking = params.has("nothink") || (isDetached && !params.has("think"));
   return { isDetached, detachedNoBorder, detachedNoShell, isNative, uploadDisabled, hideThinking };
 }
 
@@ -63,7 +66,7 @@ export function useAppMode(): AppMode {
         detachedNoShell: false,
         isNative: false,
         uploadDisabled: false,
-        hideThinking: false,
+        hideThinking: widgetCtx.isDetached,
       };
     }
     return SSR_SAFE_MODE;
@@ -80,7 +83,7 @@ export function useAppMode(): AppMode {
           detachedNoShell: false,
           isNative: false,
           uploadDisabled: false,
-          hideThinking: false,
+          hideThinking: widgetCtx.isDetached,
         }
       : getUrlAppMode();
 
