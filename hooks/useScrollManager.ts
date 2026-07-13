@@ -335,6 +335,33 @@ export function useScrollManager({
     el.scrollTop = getDocumentBottomTarget(el) ?? el.scrollHeight;
   }, [messages, clearBounceTransform, getDocumentBottomTarget, getScrollElement]);
 
+  // Snap to bottom the instant a new user message appears (i.e. the user just
+  // sent one). setIsStreaming(true) runs synchronously on send, so the effect
+  // above bails on its isStreaming guard and hands scrolling to the rAF loop —
+  // which only engages once content overflows and can lag a frame behind, or
+  // miss entirely inside embedded iframes. This guarantees the just-sent
+  // message is visible regardless of streaming state, without yanking the view
+  // when the user has scrolled up mid-stream (no new user id in that case).
+  const lastUserMessageIdRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    let lastUserId: string | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUserId = messages[i].id ?? null;
+        break;
+      }
+    }
+    if (lastUserId === null || lastUserId === lastUserMessageIdRef.current) return;
+    lastUserMessageIdRef.current = lastUserId;
+    pinnedToBottomRef.current = true;
+    pinLockUntilRef.current = Date.now() + PIN_LOCK_MS;
+    clearManualStreamUnpin();
+    clearBounceTransform();
+    const el = getScrollElement();
+    if (!el) return;
+    el.scrollTop = getDocumentBottomTarget(el) ?? el.scrollHeight;
+  }, [messages, clearBounceTransform, clearManualStreamUnpin, getDocumentBottomTarget, getScrollElement]);
+
   // ResizeObserver: catch content-height changes (e.g. images loading, zen collapses).
   useEffect(() => {
     const el = getScrollElement();
