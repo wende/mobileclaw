@@ -1017,7 +1017,7 @@ export function MessageRow({
       if (allActivityParts.length > 0 && (hasBodyContent || isStreaming)) {
         pushAssistantBlock(
           "activity-box",
-          <TurnActivityBox parts={allActivityParts} isStreaming={isStreaming} />,
+          <TurnActivityBox parts={allActivityParts} isStreaming={isStreaming} hideThinking={hideThinking} />,
           "message",
         );
       }
@@ -1047,7 +1047,7 @@ export function MessageRow({
       const allActivityParts = [...visiblePrecedingActivityParts, { type: "thinking" as const, thinking: message.reasoning }];
       pushAssistantBlock(
         "activity-box",
-        <TurnActivityBox parts={allActivityParts} isStreaming={isStreaming} />,
+        <TurnActivityBox parts={allActivityParts} isStreaming={isStreaming} hideThinking={hideThinking} />,
         "message",
       );
     }

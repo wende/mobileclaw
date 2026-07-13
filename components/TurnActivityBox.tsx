@@ -296,9 +296,13 @@ function ActivityRow({
 interface TurnActivityBoxProps {
   parts: ContentPart[];
   isStreaming: boolean;
+  /** When true (detached embeds without ?think), running tools are NOT
+   *  auto-expanded — they stay collapsed as tappable pills. Mirrors the
+   *  reasoning-hiding toggle so one knob controls both. */
+  hideThinking?: boolean;
 }
 
-export function TurnActivityBox({ parts, isStreaming }: TurnActivityBoxProps) {
+export function TurnActivityBox({ parts, isStreaming, hideThinking = false }: TurnActivityBoxProps) {
   const [rowOpen, setRowOpen] = useState<boolean[]>(() => parts.map(() => false));
 
   // Grow rowOpen array as new parts stream in
@@ -315,7 +319,7 @@ export function TurnActivityBox({ parts, isStreaming }: TurnActivityBoxProps) {
     parts.forEach((part, i) => {
       const prev = prevStatusRef.current[i];
       const curr = isToolCallPart(part) ? part.status : undefined;
-      if (curr === "running" && prev !== "running") {
+      if (!hideThinking && curr === "running" && prev !== "running") {
         setRowOpen((r) => { const n = [...r]; n[i] = true; return n; });
       }
       if ((curr === "success" || curr === "error") && prev === "running") {
@@ -324,7 +328,7 @@ export function TurnActivityBox({ parts, isStreaming }: TurnActivityBoxProps) {
       }
     });
     prevStatusRef.current = parts.map((p) => isToolCallPart(p) ? p.status : undefined);
-  }, [parts]);
+  }, [parts, hideThinking]);
 
   if (parts.length === 0) return null;
 
