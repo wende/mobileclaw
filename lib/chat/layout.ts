@@ -30,13 +30,14 @@ export function getChatBottomPad({
   isNative,
   isDetached,
   useDocumentScroll = false,
-  inputZoneHeight = DEFAULT_INPUT_ZONE_HEIGHT,
   hasQueued,
   hasPinnedSubagent,
 }: {
   isNative: boolean;
   isDetached: boolean;
   useDocumentScroll?: boolean;
+  // Accepted for call-site compatibility; the current padding logic no longer
+  // depends on it (its consumer was removed), so it is intentionally not read.
   inputZoneHeight?: string;
   hasQueued: boolean;
   hasPinnedSubagent: boolean;

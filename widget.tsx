@@ -2,7 +2,7 @@
 
 import { forwardRef, useMemo } from "react"
 import "./app/globals.css"
-import Home from "./app/page"
+import { ChatHome } from "./app/ChatHome"
 import { WidgetContextProvider } from "./lib/widgetContext"
 import type { ChatInputHandle } from "./components/ChatInput"
 
@@ -40,7 +40,7 @@ export const ChatWidget = forwardRef<ChatInputHandle, ChatWidgetProps>(
     return (
       <div className={rootClassName} data-mobileclaw-embedded>
         <WidgetContextProvider value={modeValue}>
-          <Home ref={ref} />
+          <ChatHome ref={ref} />
         </WidgetContextProvider>
       </div>
     )
