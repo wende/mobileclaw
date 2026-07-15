@@ -451,7 +451,7 @@ function InlineThinkingIndicator({ startTime }: { startTime?: number }) {
   const elapsed = useElapsedSeconds({ startTime });
 
   return (
-    <div className="text-2xs text-muted-foreground/50 flex items-baseline animate-[thinkingSentence_0.5s_ease-out_both]">
+    <div className="flex h-8 items-center justify-start gap-1.5 pt-0.5 text-2xs text-muted-foreground/50 animate-[thinkingSentence_0.5s_ease-out_both]">
       <span>Thinking</span>
       <span className="inline-flex w-[1em]">
         <span className="animate-[dotFade_1.4s_ease-in-out_infinite]">.</span>

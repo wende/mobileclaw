@@ -262,6 +262,20 @@ export function useScrollManager({
 
   // Flag to prevent ResizeObserver from snapping scrollTop mid-animation
   const isAnimatingScrollRef = useRef(false);
+  const smoothScrollRafIdRef = useRef<number | null>(null);
+  const smoothScrollSettleRafIdRef = useRef<number | null>(null);
+
+  const cancelSmoothScroll = useCallback(() => {
+    if (smoothScrollRafIdRef.current != null) {
+      cancelAnimationFrame(smoothScrollRafIdRef.current);
+      smoothScrollRafIdRef.current = null;
+    }
+    if (smoothScrollSettleRafIdRef.current != null) {
+      cancelAnimationFrame(smoothScrollSettleRafIdRef.current);
+      smoothScrollSettleRafIdRef.current = null;
+    }
+    isAnimatingScrollRef.current = false;
+  }, []);
 
   const scrollToBottom = useCallback((opts?: { instant?: boolean }) => {
     pinnedToBottomRef.current = true;
@@ -275,12 +289,14 @@ export function useScrollManager({
     const start = el.scrollTop;
     const distance = target - start;
     if (distance <= 0) {
+      cancelSmoothScroll();
       // Already at bottom — reset morph so a stale pill clears immediately.
       setMorphTarget(0);
       return;
     }
 
     if (opts?.instant) {
+      cancelSmoothScroll();
       el.scrollTop = target;
       setMorphTarget(0);
       return;
@@ -289,10 +305,12 @@ export function useScrollManager({
     // During streaming/grace the rAF loop pins us to bottom every frame,
     // so just snap — a smooth animation would be overridden anyway.
     if (isStreamingRef.current || scrollGraceRef.current) {
+      cancelSmoothScroll();
       el.scrollTop = el.scrollHeight;
       return;
     }
 
+    cancelSmoothScroll();
     isAnimatingScrollRef.current = true;
 
     // Adaptive duration: short scrolls feel snappy, long scrolls don't drag.
@@ -310,18 +328,24 @@ export function useScrollManager({
       el.scrollTop = start + distance * easeOut(progress);
 
       if (progress < 1) {
-        requestAnimationFrame(animate);
+        smoothScrollRafIdRef.current = requestAnimationFrame(animate);
       } else {
+        smoothScrollRafIdRef.current = null;
         // Delay clearing by one frame so the final scroll events
         // (which fire async) still see the flag.
-        requestAnimationFrame(() => { isAnimatingScrollRef.current = false; });
+        smoothScrollSettleRafIdRef.current = requestAnimationFrame(() => {
+          smoothScrollSettleRafIdRef.current = null;
+          isAnimatingScrollRef.current = false;
+        });
       }
     };
 
-    requestAnimationFrame(animate);
-  }, [clearBounceTransform, clearManualStreamUnpin, getDocumentBottomTarget, getScrollElement, getViewportHeight, isStreamingRef, setMorphTarget]);
+    smoothScrollRafIdRef.current = requestAnimationFrame(animate);
+  }, [cancelSmoothScroll, clearBounceTransform, clearManualStreamUnpin, getDocumentBottomTarget, getScrollElement, getViewportHeight, isStreamingRef, setMorphTarget]);
 
-  // Auto-scroll: whenever messages change, snap to bottom if pinned.
+  useEffect(() => cancelSmoothScroll, [cancelSmoothScroll]);
+
+  // Auto-scroll: whenever messages change, move to bottom if pinned.
   // During streaming, the rAF loop handles smooth scrolling instead.
   useLayoutEffect(() => {
     if (!pinnedToBottomRef.current || messages.length === 0) return;
@@ -330,10 +354,13 @@ export function useScrollManager({
     if (!el) return;
     if (!hasScrolledInitialRef.current) {
       hasScrolledInitialRef.current = true;
+      scrollToBottom({ instant: true });
+      return;
     }
-    clearBounceTransform();
-    el.scrollTop = getDocumentBottomTarget(el) ?? el.scrollHeight;
-  }, [messages, clearBounceTransform, getDocumentBottomTarget, getScrollElement]);
+    // Final/full messages can add a large block in one render. Reuse the
+    // animated path so that update follows the content instead of jumping.
+    scrollToBottom();
+  }, [messages, getScrollElement, isStreamingRef, scrollToBottom]);
 
   // Snap to bottom the instant a new user message appears (i.e. the user just
   // sent one). setIsStreaming(true) runs synchronously on send, so the effect
@@ -399,7 +426,7 @@ export function useScrollManager({
     });
     ro.observe(content);
     return () => ro.disconnect();
-  }, [getDistanceFromBottom, getDocumentBottomTarget, getScrollElement, getViewportHeight, setMorphTarget]);
+  }, [getDistanceFromBottom, getDocumentBottomTarget, getScrollElement, getViewportHeight, isStreamingRef, setMorphTarget]);
 
   // rAF loop: during streaming, smoothly scroll toward bottom.
   // Uses velocity with momentum — desired speed scales with gap size,
@@ -416,9 +443,12 @@ export function useScrollManager({
     // Tuning constants (normalized to 60fps baseline)
     const TARGET_FRAME_MS = 16.67;      // 60fps reference frame duration
     const SCROLL_MIN_DIFF = 0.5;        // px — gap below which we consider "at bottom"
-    const SCROLL_VELOCITY_FACTOR = 0.04; // desired velocity as fraction of remaining gap
-    const SCROLL_MOMENTUM_FACTOR = 0.12; // per-frame blend toward desired velocity (60fps)
-    const SCROLL_MIN_VELOCITY = 0.5;     // px/frame minimum while actively scrolling
+    // Small insertions such as tool pills need enough initial motion to stay
+    // visibly pinned. The old 0.5px/frame floor could leave a pill below the
+    // viewport for most of its entrance animation.
+    const SCROLL_VELOCITY_FACTOR = 0.06; // desired velocity as fraction of remaining gap
+    const SCROLL_MOMENTUM_FACTOR = 0.18; // per-frame blend toward desired velocity (60fps)
+    const SCROLL_MIN_VELOCITY = 1;       // px/frame minimum while actively scrolling
 
     const tick = (timestamp: number) => {
       const rawDelta = lastTime ? timestamp - lastTime : TARGET_FRAME_MS;
